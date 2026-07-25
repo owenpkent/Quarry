@@ -53,7 +53,7 @@ fi
 
 echo
 if test "$(uname -s)" = "Linux"; then
-	echo "Run: ./build/NeuralNote_artefacts/Release/Standalone/NeuralNote"
+	echo "Run: ./build/NeuralNote_artefacts/Release/Standalone/NeuralNoteVideo"
 else
-	echo "Run: ./build/NeuralNote_artefacts/Release/Standalone/NeuralNote.app/Contents/MacOS/NeuralNote"
+	echo "Run: ./build/NeuralNote_artefacts/Release/Standalone/NeuralNoteVideo.app/Contents/MacOS/NeuralNoteVideo"
 fi

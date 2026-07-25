@@ -36,4 +36,4 @@ cmake --build build -j %ncpus% --config %config% --target NeuralNote_Standalone 
 .\build\Tests\UnitTests_artefacts\Release\UnitTests.exe || exit /b
 
 echo
-echo "Run .\build\NeuralNote_artefacts\Release\Standalone\NeuralNote.exe"
+echo "Run .\build\NeuralNote_artefacts\Release\Standalone\NeuralNoteVideo.exe"

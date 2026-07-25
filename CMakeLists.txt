@@ -40,8 +40,8 @@ juce_add_plugin("${BaseTargetName}"
         # VERSION ...                               # Set this if the plugin version is different to the project version
         ICON_BIG "${CMAKE_CURRENT_LIST_DIR}/NeuralNote/Assets/logo.png"
         ICON_SMALL "${CMAKE_CURRENT_LIST_DIR}/NeuralNote/Assets/logo.png"
-        COMPANY_NAME "Dr. Audio"
-        BUNDLE_ID "com.draudio.neuralnote"
+        COMPANY_NAME "Owen Kent"
+        BUNDLE_ID "com.owenkent.neuralnotevideo"
         IS_SYNTH FALSE
         NEEDS_MIDI_INPUT FALSE
         NEEDS_MIDI_OUTPUT TRUE
@@ -51,10 +51,12 @@ juce_add_plugin("${BaseTargetName}"
         MICROPHONE_PERMISSION_ENABLED TRUE
         MICROPHONE_PERMISSION_TEXT "Need access to Microphone"
         HARDENED_RUNTIME_ENABLED TRUE
-        PLUGIN_MANUFACTURER_CODE DrAu
-        PLUGIN_CODE NRNT
+        # Distinct from upstream NeuralNote (DrAu/NRNT) so both can be installed
+        # side by side without a DAW treating them as the same plugin.
+        PLUGIN_MANUFACTURER_CODE OwKe
+        PLUGIN_CODE NNVd
         FORMATS AU VST3 Standalone
-        PRODUCT_NAME "NeuralNote")
+        PRODUCT_NAME "NeuralNoteVideo")
 
 juce_generate_juce_header(${BaseTargetName})
 

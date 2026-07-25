@@ -1,4 +1,4 @@
-# Package NeuralNote for macOS
+# Package NeuralNoteVideo for macOS
 
 - Build the app, VST3 and AU in Release mode (don't forget to turn on universal binary (`-DUniversalBinary=ON`) and
   LTO (`-DLTO=ON`).
@@ -11,12 +11,14 @@
       ```bash
       ./sign_and_package_neuralnote_macos.sh cmake-build-release/NeuralNote_artefacts/Release
       ``` 
-    - The script will ask for the Apple ID and password (app specific) for the signing process.
-    - The installer will be located in `Installer/Mac/build`
+    - Notarization credentials come from a `notarytool` keychain profile (named `NeuralNoteVideo` by default,
+      override with the `NOTARY_PROFILE` environment variable). The first run creates it, prompting for your
+      Apple ID and app-specific password; later runs reuse the stored profile and prompt for nothing.
+    - The installer will be located in `Installers/Mac/build`
 
-# Package NeuralNote for Windows
+# Package NeuralNoteVideo for Windows
 
-On Windows, NeuralNote is not code signed for now. To create the installer, the following steps are required:
+On Windows, NeuralNoteVideo is not code signed for now. To create the installer, the following steps are required:
 
 - Build the app and VST3 in Release mode.
 - Install [Inno Setup](https://jrsoftware.org/isinfo.php) if you don't have it already.
@@ -25,6 +27,7 @@ On Windows, NeuralNote is not code signed for now. To create the installer, the 
       ```commandline
       "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" Installers\Windows\neuralnote.iss /DReleaseDir="cmake-build-release/NeuralNote_artefacts/Release"
       ```
-      `DReleaseDir` should indicate the path to the release directory containing the Standalone, VST3 and AU directory.
+      `DReleaseDir` should indicate the path to the release directory containing the Standalone and VST3
+      directories (there is no AU on Windows).
 
-The installer will be located in `Installer/Windows/Output`.
+The installer will be located in `Installers/Windows/Output`.
