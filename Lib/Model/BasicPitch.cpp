@@ -70,10 +70,18 @@ void BasicPitch::transcribeToMIDI(float* inAudio, int inNumSamples)
 
     const size_t num_lh_frames = BasicPitchCNN::getNumFramesLookahead();
 
+    // The loops below index the posteriorgrams at [frame_idx - num_lh_frames]. On audio shorter than
+    // the CNN lookahead that subtraction underflows (size_t) and writes out of bounds. Callers gate on
+    // a minimum amount of audio, but don't depend on that here.
+    if (mNumFrames < num_lh_frames) {
+        mNoteEvents.clear();
+        return;
+    }
+
     std::vector<float> zero_stacked_cqt(NUM_HARMONICS * NUM_FREQ_IN, 0.0f);
 
     // Run the CNN with 0 input and discard output (only for num_lh_frames)
-    for (int i = 0; i < num_lh_frames; i++) {
+    for (size_t i = 0; i < num_lh_frames; i++) {
         mBasicPitchCNN.frameInference(zero_stacked_cqt.data(), mContoursPG[0], mNotesPG[0], mOnsetsPG[0]);
     }
 
