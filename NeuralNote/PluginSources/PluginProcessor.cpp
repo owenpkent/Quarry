@@ -16,6 +16,7 @@ NeuralNoteAudioProcessor::NeuralNoteAudioProcessor()
     }
 
     mSourceAudioManager = std::make_unique<SourceAudioManager>(this);
+    mAudioInputManager = std::make_unique<AudioInputManager>(this);
     mPlayer = std::make_unique<Player>(this);
     mTranscriptionManager = std::make_unique<TranscriptionManager>(this);
 }
@@ -34,6 +35,20 @@ void NeuralNoteAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBl
 
 void NeuralNoteAudioProcessor::processBlock(AudioBuffer<float>& buffer, MidiBuffer& midiMessages)
 {
+    // Peak of what the host is sending us, before the player writes its own audio into the buffer.
+    // The audio input panel shows it, so "nothing is coming in" is visible rather than guessed at.
+    if (mHostInputLevelWanted.load()) {
+        float peak = 0.0f;
+
+        for (int ch = 0; ch < std::min(getTotalNumInputChannels(), buffer.getNumChannels()); ch++)
+            peak = std::max(peak, buffer.getMagnitude(ch, 0, buffer.getNumSamples()));
+
+        float previous_peak = mHostInputPeakLevel.load();
+
+        while (peak > previous_peak && !mHostInputPeakLevel.compare_exchange_weak(previous_peak, peak)) {
+        }
+    }
+
     mSourceAudioManager->processBlock(buffer);
     mTranscriptionManager->processBlock(buffer.getNumSamples());
 
@@ -106,6 +121,7 @@ void NeuralNoteAudioProcessor::setStateInformation(const void* data, int sizeInB
 
 void NeuralNoteAudioProcessor::clear()
 {
+    mAudioInputManager->abortRecording();
     mPlayer->reset();
     mSourceAudioManager->clear();
     mTranscriptionManager->clear();
@@ -113,9 +129,31 @@ void NeuralNoteAudioProcessor::clear()
     mState.store(EmptyAudioAndMidiRegions);
 }
 
+bool NeuralNoteAudioProcessor::startRecording()
+{
+    if (mAudioInputManager->hasSelectedInputDevice())
+        return mAudioInputManager->startRecording();
+
+    mSourceAudioManager->startRecording();
+    return true;
+}
+
+void NeuralNoteAudioProcessor::stopRecording()
+{
+    if (mAudioInputManager->isRecording())
+        mAudioInputManager->stopRecording();
+    else
+        mSourceAudioManager->stopRecording();
+}
+
 SourceAudioManager* NeuralNoteAudioProcessor::getSourceAudioManager() const
 {
     return mSourceAudioManager.get();
+}
+
+AudioInputManager* NeuralNoteAudioProcessor::getAudioInputManager() const
+{
+    return mAudioInputManager.get();
 }
 
 Player* NeuralNoteAudioProcessor::getPlayer() const

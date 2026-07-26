@@ -36,12 +36,36 @@ The workflow is very simple:
 
 - Gather some audio
     - Click record. Works when recording for real or when playing the track in a DAW.
+    - Or pick an audio input in the **AUDIO INPUT** panel and record straight from it (see below).
     - Or drop an audio file on the plugin. (.wav, .aiff, .flac, .mp3 and .ogg (vorbis) supported)
 - The MIDI transcription instantly appears in the piano roll section.
 - Listen to the result by clicking the play button.
     - Play with the different settings to adjust the transcription, even while listening to it
     - Individually adjust the level of the source audio and of the synthesized transcription
 - Once you're satisfied, export the MIDI transcription with a simple drag and drop from the plugin to a MIDI track.
+
+### Recording from an audio input
+
+The microphone button in the toolbar drops down the **AUDIO INPUT** panel, which records straight from this
+computer's audio hardware, with no DAW and no trip through the standalone app's Audio/MIDI Settings dialog:
+
+- **DRIVER** picks the audio driver to list inputs from (Windows Audio, ASIO, DirectSound, ...).
+- **INPUT** picks what to record. `Host input (no device)` is the original NeuralNote behaviour: record whatever
+  audio the DAW sends the plugin. Anything else is a device NeuralNoteVideo opens itself, which works the same
+  way in the DAW and in the standalone app, and never disturbs the host's own audio setup.
+- **CHANNELS** picks which channel(s) of a multi-input interface to record.
+- **LEVEL** shows the input's level, so you can see signal arriving before you commit to a take.
+
+Recording then works as it always did: hit record (in the panel or in the toolbar), play, hit stop, and the
+transcription appears. The chosen input is remembered between sessions.
+
+The input device is only opened while the panel is on screen or while recording, so NeuralNoteVideo never holds
+a microphone open in the background. In the standalone app the panel starts on this computer's default input,
+because the standalone mutes the audio input it is handed to avoid a feedback loop.
+
+To transcribe audio that is *playing* on this computer (a video in a browser, say) rather than audio coming in
+a microphone, select a loopback input if your sound card offers one ("Stereo Mix" on many Realtek cards) or a
+virtual audio cable. Windows has no loopback input of its own.
 
 **Watch the original NeuralNote presentation video for the Neural Audio Plugin
 competition [here](https://www.youtube.com/watch?v=6_MC0_aG_DQ)**.

@@ -63,6 +63,19 @@ const String settings = "Settings";
 
 const String mute = "Mute / Unmute input | m";
 
+// Audio input
+
+const String audio_input = "Choose an audio input and record from it";
+
+const String ai_driver = "Set the audio driver to list inputs from";
+
+const String ai_device = "Set the audio input to record from\n"
+                         "Host input: record the audio the DAW (or the standalone app) sends to the plugin";
+
+const String ai_channels = "Set which channel(s) of the input to record";
+
+const String ai_level = "Level of the selected input";
+
 const String export_tempo = "Set export tempo for midi file";
 
 const String source_audio_level = "Set source audio level";

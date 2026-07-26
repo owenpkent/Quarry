@@ -33,10 +33,19 @@ NeuralNoteMainView::NeuralNoteMainView(NeuralNoteAudioProcessor& processor)
 
         // Recording started
         if (is_on) {
-            mProcessor.getSourceAudioManager()->startRecording();
+            // Records from the input picked in the audio input panel, or from the host's audio
+            // when none is picked. Only fails if a picked device could not be opened.
+            if (!mProcessor.startRecording()) {
+                mRecordButton->setToggleState(false, NotificationType::dontSendNotification);
+
+                // Show why in the audio input panel, opening it if it isn't already up.
+                mAudioInputButton->setToggleState(true, NotificationType::dontSendNotification);
+                mAudioInputView->setVisible(true);
+                mAudioInputView->refresh();
+            }
         } else {
             // Recording has ended, set processor state to processing
-            mProcessor.getSourceAudioManager()->stopRecording();
+            mProcessor.stopRecording();
         }
 
         updateEnablements();
@@ -61,6 +70,19 @@ NeuralNoteMainView::NeuralNoteMainView(NeuralNoteAudioProcessor& processor)
         updateEnablements();
     };
     addAndMakeVisible(*mClearButton);
+
+    mAudioInputButton = std::make_unique<DrawableButton>("AudioInputButton", DrawableButton::ButtonStyle::ImageRaw);
+    mAudioInputButton->setClickingTogglesState(true);
+    mAudioInputButton->setColour(DrawableButton::ColourIds::backgroundColourId, TRANSPARENT);
+    mAudioInputButton->setColour(DrawableButton::ColourIds::backgroundOnColourId, WHITE_TRANSPARENT);
+    mAudioInputButton->setTooltip(NeuralNoteTooltips::audio_input);
+
+    auto audio_input_drawable =
+        Drawable::createFromImageData(BinaryData::audioinput_svg, BinaryData::audioinput_svgSize);
+    mAudioInputButton->setImages(audio_input_drawable.get());
+
+    mAudioInputButton->onClick = [this]() { mAudioInputView->setVisible(mAudioInputButton->getToggleState()); };
+    addAndMakeVisible(*mAudioInputButton);
 
     mBackButton = std::make_unique<DrawableButton>("BackButton", DrawableButton::ButtonStyle::ImageRaw);
     mBackButton->setClickingTogglesState(false);
@@ -221,6 +243,15 @@ NeuralNoteMainView::NeuralNoteMainView(NeuralNoteAudioProcessor& processor)
     addAndMakeVisible(mNoteOptions);
     addAndMakeVisible(mQuantizePanel);
 
+    // Added after the panels it drops down over, so it draws on top of them.
+    mAudioInputView =
+        std::make_unique<AudioInputView>(mProcessor, [this] { mRecordButton->triggerClick(); });
+    mAudioInputView->onCloseClicked = [this] {
+        mAudioInputButton->setToggleState(false, NotificationType::dontSendNotification);
+        mAudioInputView->setVisible(false);
+    };
+    addChildComponent(*mAudioInputView);
+
     mBackgroundImage = ImageCache::getFromMemory(BinaryData::background_png, BinaryData::background_pngSize)
                            .rescaled(1000, 640, Graphics::ResamplingQuality::highResamplingQuality);
 
@@ -231,6 +262,7 @@ NeuralNoteMainView::NeuralNoteMainView(NeuralNoteAudioProcessor& processor)
     mBackButton->setWantsKeyboardFocus(false);
     mRecordButton->setWantsKeyboardFocus(false);
     mCenterButton->setWantsKeyboardFocus(false);
+    mAudioInputButton->setWantsKeyboardFocus(false);
     mSettingsButton->setWantsKeyboardFocus(false);
     mSettingsButton->setTooltip(NeuralNoteTooltips::settings);
 
@@ -252,6 +284,9 @@ void NeuralNoteMainView::resized()
 {
     mRecordButton->setBounds(537, 43, 35, 35);
     mClearButton->setBounds(589, 43, 35, 35);
+    mAudioInputButton->setBounds(637, 43, 35, 35);
+
+    mAudioInputView->setBounds(440, 86, 520, 214);
 
     mBackButton->setBounds(682, 43, 35, 35);
     mPlayPauseButton->setBounds(734, 43, 35, 35);
@@ -362,6 +397,9 @@ void NeuralNoteMainView::updateEnablements()
         mCenterButton->setEnabled(true);
         mVisualizationPanel.setMidiFileDragComponentVisible();
     }
+
+    if (mAudioInputView != nullptr)
+        mAudioInputView->updateEnablements();
 
     repaint();
 }

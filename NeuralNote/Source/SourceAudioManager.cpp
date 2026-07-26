@@ -28,6 +28,7 @@ void SourceAudioManager::prepareToPlay(double inSampleRate, int inSamplesPerBloc
     }
 
     mSampleRate = inSampleRate;
+    mSamplesPerBlock = inSamplesPerBlock;
     mInternalMonoBuffer.setSize(1, inSamplesPerBlock);
     mDownSampler.prepareToPlay(inSampleRate, inSamplesPerBlock, BASIC_PITCH_SAMPLE_RATE);
     mInternalDownsampledBuffer.setSize(
@@ -44,45 +45,96 @@ void SourceAudioManager::prepareToPlay(double inSampleRate, int inSamplesPerBloc
 
 void SourceAudioManager::processBlock(const AudioBuffer<float>& inBuffer)
 {
-    if (mIsRecording) {
-        ScopedLock sl(mWriterLock);
+    // While recording from an input device of our own, the host's audio is not the source.
+    if (mIsExternalInputRecording.load())
+        return;
 
-        // Write incoming audio to file at native sample rate
-        bool result = mThreadedWriter->write(inBuffer.getArrayOfReadPointers(), inBuffer.getNumSamples());
-        jassertquiet(result);
-        mNumSamplesAcquired += inBuffer.getNumSamples();
-        mDuration = static_cast<double>(mNumSamplesAcquiredDown) / BASIC_PITCH_SAMPLE_RATE;
+    _writeBlock(inBuffer);
+}
 
-        // Downmix to mono
-        mInternalMonoBuffer.copyFrom(0, 0, inBuffer, 0, 0, inBuffer.getNumSamples());
-        for (int ch = 1; ch < inBuffer.getNumChannels(); ch++) {
-            mInternalMonoBuffer.addFrom(0, 0, inBuffer, ch, 0, inBuffer.getNumSamples());
-        }
+void SourceAudioManager::processExternalInputBlock(const AudioBuffer<float>& inBuffer)
+{
+    if (!mIsExternalInputRecording.load())
+        return;
 
-        mInternalMonoBuffer.applyGain(1.0f / static_cast<float>(inBuffer.getNumChannels()));
+    _writeBlock(inBuffer);
+}
 
-        // Downsample to basic pitch sample rate
-        int num_samples_down = mDownSampler.processBlock(mInternalMonoBuffer.getReadPointer(0),
-                                                         mInternalDownsampledBuffer.getWritePointer(0),
-                                                         inBuffer.getNumSamples());
-        jassert(num_samples_down <= mInternalDownsampledBuffer.getNumSamples());
+void SourceAudioManager::_writeBlock(const AudioBuffer<float>& inBuffer)
+{
+    if (!mIsRecording.load())
+        return;
 
-        // Write downsampled audio to file at downsampled sample rate
-        bool result_down =
-            mThreadedWriterDown->write(mInternalDownsampledBuffer.getArrayOfReadPointers(), num_samples_down);
-        jassertquiet(result_down);
+    ScopedLock sl(mWriterLock);
 
-        mNumSamplesAcquiredDown += num_samples_down;
+    // Recording may have been stopped between the check above and taking the lock.
+    if (!mIsRecording.load() || mThreadedWriter == nullptr || mThreadedWriterDown == nullptr)
+        return;
+
+    // Write incoming audio to file at native sample rate
+    bool result = mThreadedWriter->write(inBuffer.getArrayOfReadPointers(), inBuffer.getNumSamples());
+    jassertquiet(result);
+    mNumSamplesAcquired += inBuffer.getNumSamples();
+    mDuration = static_cast<double>(mNumSamplesAcquiredDown) / BASIC_PITCH_SAMPLE_RATE;
+
+    // Downmix to mono
+    mInternalMonoBuffer.copyFrom(0, 0, inBuffer, 0, 0, inBuffer.getNumSamples());
+    for (int ch = 1; ch < inBuffer.getNumChannels(); ch++) {
+        mInternalMonoBuffer.addFrom(0, 0, inBuffer, ch, 0, inBuffer.getNumSamples());
     }
+
+    mInternalMonoBuffer.applyGain(1.0f / static_cast<float>(inBuffer.getNumChannels()));
+
+    // Downsample to basic pitch sample rate
+    int num_samples_down = mDownSampler.processBlock(mInternalMonoBuffer.getReadPointer(0),
+                                                     mInternalDownsampledBuffer.getWritePointer(0),
+                                                     inBuffer.getNumSamples());
+    jassert(num_samples_down <= mInternalDownsampledBuffer.getNumSamples());
+
+    // Write downsampled audio to file at downsampled sample rate
+    bool result_down =
+        mThreadedWriterDown->write(mInternalDownsampledBuffer.getArrayOfReadPointers(), num_samples_down);
+    jassertquiet(result_down);
+
+    mNumSamplesAcquiredDown += num_samples_down;
 }
 
 void SourceAudioManager::startRecording()
+{
+    mIsExternalInputRecording.store(false);
+    _startRecording(mSampleRate, std::min(mProcessor->getTotalNumInputChannels(), 2), mSamplesPerBlock);
+}
+
+void SourceAudioManager::startRecordingFromExternalInput(double inSampleRate,
+                                                         int inNumChannels,
+                                                         int inNumSamplesPerBlock)
+{
+    mIsExternalInputRecording.store(true);
+    _startRecording(inSampleRate, std::min(inNumChannels, 2), inNumSamplesPerBlock);
+}
+
+void SourceAudioManager::_startRecording(double inSampleRate, int inNumChannels, int inNumSamplesPerBlock)
 {
     // If already recording (should not happen but if it does, simply return)
     if (mIsRecording.load()) {
         jassertfalse;
         return;
     }
+
+    mRecordSampleRate = inSampleRate;
+    mRecordNumChannels = std::max(inNumChannels, 1);
+
+    // The capture device may not run at the host's sample rate or block size, so size the internal
+    // buffers and the downsampler for whatever is actually about to be recorded. Safe to allocate
+    // here: nothing is writing to them until mIsRecording goes true at the end of this function.
+    mInternalMonoBuffer.setSize(1, inNumSamplesPerBlock, false, false, true);
+    mDownSampler.prepareToPlay(mRecordSampleRate, inNumSamplesPerBlock, BASIC_PITCH_SAMPLE_RATE);
+    mInternalDownsampledBuffer.setSize(
+        1,
+        static_cast<int>(std::ceil(BASIC_PITCH_SAMPLE_RATE / mRecordSampleRate * inNumSamplesPerBlock)) + 5,
+        false,
+        false,
+        true);
 
     // Prepare files to be written
     if (!mNeuralNoteDir.isDirectory()) {
@@ -123,12 +175,8 @@ void SourceAudioManager::startRecording()
     WavAudioFormat format;
     StringPairArray meta_data_values;
 
-    auto* wav_writer = format.createWriterFor(new FileOutputStream(mSourceFile),
-                                              mSampleRate,
-                                              std::min(mProcessor->getTotalNumInputChannels(), 2),
-                                              16,
-                                              meta_data_values,
-                                              0);
+    auto* wav_writer = format.createWriterFor(
+        new FileOutputStream(mSourceFile), mRecordSampleRate, mRecordNumChannels, 16, meta_data_values, 0);
 
     mWriterThread.startThread();
     mThreadedWriter = std::make_unique<AudioFormatWriter::ThreadedWriter>(wav_writer, mWriterThread, 32768);
@@ -159,16 +207,16 @@ void SourceAudioManager::stopRecording()
     {
         ScopedLock sl(mWriterLock);
         mIsRecording.store(false);
+        mThreadedWriter.reset();
+        mThreadedWriterDown.reset();
     }
 
-    mThreadedWriter.reset();
-    mThreadedWriterDown.reset();
+    mIsExternalInputRecording.store(false);
 
     mWriterThread.stopThread(1000);
     mWriterThreadDown.stopThread(1000);
 
     bool success = AudioUtils::loadAudioFile(mSourceFile, mSourceAudio, mSourceAudioSampleRate);
-    jassert(mSourceAudioSampleRate == mSampleRate);
 
     // Should def not happen
     if (!success) {
@@ -188,6 +236,15 @@ void SourceAudioManager::stopRecording()
         NativeMessageBox::showMessageBoxAsync(
             MessageBoxIconType::NoIcon, "Could not load the recorded audio sample.", "");
         return;
+    }
+
+    // A device we opened ourselves records at its own rate, which needn't be the host's.
+    if (mSourceAudioSampleRate != mSampleRate) {
+        AudioBuffer<float> tmp_buffer;
+        AudioUtils::resampleBuffer(mSourceAudio, tmp_buffer, mSourceAudioSampleRate, mSampleRate);
+        mSourceAudio = std::move(tmp_buffer);
+        mSourceAudioSampleRate = mSampleRate;
+        mNumSamplesAcquired = static_cast<unsigned long long>(mSourceAudio.getNumSamples());
     }
 
     auto& tree = mProcessor->getValueTree();

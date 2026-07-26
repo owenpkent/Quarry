@@ -39,6 +39,24 @@ public:
     void startRecording();
 
     /**
+     * Start recording from an audio input device NeuralNoteVideo opened itself (see
+     * AudioInputManager) rather than from the audio the host sends us. The device runs at its own
+     * sample rate and block size, so they are passed in here instead of taken from the host.
+     * Blocks arriving through processBlock are ignored until stopRecording().
+     * @param inSampleRate Sample rate of the capture device
+     * @param inNumChannels Number of channels to record (at most 2)
+     * @param inNumSamplesPerBlock Capture device block size
+     */
+    void startRecordingFromExternalInput(double inSampleRate, int inNumChannels, int inNumSamplesPerBlock);
+
+    /**
+     * Function to call with each block from the input device NeuralNoteVideo opened itself.
+     * Called on that device's audio thread.
+     * @param inBuffer Captured audio buffer
+     */
+    void processExternalInputBlock(const AudioBuffer<float>& inBuffer);
+
+    /**
      * Function to call when stop record button is clicked.
      * Will stop properly the recording and then launch the transcription.
      */
@@ -96,6 +114,11 @@ public:
 private:
     void valueTreePropertyChanged(ValueTree& treeWhosePropertyHasChanged, const Identifier& property) override;
 
+    void _startRecording(double inSampleRate, int inNumChannels, int inNumSamplesPerBlock);
+
+    /** Write one block to the recording. Called on whichever audio thread is feeding us. */
+    void _writeBlock(const AudioBuffer<float>& inBuffer);
+
     void _deleteFilesToDelete();
 
     NeuralNoteAudioProcessor* mProcessor;
@@ -128,6 +151,14 @@ private:
     std::vector<juce::File> mFilesToDelete;
 
     double mSampleRate = 44100;
+    int mSamplesPerBlock = 512;
+
+    // Sample rate and channel count the current recording is being written at. Same as the host's
+    // unless the recording is coming from an input device NeuralNoteVideo opened itself.
+    double mRecordSampleRate = 44100;
+    int mRecordNumChannels = 1;
+
+    std::atomic<bool> mIsExternalInputRecording = false;
 
     unsigned long long mNumSamplesAcquired = 0;
     unsigned long long mNumSamplesAcquiredDown = 0;

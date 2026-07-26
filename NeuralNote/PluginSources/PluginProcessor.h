@@ -11,6 +11,7 @@
 #include "TimeQuantizeOptions.h"
 #include "Player.h"
 #include "SourceAudioManager.h"
+#include "AudioInputManager.h"
 #include "ParameterHelpers.h"
 #include "TranscriptionManager.h"
 #include "NnId.h"
@@ -47,7 +48,25 @@ public:
 
     void clear();
 
+    /**
+     * Start recording, from the input device selected in the audio input panel if there is one, and
+     * otherwise from the audio the host sends us.
+     * @return false if a selected input device could not be opened, in which case nothing started
+     *         and AudioInputManager::getLastError() says why.
+     */
+    bool startRecording();
+
+    void stopRecording();
+
+    /** Peak level of the audio the host has sent us since the previous call, in [0, 1]. */
+    float getAndResetHostInputPeakLevel() { return mHostInputPeakLevel.exchange(0.0f); }
+
+    /** Only measure the host input level while something is showing it. */
+    void setHostInputLevelWanted(bool inWanted) { mHostInputLevelWanted.store(inWanted); }
+
     SourceAudioManager* getSourceAudioManager() const;
+
+    AudioInputManager* getAudioInputManager() const;
 
     Player* getPlayer() const;
 
@@ -82,7 +101,11 @@ private:
 
     std::atomic<State> mState = EmptyAudioAndMidiRegions;
 
+    std::atomic<float> mHostInputPeakLevel {0.0f};
+    std::atomic<bool> mHostInputLevelWanted {false};
+
     std::unique_ptr<SourceAudioManager> mSourceAudioManager;
+    std::unique_ptr<AudioInputManager> mAudioInputManager;
     std::unique_ptr<Player> mPlayer;
     std::unique_ptr<TranscriptionManager> mTranscriptionManager;
     std::unique_ptr<FileLogger> mLogger;

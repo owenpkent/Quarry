@@ -13,6 +13,7 @@
 #include "TimeQuantizeOptionsView.h"
 #include "TranscriptionOptionsView.h"
 #include "VisualizationPanel.h"
+#include "AudioInputView.h"
 #include "NeuralNoteLNF.h"
 #include "NnId.h"
 #include "UpdateCheck.h"
@@ -61,6 +62,9 @@ private:
 
     std::unique_ptr<DrawableButton> mRecordButton;
     std::unique_ptr<DrawableButton> mClearButton;
+
+    std::unique_ptr<DrawableButton> mAudioInputButton;
+    std::unique_ptr<AudioInputView> mAudioInputView;
 
     std::unique_ptr<DrawableButton> mBackButton;
     std::unique_ptr<DrawableButton> mPlayPauseButton;
