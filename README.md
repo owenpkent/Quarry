@@ -81,6 +81,20 @@ As part of the original NeuralNote project, its authors
 
 ## Build from source
 
+### Windows: the quick loop
+
+Double-click `run.py` (or `py run.py`). It builds the standalone app and launches it, fetching
+the submodules and the prebuilt onnxruntime on a fresh clone. `py run.py --no-build` just
+relaunches what is already built. Most work can be tried there: the standalone records from this
+computer's own audio hardware, so no DAW is needed.
+
+`run.py` configures with `-DLTO=OFF`. The prebuilt `onnxruntime.lib` is compiled with `/GL` by a
+specific MSVC version, so with link-time optimisation on, linking fails with `C1047` unless your
+compiler matches the one it was built with. `build.bat` (below) does not pass that flag, so it
+only works on a matching toolchain.
+
+### Full build
+
 Requirements are: `git`, `cmake`, and your OS's preferred compiler suite.
 
 Use this when cloning:
