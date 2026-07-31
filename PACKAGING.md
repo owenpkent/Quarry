@@ -24,7 +24,11 @@
 
 On Windows, Quarry is not code signed for now. To create the installer, the following steps are required:
 
-- Build the app and VST3 in Release mode.
+- Build the app and VST3 in Release mode, configured with `-DLTO=OFF`. The prebuilt
+  `onnxruntime.lib` is compiled with `/GL` by one specific MSVC version, so with link-time
+  optimisation on, linking fails with `C1047` unless your compiler matches it. `run.py` passes
+  that flag for you; a build tree you configured by hand needs it explicitly, because `LTO`
+  defaults to `ON`.
 - Install [Inno Setup](https://jrsoftware.org/isinfo.php) if you don't have it already.
 - Build the installer.
     - In command prompt, from the trunk of the repository, run the following command:

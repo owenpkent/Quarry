@@ -1,8 +1,39 @@
 # Video-Enhanced MIDI Transcription Proposal
 
 > **Project:** Quarry  
-> **Status:** Proposal / Planning  
-> **Date:** January 2026
+> **Status:** Superseded in part. Kept as planning history, not as a specification.  
+> **Date:** January 2026, annotated 2026-07-31
+
+> **Read `docs/DESIGN.md` → *Roads not taken* and → *Licence constraints* before acting on
+> anything below.** That later pass looked up the published numbers and the dependency
+> licences and closed several of these paths. Three corrections, marked again in place:
+>
+> - **Path B is closed.** Its "Direct physical ground truth" / "Accuracy Gain: Very High"
+>   claims are contradicted by the measurements. The best visual-only system (ViT, IJCAI
+>   2025) scores onset F1 **0.68** on real YouTube top-down piano video where the audio-only
+>   baseline scores **0.877** on the same clips, and that 0.68 is measured against
+>   pseudo-labels generated from the audio, so the comparison already flatters it. Video buys
+>   pitch accuracy and never timing: 30 fps quantises onsets to ±16 ms against basic-pitch's
+>   11.6 ms hop. Building it would make transcriptions worse.
+> - **Path A2 (sheet-music OMR) is closed on licensing.** Audiveris is AGPL; oemer is Python
+>   plus deep models.
+> - **The dependency table below understates the licence cost.** FFmpeg and OpenCV are both
+>   refused: bundling FFmpeg means removing any reverse-engineering prohibition from the EULA
+>   and hosting exactly-corresponding source next to every download forever, and OpenCV's
+>   Windows decode path *is* a prebuilt LGPL `opencv_videoio_ffmpeg*.dll` wearing an
+>   Apache-2.0 badge. The chosen route is Media Foundation, which Microsoft has already
+>   licensed the codecs for. See `docs/PLAN.md` → Milestone 10.
+>
+> **Path A1 survives and is the kept road**, as `docs/PLAN.md` → Milestone 11, rebuilt clean
+> room in C++ with no OpenCV and no deep learning: a Synthesia video is a deterministic render
+> of a MIDI file, so recovering it is de-rendering rather than perception. The Python
+> prototype in `prototypes/synthesia_detector/` has two known bugs and is not a baseline: it
+> divides the keyboard into equal columns so it cannot emit a single black key
+> (`synthesia_detector.py:120`), and it registers onsets when a block enters the *top* of the
+> frame rather than at the strike line (`:133`, `:216`), so every onset is early by the full
+> fall time and every duration inflated by it.
+>
+> Nothing in this document has been built. Quarry transcribes audio only.
 
 ---
 
@@ -90,6 +121,9 @@ Extract note information from sheet music displayed in YouTube tutorial videos, 
 ---
 
 ## Proposal Path B: Piano Key Detection
+
+> **Closed.** See the correction at the top of this document. The accuracy figures in this
+> section are asserted, not measured, and the measured ones point the other way.
 
 ### Concept
 
@@ -235,8 +269,8 @@ Use video analysis as a **correction layer** on top of existing audio transcript
 | Path | Complexity | Accuracy Potential | Data Requirements | Inference Speed |
 |------|------------|-------------------|-------------------|-----------------|
 | A1: Synthesia | Low | High (specific videos) | Low | Fast |
-| A2: Sheet OCR | High | Medium-High | Medium | Medium |
-| B1: Key Detection | Medium | Very High | Medium | Medium |
+| A2: Sheet OCR | High | Medium-High *(closed: AGPL)* | Medium | Medium |
+| B1: Key Detection | Medium | ~~Very High~~ **measured worse than audio-only** | Medium | Medium |
 | B2: Hand Tracking | High | Medium | Low | Slow |
 | C2: Two-Tower | High | Very High | High | Slow |
 | D1: Post-Process | Low-Medium | Moderate | Low | Fast |
@@ -252,12 +286,11 @@ Use video analysis as a **correction layer** on top of existing audio transcript
 - Can run standalone or enhance audio transcription
 - Large corpus of existing Synthesia videos on YouTube
 
-### For Highest Accuracy: **Path B1 (Key Detection)**
+### ~~For Highest Accuracy: **Path B1 (Key Detection)**~~ (withdrawn)
 
-- Direct physical ground truth
-- Works with any piano performance video
-- Clear technical path with known solutions
-- Can leverage pretrained object detection models
+This section claimed "direct physical ground truth". It is not: the published visual-only
+onset F1 is 0.68 against audio-only's 0.877 on the same clips, and 30 fps cannot resolve
+onsets better than ±16 ms. Withdrawn, and left visible so it is not proposed again.
 
 ### For Research/Long-term: **Path C2 (Two-Tower)**
 
@@ -271,14 +304,14 @@ Use video analysis as a **correction layer** on top of existing audio transcript
 
 ### New Dependencies
 
-| Component | Library Options | License |
-|-----------|-----------------|---------|
-| Video decoding | FFmpeg, OpenCV | LGPL/BSD |
-| Frame processing | OpenCV | BSD |
-| Object detection | YOLO, Detectron2 | Various |
-| Hand tracking | MediaPipe | Apache 2.0 |
-| OMR | Audiveris, oemer | AGPL/MIT |
-| ML inference | ONNX Runtime (existing) | MIT |
+| Component | Library Options | License | Status |
+|-----------|-----------------|---------|--------|
+| Video decoding | FFmpeg, OpenCV | LGPL/BSD | ❌ refused, see the note at the top; Media Foundation instead |
+| Frame processing | OpenCV | BSD | ❌ refused: its Windows decode path is a prebuilt LGPL FFmpeg DLL |
+| Object detection | YOLO, Detectron2 | Various | not needed by the kept path |
+| Hand tracking | MediaPipe | Apache 2.0 | Path B2, closed |
+| OMR | Audiveris, oemer | AGPL/MIT | Path A2, closed on the AGPL |
+| ML inference | ONNX Runtime (existing) | MIT | in the tree, and it physically cannot load a second model |
 
 ### Integration Points
 
