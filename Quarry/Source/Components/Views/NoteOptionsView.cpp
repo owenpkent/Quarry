@@ -88,7 +88,6 @@ void NoteOptionsView::paint(Graphics& g)
 
     float alpha = mIsViewEnabled && isEnabled() ? 1.0f : DISABLED_ALPHA;
 
-    mMinMaxNoteSlider->setAlpha(alpha);
     g.setColour(TEXT_MAIN.withAlpha(alpha));
 
     g.setFont(UIDefines::TITLE_FONT());

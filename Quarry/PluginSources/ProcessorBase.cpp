@@ -82,14 +82,24 @@ void ProcessorBase::releaseResources()
 
 juce::AudioProcessor::BusesProperties ProcessorBase::getDefaultProperties()
 {
-    return BusesProperties()
+    auto properties = BusesProperties()
 #if !JucePlugin_IsMidiEffect
-#if !JucePlugin_IsSynth
-        .withInput("Input", juce::AudioChannelSet::stereo(), true)
-#endif
-        .withOutput("Output", juce::AudioChannelSet::stereo(), true)
+                          .withOutput("Output", juce::AudioChannelSet::stereo(), true)
 #endif
         ;
+
+#if !JucePlugin_IsMidiEffect && !JucePlugin_IsSynth
+    // The standalone records through the device picked in the audio input panel and
+    // never reads the host input, so it has no input bus. Declaring one made JUCE's
+    // standalone wrapper assume a feedback loop, mute the input, and park a banner
+    // above the window. In a plugin the host input is the recording source, so the
+    // bus stays. wrapperType is not set on the processor yet at this point, but the
+    // wrapper has already recorded which one loaded us.
+    if (juce::PluginHostType::getPluginLoadedAs() != juce::AudioProcessor::wrapperType_Standalone)
+        properties = properties.withInput("Input", juce::AudioChannelSet::stereo(), true);
+#endif
+
+    return properties;
 }
 
 juce::AudioProcessorEditor* ProcessorBase::createEditor()

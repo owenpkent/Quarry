@@ -72,7 +72,6 @@ void TimeQuantizeOptionsView::paint(Graphics& g)
 
     float alpha = isEnabled() && mIsViewEnabled ? 1.0f : DISABLED_ALPHA;
 
-    mQuantizationForceSlider->setAlpha(alpha);
     g.setColour(TEXT_MAIN.withAlpha(alpha));
     g.setFont(UIDefines::TITLE_FONT());
     g.drawText("TIME QUANTIZE", Rectangle<int>(24, 0, 210, 17), Justification::centredLeft);
@@ -107,9 +106,6 @@ void TimeQuantizeOptionsView::_setViewEnabled(bool inEnable)
     mTimeDivisionDropdown->setEnabled(inEnable);
 
     auto alpha = inEnable ? 1.0f : DISABLED_ALPHA;
-    mTempoEditor->setAlpha(alpha);
-    mTimeSignatureNumEditor->setAlpha(alpha);
-    mTimeSignatureDenomEditor->setAlpha(alpha);
     mTempoEditor->setEnabled(inEnable);
     mTimeSignatureNumEditor->setEnabled(inEnable);
     mTimeSignatureDenomEditor->setEnabled(inEnable);

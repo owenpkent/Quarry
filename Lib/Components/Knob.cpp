@@ -34,10 +34,10 @@ void Knob::resized()
 
 void Knob::paint(Graphics& g)
 {
-    float alpha = isEnabled() ? 1.0f : 0.5f;
+    float alpha = isEnabled() ? 1.0f : DISABLED_ALPHA;
 
     mSlider.setAlpha(alpha);
-    g.setColour(juce::Colours::black.withAlpha(alpha));
+    g.setColour(TEXT_MAIN.withAlpha(alpha));
     g.setFont(UIDefines::LABEL_FONT());
 
     if (!mIsMouseOver || !isEnabled()) {
