@@ -16,8 +16,8 @@
 
     Deliberately not a menu: the destination, the formats and the name of the
     next take are all on screen, so saving is one click and never a dialog. The
-    folder is a machine-wide preference rather than project state, because it is
-    where this person keeps samples, not a property of the session.
+    destination and formats are project state, so a session reopened another day
+    writes where it wrote before.
 */
 class SampleBar
     : public Component
@@ -51,8 +51,6 @@ private:
 
     QuarryAudioProcessor& mProcessor;
 
-    std::unique_ptr<PropertiesFile> mProperties;
-
     std::unique_ptr<TextButton> mFolderButton;
     std::unique_ptr<ToggleButton> mWavToggle;
     std::unique_ptr<ToggleButton> mMidiToggle;
@@ -64,8 +62,9 @@ private:
     MidiFileWriter mMidiFileWriter;
 
     // Cleared on the next state change so a result does not sit there forever.
+    State mPreviousState = EmptyAudioAndMidiRegions;
+
     bool mShowingResult = false;
-    bool mLastResultWasError = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SampleBar)
 };

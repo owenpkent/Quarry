@@ -39,6 +39,16 @@ inline static Identifier ZoomLevelId = "ZOOM_LEVEL";
 
 inline static Identifier TooltipVisibleId = "TOOLTIP_VISIBLE";
 
+// --------------- Keeping takes ----------------
+// Where Save writes, and in which formats. Project state rather than a machine
+// preference: a session's samples belong with the session, so a project opened
+// on another day writes to the same place.
+inline static Identifier SampleFolderId = "SAMPLE_FOLDER";
+
+inline static Identifier SampleWriteWavId = "SAMPLE_WRITE_WAV";
+
+inline static Identifier SampleWriteMidiId = "SAMPLE_WRITE_MIDI";
+
 // --------------- Time quantization ----------------
 inline static Identifier TempoId = "TEMPO";
 
@@ -66,7 +76,10 @@ const std::vector<std::pair<Identifier, var>> OrderedStatePropertiesWithDefault 
     {PlayheadCenteredId, true},
     {ZoomLevelId, 1.0},
     {MidiOut, false},
-    {TooltipVisibleId, true}};
+    {TooltipVisibleId, true},
+    {SampleFolderId, String()},
+    {SampleWriteWavId, true},
+    {SampleWriteMidiId, true}};
 
 } // namespace NnId
 

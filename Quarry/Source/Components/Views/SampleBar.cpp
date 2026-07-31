@@ -8,42 +8,33 @@
 
 namespace
 {
-const char* kFolderKey = "sampleFolder";
-const char* kWavKey = "saveWav";
-const char* kMidiKey = "saveMidi";
-
 constexpr int kMaxTakeNumber = 9999;
 } // namespace
 
 SampleBar::SampleBar(QuarryAudioProcessor& inProcessor)
     : mProcessor(inProcessor)
 {
-    PropertiesFile::Options options;
-    options.applicationName = "QuarrySample";
-    options.filenameSuffix = "settings";
-    options.folderName = "Quarry";
-    options.osxLibrarySubFolder = "Application Support";
-    mProperties = std::make_unique<PropertiesFile>(options);
-
     mFolderButton = std::make_unique<TextButton>("FolderButton");
     mFolderButton->setTooltip("Choose where saved takes go.");
     mFolderButton->onClick = [this]() { _chooseFolder(); };
     addAndMakeVisible(*mFolderButton);
 
     mWavToggle = std::make_unique<ToggleButton>("Wav");
-    mWavToggle->setToggleState(mProperties->getBoolValue(kWavKey, true), dontSendNotification);
+    mWavToggle->setToggleState(mProcessor.getValueTree().getProperty(NnId::SampleWriteWavId, true),
+                               dontSendNotification);
     mWavToggle->setTooltip("Write the recorded audio.");
     mWavToggle->onClick = [this]() {
-        mProperties->setValue(kWavKey, mWavToggle->getToggleState());
+        mProcessor.getValueTree().setProperty(NnId::SampleWriteWavId, mWavToggle->getToggleState(), nullptr);
         _updateEnablements();
     };
     addAndMakeVisible(*mWavToggle);
 
     mMidiToggle = std::make_unique<ToggleButton>("Midi");
-    mMidiToggle->setToggleState(mProperties->getBoolValue(kMidiKey, true), dontSendNotification);
+    mMidiToggle->setToggleState(mProcessor.getValueTree().getProperty(NnId::SampleWriteMidiId, true),
+                                dontSendNotification);
     mMidiToggle->setTooltip("Write the transcription.");
     mMidiToggle->onClick = [this]() {
-        mProperties->setValue(kMidiKey, mMidiToggle->getToggleState());
+        mProcessor.getValueTree().setProperty(NnId::SampleWriteMidiId, mMidiToggle->getToggleState(), nullptr);
         _updateEnablements();
     };
     addAndMakeVisible(*mMidiToggle);
@@ -70,7 +61,7 @@ SampleBar::~SampleBar()
 
 File SampleBar::_folder() const
 {
-    const auto stored = mProperties->getValue(kFolderKey, {});
+    const String stored = mProcessor.getValueTree().getProperty(NnId::SampleFolderId, String());
 
     if (stored.isNotEmpty())
         return File(stored);
@@ -113,8 +104,7 @@ void SampleBar::_chooseFolder()
         if (chosen == File())
             return;
 
-        mProperties->setValue(kFolderKey, chosen.getFullPathName());
-        mProperties->saveIfNeeded();
+        mProcessor.getValueTree().setProperty(NnId::SampleFolderId, chosen.getFullPathName(), nullptr);
         mShowingResult = false;
         _updateEnablements();
     });
@@ -185,7 +175,6 @@ void SampleBar::_save()
 void SampleBar::_setStatus(const String& inText, bool inIsError)
 {
     mShowingResult = true;
-    mLastResultWasError = inIsError;
     mStatusLabel->setColour(Label::textColourId, inIsError ? RECORD_RED : okstudio::obsidian::accentOf(*this).base);
     mStatusLabel->setText(inText, dontSendNotification);
 }
@@ -216,12 +205,11 @@ void SampleBar::_updateEnablements()
 
 void SampleBar::timerCallback()
 {
-    static State previous_state = EmptyAudioAndMidiRegions;
     const auto state = mProcessor.getState();
 
     // A new take supersedes whatever the last save said.
-    if (state != previous_state) {
-        previous_state = state;
+    if (state != mPreviousState) {
+        mPreviousState = state;
         mShowingResult = false;
     }
 
