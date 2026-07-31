@@ -3,6 +3,8 @@
 //
 
 #include "NoteOptionsView.h"
+
+#include <okstudio/Obsidian.h>
 #include "QuarryMainView.h"
 
 NoteOptionsView::NoteOptionsView(QuarryAudioProcessor& processor)
@@ -75,12 +77,14 @@ void NoteOptionsView::resized()
 
 void NoteOptionsView::paint(Graphics& g)
 {
-    g.setColour(PANEL_BG);
-    g.fillRoundedRectangle(0.0f,
-                           static_cast<float>(LEFT_SECTIONS_TOP_PAD),
-                           static_cast<float>(getWidth()),
-                           static_cast<float>(getHeight() - LEFT_SECTIONS_TOP_PAD),
-                           5.0f);
+    okstudio::obsidian::raisedFill(g,
+                                   Rectangle<float>(0.0f,
+                                                    static_cast<float>(LEFT_SECTIONS_TOP_PAD),
+                                                    static_cast<float>(getWidth()),
+                                                    static_cast<float>(getHeight() - LEFT_SECTIONS_TOP_PAD)),
+                                   5.0f,
+                                   PANEL_TOP,
+                                   PANEL_BOT);
 
     float alpha = mIsViewEnabled && isEnabled() ? 1.0f : DISABLED_ALPHA;
 

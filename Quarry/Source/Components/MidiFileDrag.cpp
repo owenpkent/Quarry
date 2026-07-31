@@ -4,6 +4,8 @@
 
 #include "MidiFileDrag.h"
 
+#include <okstudio/Obsidian.h>
+
 MidiFileDrag::MidiFileDrag(QuarryAudioProcessor* processor)
     : mProcessor(processor)
 {
@@ -22,8 +24,8 @@ void MidiFileDrag::resized()
 
 void MidiFileDrag::paint(Graphics& g)
 {
-    g.setColour(PANEL_BG);
-    g.fillRoundedRectangle(getLocalBounds().toFloat(), 4.0f);
+    okstudio::obsidian::raisedFill(
+        g, getLocalBounds().toFloat().reduced(0.5f), 4.0f, PANEL_TOP, PANEL_BOT);
 
     g.setColour(TEXT_MAIN);
     g.setFont(UIDefines::LABEL_FONT());

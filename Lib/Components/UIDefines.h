@@ -74,7 +74,11 @@ inline Font BUTTON_FONT()
 // Grounds, darkest to lightest.
 static const Colour VOID_BG(static_cast<uint8>(0x0e), static_cast<uint8>(0x0f), static_cast<uint8>(0x12));
 static const Colour WELL_BG(static_cast<uint8>(0x10), static_cast<uint8>(0x12), static_cast<uint8>(0x16));
-static const Colour PANEL_BG(static_cast<uint8>(0x1a), static_cast<uint8>(0x1c), static_cast<uint8>(0x21));
+static const Colour PANEL_BG(static_cast<uint8>(0x22), static_cast<uint8>(0x25), static_cast<uint8>(0x2b));
+// Panels are drawn with okstudio::obsidian::raisedFill, which needs a top and a
+// bottom for its gradient. A flat fill this close to the ground disappears.
+static const Colour PANEL_TOP(static_cast<uint8>(0x26), static_cast<uint8>(0x2a), static_cast<uint8>(0x31));
+static const Colour PANEL_BOT(static_cast<uint8>(0x1c), static_cast<uint8>(0x1f), static_cast<uint8>(0x24));
 static const Colour CONTROL_BG(static_cast<uint8>(0x26), static_cast<uint8>(0x2a), static_cast<uint8>(0x31));
 static const Colour HAIRLINE(static_cast<uint8>(0x2a), static_cast<uint8>(0x2e), static_cast<uint8>(0x35));
 
@@ -91,7 +95,10 @@ static const Colour WAVEFORM_BG_COLOR(static_cast<uint8>(0x0e), static_cast<uint
 static const Colour RECORD_RED(216, 74, 96);
 static const Colour TRANSPARENT(static_cast<uint8>(0), static_cast<uint8>(0), static_cast<uint8>(0), 0.0f);
 
-static constexpr float DISABLED_ALPHA = 0.5f;
+// Halving the alpha of light text on a dark ground makes it unreadable, where
+// halving dark text on a light one merely greys it. This is the dark-theme
+// equivalent of the 0.5 the light theme used.
+static constexpr float DISABLED_ALPHA = 0.78f;
 
 // Distances
 

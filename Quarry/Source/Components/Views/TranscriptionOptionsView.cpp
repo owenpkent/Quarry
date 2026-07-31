@@ -3,6 +3,8 @@
 //
 
 #include "TranscriptionOptionsView.h"
+
+#include <okstudio/Obsidian.h>
 #include "QuarryMainView.h"
 
 TranscriptionOptionsView::TranscriptionOptionsView(QuarryAudioProcessor& processor)
@@ -46,12 +48,14 @@ void TranscriptionOptionsView::resized()
 
 void TranscriptionOptionsView::paint(Graphics& g)
 {
-    g.setColour(PANEL_BG);
-    g.fillRoundedRectangle(0.0f,
-                           LEFT_SECTIONS_TOP_PAD,
-                           static_cast<float>(getWidth()),
-                           static_cast<float>(getHeight() - LEFT_SECTIONS_TOP_PAD),
-                           5.0f);
+    okstudio::obsidian::raisedFill(g,
+                                   Rectangle<float>(0.0f,
+                                                    static_cast<float>(LEFT_SECTIONS_TOP_PAD),
+                                                    static_cast<float>(getWidth()),
+                                                    static_cast<float>(getHeight() - LEFT_SECTIONS_TOP_PAD)),
+                                   5.0f,
+                                   PANEL_TOP,
+                                   PANEL_BOT);
 
     float alpha = isEnabled() ? 1.0f : 0.5f;
 
