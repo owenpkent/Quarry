@@ -14,10 +14,30 @@
 namespace
 {
 const String kDriverKey = "inputDriver";
+// What the device is, and separately what it is called: for "System Audio" the first is a WASAPI
+// endpoint id and the second is a name Windows lets the user change.
 const String kDeviceKey = "inputDevice";
+const String kDeviceNameKey = "inputDeviceName";
 const String kChannelSetKey = "inputChannelSet";
 const String kConfiguredKey = "inputConfigured";
 const String kSystemAudioDefaultKey = "inputSystemAudioDefaultApplied";
+
+// How long a stop or an error from an audio device is given to turn out to have been nothing. JUCE
+// closes and reopens a device around a format change and the callback starts again within
+// milliseconds, so this is far more than a restart needs, and still short enough that a take which
+// really has lost its input ends while the person recording is still watching it.
+constexpr int kCaptureVerdictGraceMs = 1000;
+
+// How far apart two sample rates have to be to count as a different format. A rate comes from the
+// driver either side of a restart, and ending a take over the last digit of one that never really
+// changed would be worse than the change it was watching for.
+constexpr double kSampleRateMatchToleranceHz = 1.0;
+
+// The rate as the panel writes it, so a message about a format change reads the same way.
+String sampleRateText(double inSampleRate)
+{
+    return String(inSampleRate / 1000.0, 1) + " kHz";
+}
 
 #if JUCE_WINDOWS
 // Same string as okstudio::capture::loopbackTypeName. Spelled out here rather than including
@@ -70,11 +90,7 @@ private:
         mOwner._processInputBlock(channels, numChannels, numSamples);
     }
 
-    void loopbackFailed() override
-    {
-        // Capture thread: setting a flag is all that is safe from here.
-        mOwner.mLoopbackFailed.store(true);
-    }
+    void loopbackFailed() override { mOwner._reportCaptureFailure(); }
 
     AudioInputManager& mOwner;
     okstudio::capture::WasapiLoopback mStream;
@@ -98,9 +114,17 @@ const String& AudioInputManager::getHostInputName()
     return name;
 }
 
+bool AudioInputManager::canSelectInputDevice() const
+{
+    return _isStandalone();
+}
+
 StringArray AudioInputManager::getDriverNames()
 {
     StringArray names;
+
+    if (!_isStandalone())
+        return names;
 
 #if JUCE_WINDOWS
     // First, because recording what the computer is playing is what this app is for.
@@ -115,55 +139,76 @@ StringArray AudioInputManager::getDriverNames()
 
 void AudioInputManager::setSelectedDriverName(const String& inDriverName)
 {
-    if (inDriverName == mSelectedDriverName)
+    if (!_isStandalone() || inDriverName == mSelectedDriverName)
         return;
 
     // The inputs of the previous driver mean nothing to the new one.
-    setSelectedInputDeviceName({});
+    setSelectedInputDevice({});
 
     mSelectedDriverName = inDriverName;
     _saveSelection();
 }
 
-StringArray AudioInputManager::getInputDeviceNames()
+Array<AudioInputManager::InputDevice> AudioInputManager::getInputDevices()
 {
+    Array<InputDevice> devices;
+
+    if (!_isStandalone())
+        return devices;
+
 #if JUCE_WINDOWS
     if (_isLoopbackDriverSelected()) {
         _ensureInitialised();
         _scanLoopbackEndpoints();
-        return mLoopbackEndpointNames;
+        _migrateLoopbackNameToId();
+
+        for (int i = 0; i < mLoopbackEndpointIds.size(); i++) {
+            devices.add({mLoopbackEndpointIds[i], mLoopbackEndpointNames[i]});
+
+            if (mLoopbackEndpointIds[i] == mSelectedInputDeviceId)
+                _refreshSelectedDeviceName(mLoopbackEndpointNames[i]);
+        }
+
+        return devices;
     }
 #endif
 
     if (auto* type = _getSelectedDriver()) {
         type->scanForDevices();
-        return type->getDeviceNames(true);
+
+        // A driver's device name is how the driver itself is asked for that device, so it is both.
+        for (const auto& name: type->getDeviceNames(true))
+            devices.add({name, name});
     }
 
-    return {};
+    return devices;
 }
 
-void AudioInputManager::setSelectedInputDeviceName(const String& inDeviceName)
+void AudioInputManager::setSelectedInputDevice(const InputDevice& inDevice)
 {
-    if (inDeviceName == mSelectedInputDeviceName)
+    if (!_isStandalone() || inDevice.id == mSelectedInputDeviceId)
         return;
 
     jassert(!mIsRecording.load()); // The UI locks the pickers while recording.
 
     _closeInputDevice();
 
-    mSelectedInputDeviceName = inDeviceName;
+    mSelectedInputDeviceId = inDevice.id;
+    mSelectedInputDeviceName = inDevice.name.isNotEmpty() ? inDevice.name : inDevice.id;
     mSelectedChannelSet = 0;
     mLastError.clear();
     _saveSelection();
 
-    if (mPanelOnScreen && mSelectedInputDeviceName.isNotEmpty())
+    if (mPanelOnScreen && mSelectedInputDeviceId.isNotEmpty())
         _openInputDevice();
 }
 
 StringArray AudioInputManager::getInputChannelSetNames()
 {
     StringArray names;
+
+    if (!_isStandalone())
+        return names;
 
 #if JUCE_WINDOWS
     if (_isLoopbackDriverSelected()) {
@@ -193,7 +238,7 @@ StringArray AudioInputManager::getInputChannelSetNames()
 
 void AudioInputManager::setSelectedInputChannelSet(int inIndex)
 {
-    if (inIndex == mSelectedChannelSet || inIndex < 0)
+    if (!_isStandalone() || inIndex == mSelectedChannelSet || inIndex < 0)
         return;
 
     mSelectedChannelSet = inIndex;
@@ -232,13 +277,6 @@ double AudioInputManager::getCurrentSampleRate() const
 
 String AudioInputManager::getLastError()
 {
-#if JUCE_WINDOWS
-    // The stream can die long after it was opened (endpoint unplugged, format changed), and the
-    // capture thread can only set a flag, so turn that into a message here.
-    if (mLoopbackFailed.exchange(false))
-        mLastError = "The system audio output stopped. Choose it again to reconnect.";
-#endif
-
     return mLastError;
 }
 
@@ -252,7 +290,7 @@ void AudioInputManager::setPanelOnScreen(bool inIsOnScreen)
     if (mPanelOnScreen) {
         _ensureInitialised();
 
-        if (mSelectedInputDeviceName.isNotEmpty())
+        if (mSelectedInputDeviceId.isNotEmpty())
             _openInputDevice();
     } else if (!mIsRecording.load()) {
         // Don't keep a microphone open behind the user's back.
@@ -274,7 +312,11 @@ bool AudioInputManager::startRecording()
 
     _ensureInitialised();
 
-    if (mSelectedInputDeviceName.isEmpty())
+    // Whatever went wrong last time has been superseded by this take, and an open that fails below
+    // says so again.
+    mLastError.clear();
+
+    if (mSelectedInputDeviceId.isEmpty())
         return false;
 
 #if JUCE_WINDOWS
@@ -301,6 +343,10 @@ bool AudioInputManager::startRecording()
         mProcessor->getSourceAudioManager()->startRecordingFromExternalInput(
             mLoopback->sampleRate(), mNumRecordedChannels, mNumRecordedSamplesPerBlock);
 
+        // A loopback stream is never swapped under a take (see _openLoopbackDevice) and reports its
+        // own death outright, so it has no identity for a verdict to weigh.
+        mTakeIdentity = {};
+
         mIsRecording.store(true);
         return true;
     }
@@ -320,6 +366,14 @@ bool AudioInputManager::startRecording()
     mNumRecordedChannels = jmin(active_inputs, 2);
     mNumRecordedSamplesPerBlock = jmax(1, device->getCurrentBufferSizeSamples());
 
+    // What the take is being recorded from, taken from the same place a restart's identity comes
+    // from so the two can only ever differ for a real reason. The device itself is only asked
+    // directly if the callback has somehow not been told the device started.
+    mTakeIdentity = _getRunningIdentity();
+
+    if (!mTakeIdentity.isValid())
+        mTakeIdentity = _identityOf(device);
+
     mProcessor->getSourceAudioManager()->startRecordingFromExternalInput(
         device->getCurrentSampleRate(), mNumRecordedChannels, mNumRecordedSamplesPerBlock);
 
@@ -333,6 +387,7 @@ void AudioInputManager::stopRecording()
         return;
 
     mIsRecording.store(false);
+    mTakeIdentity = {};
     mProcessor->getSourceAudioManager()->stopRecording();
 
     if (!mPanelOnScreen)
@@ -342,6 +397,7 @@ void AudioInputManager::stopRecording()
 void AudioInputManager::abortRecording()
 {
     mIsRecording.store(false);
+    mTakeIdentity = {};
 
     if (!mPanelOnScreen)
         _closeInputDevice();
@@ -366,6 +422,8 @@ void AudioInputManager::_processInputBlock(const float* const* inChannelData, in
 {
     if (inNumSamples <= 0)
         return;
+
+    mCaptureBlockCount.fetch_add(1, std::memory_order_relaxed);
 
     float* channels[kMaxCaptureChannels];
     int num_channels = 0;
@@ -411,25 +469,214 @@ void AudioInputManager::_processInputBlock(const float* const* inChannelData, in
     }
 }
 
-void AudioInputManager::audioDeviceAboutToStart(AudioIODevice*)
+bool AudioInputManager::CaptureIdentity::matches(const CaptureIdentity& inOther) const
 {
+    return name == inOther.name && std::abs(sampleRate - inOther.sampleRate) < kSampleRateMatchToleranceHz
+           && numInputChannels == inOther.numInputChannels;
+}
+
+AudioInputManager::CaptureIdentity AudioInputManager::_identityOf(AudioIODevice* inDevice)
+{
+    CaptureIdentity identity;
+
+    if (inDevice != nullptr) {
+        identity.name = inDevice->getName();
+        identity.sampleRate = inDevice->getCurrentSampleRate();
+        identity.numInputChannels = inDevice->getActiveInputChannels().countNumberOfSetBits();
+    }
+
+    return identity;
+}
+
+void AudioInputManager::_setRunningIdentity(const CaptureIdentity& inIdentity)
+{
+    const SpinLock::ScopedLockType lock(mCaptureIdentityLock);
+    mRunningIdentity = inIdentity;
+}
+
+AudioInputManager::CaptureIdentity AudioInputManager::_getRunningIdentity()
+{
+    const SpinLock::ScopedLockType lock(mCaptureIdentityLock);
+    return mRunningIdentity;
+}
+
+void AudioInputManager::audioDeviceAboutToStart(AudioIODevice* device)
+{
+    // Kept, not dropped: "something is running again" and "the take's own input is running again"
+    // are different answers, and only the second one lets a take carry on.
+    _setRunningIdentity(_identityOf(device));
+
     mPeakLevel.store(0.0f);
+    mDeviceRunning.store(true);
+
+    // What started may not be what a take is being recorded from, and that is worth settling now
+    // rather than after a grace period spent writing the wrong input into it.
+    if (mIsRecording.load())
+        triggerAsyncUpdate();
 }
 
 void AudioInputManager::audioDeviceStopped()
 {
+    _setRunningIdentity({});
+
     mPeakLevel.store(0.0f);
+    mDeviceRunning.store(false);
+
+    // Not the end of anything by itself: this is equally how JUCE's own restart of a device begins,
+    // and how our own close of one does, so what it was is decided a moment from now.
+    _armCaptureVerdict();
 }
 
 void AudioInputManager::audioDeviceError(const String& errorMessage)
 {
-    mLastError = errorMessage;
+    {
+        const SpinLock::ScopedLockType lock(mDriverErrorLock);
+        mDriverError = errorMessage;
+    }
+
+    // Drivers send every status they have through here, including ones they recover from without
+    // missing a block, so this never takes a device down on its own either.
+    _armCaptureVerdict();
+}
+
+void AudioInputManager::_reportCaptureFailure()
+{
+    mCaptureFailed.store(true);
+    triggerAsyncUpdate();
+}
+
+void AudioInputManager::_armCaptureVerdict()
+{
+    mVerdictPending.store(true);
+    triggerAsyncUpdate();
+}
+
+void AudioInputManager::handleAsyncUpdate()
+{
+    // A capture path that can tell a death from anything else says so outright, and is believed.
+    if (mCaptureFailed.exchange(false)) {
+        _endDeadCapture();
+        return;
+    }
+
+    // A device that has come back as something else is already certain, so a take on it ends here
+    // and does not wait for the grace period, which is only there to decide the uncertain case.
+    _endTakeIfCaptureChanged();
+
+    if (mVerdictPending.exchange(false)) {
+        mBlockCountWhenArmed = mCaptureBlockCount.load();
+        startTimer(kCaptureVerdictGraceMs);
+    }
+}
+
+void AudioInputManager::timerCallback()
+{
+    stopTimer();
+
+    // Wherever this ends up, it is a note about the device and not a verdict on it: a driver reports
+    // plenty it recovers from, so nothing here is a failure until the device is judged one.
+    _takeDriverMessage();
+
+    // The capture is only gone if it has neither started again nor delivered a block since: a
+    // device JUCE restarted has done both by now, and one whose driver reported something it
+    // recovered from never stopped feeding us at all.
+    if (mDeviceRunning.load() && mCaptureBlockCount.load() != mBlockCountWhenArmed) {
+        // Running again is not the same as running as the same thing, and only a take can tell the
+        // difference: with none in progress the new input is simply the input now.
+        _endTakeIfCaptureChanged();
+        return;
+    }
+
+    _endDeadCapture();
+}
+
+bool AudioInputManager::_endTakeIfCaptureChanged()
+{
+    if (!mIsRecording.load() || !mTakeIdentity.isValid())
+        return false;
+
+    const auto running = _getRunningIdentity();
+
+    // Nothing running at all is a death rather than a change, and is the deferred verdict's to make.
+    if (!running.isValid() || running.matches(mTakeIdentity))
+        return false;
+
+    mLastError = _describeCaptureChange(running);
+
+    // Out through the same door the stop button uses, so what was captured before the input changed
+    // is finalised and transcribed rather than thrown away.
+    mProcessor->stopRecording();
+    return true;
+}
+
+String AudioInputManager::_describeCaptureChange(const CaptureIdentity& inNow) const
+{
+    const String ends = " The take ends where the input changed.";
+
+    if (inNow.name != mTakeIdentity.name)
+        return mSelectedInputDeviceName + " was replaced by " + inNow.name + " while recording." + ends;
+
+    if (std::abs(inNow.sampleRate - mTakeIdentity.sampleRate) >= kSampleRateMatchToleranceHz)
+        return mSelectedInputDeviceName + " came back at " + sampleRateText(inNow.sampleRate) + " instead of "
+               + sampleRateText(mTakeIdentity.sampleRate) + " while recording." + ends;
+
+    return mSelectedInputDeviceName + " came back with " + String(inNow.numInputChannels)
+           + " input channels instead of " + String(mTakeIdentity.numInputChannels) + " while recording." + ends;
+}
+
+void AudioInputManager::_takeDriverMessage()
+{
+    String message;
+
+    {
+        const SpinLock::ScopedLockType lock(mDriverErrorLock);
+        message.swapWith(mDriverError);
+    }
+
+    if (message.isNotEmpty())
+        mDriverMessage = message;
+}
+
+void AudioInputManager::_endDeadCapture()
+{
+    _takeDriverMessage();
+
+    const bool was_recording = mIsRecording.load();
+
+    // Now that this is a failure, the driver's own wording is the only account of why, so it is
+    // carried inside a sentence of ours rather than left to be read on its own.
+    const String detail = mDriverMessage.isNotEmpty() ? " The driver said: " + mDriverMessage : String();
+
+    // An open that failed has already said something more specific about why, and is only ever
+    // spoken over by a take that this cut short.
+    if (was_recording)
+        mLastError =
+            mSelectedInputDeviceName + " stopped while recording. The take ends where the input stopped." + detail;
+    else if (mLastError.isEmpty())
+        mLastError = mSelectedInputDeviceName + " stopped sending audio." + detail;
+
+    // The take cannot be continued: what was feeding it is gone. End it through the same door the
+    // stop button uses, so the audio captured so far is finalised and transcribed rather than lost.
+    if (was_recording)
+        mProcessor->stopRecording();
+
+    // The stream is dead even if it still looks open, so let go of it: the next record (or the next
+    // time the panel comes up) then opens it again from scratch.
+    _closeInputDevice();
 }
 
 void AudioInputManager::_ensureInitialised()
 {
     if (mInitialised)
         return;
+
+    // A plugin has no selection: it records what the host sends it, so there is nothing to load,
+    // nothing to remember, and no settings file to remember it in. That file is one per machine,
+    // so a selection kept there would follow every other instance on the machine around.
+    if (!_isStandalone()) {
+        mInitialised = true;
+        return;
+    }
 
     PropertiesFile::Options options;
     options.applicationName = "QuarryAudioInput";
@@ -438,30 +685,22 @@ void AudioInputManager::_ensureInitialised()
     options.osxLibrarySubFolder = "Application Support";
     mProperties = std::make_unique<PropertiesFile>(options);
 
-    const bool is_standalone = mProcessor->wrapperType == AudioProcessor::wrapperType_Standalone;
-
-    // The standalone app and the plugin share one settings file, so each keeps its selection under
-    // its own keys. "System Audio" is a standalone-only choice: inside a DAW that endpoint is the
-    // host's own master output, so a selection made in the standalone must never be loaded here.
-    mKeySuffix = is_standalone ? String() : "Plugin";
-
-    const bool was_configured_before = mProperties->getBoolValue(kConfiguredKey + mKeySuffix, false);
+    const bool was_configured_before = mProperties->getBoolValue(kConfiguredKey, false);
 
     _loadSelection();
     mInitialised = true;
 
 #if JUCE_WINDOWS
-    // Point the standalone app at the computer's own output, once. Inside a DAW this is never
-    // done: there the loopback endpoint is the host's master output, and recording that while the
-    // plugin is monitored is a feedback loop.
+    // Point the app at the computer's own output, once.
     const bool system_audio_default_applied = mProperties->getBoolValue(kSystemAudioDefaultKey, false);
 
-    if (is_standalone && !system_audio_default_applied) {
+    if (!system_audio_default_applied) {
         _scanLoopbackEndpoints();
 
-        if (!mLoopbackEndpointNames.isEmpty()) {
+        if (!mLoopbackEndpointIds.isEmpty()) {
             mSelectedDriverName = kSystemAudioDriverName;
             // The scan returns the default playback device first.
+            mSelectedInputDeviceId = mLoopbackEndpointIds[0];
             mSelectedInputDeviceName = mLoopbackEndpointNames[0];
             mSelectedChannelSet = 0;
 
@@ -485,25 +724,32 @@ void AudioInputManager::_ensureInitialised()
     // input" would record silence there. Someone running the app on its own wants to record from
     // this computer anyway, so start them on its default input. Only ever done once: if they then
     // choose the host input, that choice stands.
-    if (!was_configured_before && is_standalone && mSelectedInputDeviceName.isEmpty()) {
+    if (!was_configured_before && mSelectedInputDeviceId.isEmpty()) {
         if (auto* type = _getSelectedDriver()) {
             type->scanForDevices();
 
             const auto device_names = type->getDeviceNames(true);
             const int default_index = type->getDefaultDeviceIndex(true);
 
-            if (isPositiveAndBelow(default_index, device_names.size()))
-                mSelectedInputDeviceName = device_names[default_index];
+            if (isPositiveAndBelow(default_index, device_names.size())) {
+                mSelectedInputDeviceId = device_names[default_index];
+                mSelectedInputDeviceName = mSelectedInputDeviceId;
+            }
         }
     }
 
-    mProperties->setValue(kConfiguredKey + mKeySuffix, true);
+    mProperties->setValue(kConfiguredKey, true);
     _saveSelection();
 }
 
 void AudioInputManager::ensureInitialised()
 {
     _ensureInitialised();
+}
+
+bool AudioInputManager::_isStandalone() const
+{
+    return mProcessor->wrapperType == AudioProcessor::wrapperType_Standalone;
 }
 
 bool AudioInputManager::_isLoopbackDriverSelected() const
@@ -519,6 +765,11 @@ AudioIODeviceType* AudioInputManager::_getSelectedDriver()
 {
     _ensureInitialised();
 
+    // getAvailableDeviceTypes() scans every driver, which in a plugin means loading the host's
+    // ASIO driver behind its back.
+    if (!_isStandalone())
+        return nullptr;
+
     for (auto* type: mDeviceManager.getAvailableDeviceTypes())
         if (type->getTypeName() == mSelectedDriverName)
             return type;
@@ -530,7 +781,8 @@ bool AudioInputManager::_openInputDevice()
 {
     _ensureInitialised();
 
-    if (mSelectedInputDeviceName.isEmpty())
+    // A plugin never opens a device of its own, whatever it was asked to open.
+    if (!_isStandalone() || mSelectedInputDeviceId.isEmpty())
         return false;
 
 #if JUCE_WINDOWS
@@ -538,15 +790,16 @@ bool AudioInputManager::_openInputDevice()
         return _openLoopbackDevice();
 #endif
 
-    if (isInputDeviceOpen() && mDeviceManager.getAudioDeviceSetup().inputDeviceName == mSelectedInputDeviceName)
+    if (isInputDeviceOpen() && mDeviceManager.getAudioDeviceSetup().inputDeviceName == mSelectedInputDeviceId)
         return true;
 
     mLastError.clear();
+    mDriverMessage.clear();
 
     if (!mDeviceManagerInitialised) {
         // Two input channels wanted, no outputs. This is the only call that can briefly touch a
         // device other than the chosen one, so name ours as the preferred default.
-        mDeviceManager.initialise(2, 0, nullptr, false, mSelectedInputDeviceName);
+        mDeviceManager.initialise(2, 0, nullptr, false, mSelectedInputDeviceId);
         mDeviceManagerInitialised = true;
     }
 
@@ -554,24 +807,29 @@ bool AudioInputManager::_openInputDevice()
         mDeviceManager.setCurrentAudioDeviceType(mSelectedDriverName, true);
 
     auto setup = mDeviceManager.getAudioDeviceSetup();
-    setup.inputDeviceName = mSelectedInputDeviceName;
+    setup.inputDeviceName = mSelectedInputDeviceId;
     setup.outputDeviceName = {};
     setup.useDefaultInputChannels = true;
     setup.useDefaultOutputChannels = false;
     setup.outputChannels.clear();
 
-    mLastError = mDeviceManager.setAudioDeviceSetup(setup, true);
+    const auto setup_error = mDeviceManager.setAudioDeviceSetup(setup, true);
 
-    if (mLastError.isNotEmpty() || !isInputDeviceOpen()) {
-        if (mLastError.isEmpty())
-            mLastError = "Could not open " + mSelectedInputDeviceName + ".";
+    if (setup_error.isNotEmpty() || !isInputDeviceOpen()) {
+        // The driver's message is a fragment, so it is only ever shown inside a sentence of ours.
+        mLastError = setup_error.isNotEmpty() ? "Could not open " + mSelectedInputDeviceName + ": " + setup_error
+                                              : "Could not open " + mSelectedInputDeviceName + ".";
 
         return false;
     }
 
     // Now the device is open we know how many channels it has, so the channel choice can be applied.
     if (auto* device = mDeviceManager.getCurrentAudioDevice()) {
-        const auto mask = _getInputChannelMask(device->getInputChannelNames().size());
+        const int num_input_channels = device->getInputChannelNames().size();
+
+        _clampSelectedChannelSet(num_input_channels);
+
+        const auto mask = _getInputChannelMask(num_input_channels);
 
         if (mask.countNumberOfSetBits() > 0 && mask != device->getActiveInputChannels()) {
             setup = mDeviceManager.getAudioDeviceSetup();
@@ -581,7 +839,7 @@ bool AudioInputManager::_openInputDevice()
             const auto channel_error = mDeviceManager.setAudioDeviceSetup(setup, true);
 
             if (channel_error.isNotEmpty())
-                mLastError = channel_error;
+                mLastError = "Could not record those channels: " + channel_error;
         }
     }
 
@@ -603,31 +861,92 @@ void AudioInputManager::_closeInputDevice()
     mDeviceManager.removeAudioCallback(this);
     mDeviceManager.closeAudioDevice();
     mPeakLevel.store(0.0f);
+
+    // Nothing left to report a failure about: whatever was captured has been let go of. Closing is
+    // itself a stop, and the last word on the one we just asked for is that we asked for it.
+    mCaptureFailed.store(false);
+    mVerdictPending.store(false);
+    mDeviceRunning.store(false);
+    _setRunningIdentity({});
+    stopTimer();
+
+    mDriverMessage.clear();
+
+    const SpinLock::ScopedLockType lock(mDriverErrorLock);
+    mDriverError.clear();
 }
 
 #if JUCE_WINDOWS
 void AudioInputManager::_scanLoopbackEndpoints()
 {
+    // The single place the playback endpoints are enumerated, so gating it here keeps "System
+    // Audio" out of a plugin: inside a DAW that endpoint is the host's own master output anyway.
+    if (!_isStandalone())
+        return;
+
     mLoopbackEndpointNames.clear();
     mLoopbackEndpointIds.clear();
 
     for (const auto& endpoint: okstudio::capture::WasapiLoopback::endpoints()) {
-        mLoopbackEndpointNames.add(endpoint.name);
+        auto name = endpoint.name;
+
+        // Two endpoints can be called the same thing (identical DACs, an HDMI output that reports
+        // no name of its own), and the list is all the user has to tell them apart by.
+        for (int copy = 2; mLoopbackEndpointNames.contains(name); copy++)
+            name = endpoint.name + " (" + String(copy) + ")";
+
+        mLoopbackEndpointNames.add(name);
         mLoopbackEndpointIds.add(endpoint.id);
     }
 }
 
 String AudioInputManager::_getSelectedLoopbackEndpointId()
 {
-    int index = mLoopbackEndpointNames.indexOf(mSelectedInputDeviceName);
+    // Always from a scan taken now, never from the last one: the endpoint may have appeared, come
+    // back or been renamed in Windows since, and this is where the name every message about it
+    // reads from. Only ever reached by opening the device, so it is nowhere near a hot path.
+    _scanLoopbackEndpoints();
+    _migrateLoopbackNameToId();
 
-    if (index < 0) {
-        // The saved endpoint may have appeared, or come back, since the last scan.
-        _scanLoopbackEndpoints();
-        index = mLoopbackEndpointNames.indexOf(mSelectedInputDeviceName);
-    }
+    const int index = mLoopbackEndpointIds.indexOf(mSelectedInputDeviceId);
 
-    return isPositiveAndBelow(index, mLoopbackEndpointIds.size()) ? mLoopbackEndpointIds[index] : String();
+    if (index < 0)
+        return {};
+
+    _refreshSelectedDeviceName(mLoopbackEndpointNames[index]);
+    return mSelectedInputDeviceId;
+}
+
+void AudioInputManager::_migrateLoopbackNameToId()
+{
+    if (!_isLoopbackDriverSelected() || mSelectedInputDeviceId.isEmpty())
+        return;
+
+    // An id that is one of the scanned ids is a good id, and is left exactly as it is.
+    if (mLoopbackEndpointIds.contains(mSelectedInputDeviceId))
+        return;
+
+    // A WASAPI endpoint id is never one of the shown names, so an id that is one of them is a name
+    // left in the id field by a build that kept the selection that way, and only then is there
+    // anything to migrate. A name matching nothing is left alone, so a renamed output reads as the
+    // missing device it now is rather than quietly becoming a different one.
+    const int index = mLoopbackEndpointNames.indexOf(mSelectedInputDeviceId);
+
+    if (index < 0)
+        return;
+
+    mSelectedInputDeviceId = mLoopbackEndpointIds[index];
+    mSelectedInputDeviceName = mLoopbackEndpointNames[index];
+    _saveSelection();
+}
+
+void AudioInputManager::_refreshSelectedDeviceName(const String& inName)
+{
+    if (inName.isEmpty() || inName == mSelectedInputDeviceName)
+        return;
+
+    mSelectedInputDeviceName = inName;
+    _saveSelection();
 }
 
 bool AudioInputManager::_openLoopbackDevice()
@@ -653,7 +972,7 @@ bool AudioInputManager::_openLoopbackDevice()
     }
 
     mLastError.clear();
-    mLoopbackFailed.store(false);
+    mCaptureFailed.store(false);
 
     auto loopback = std::make_unique<LoopbackCapture>(*this);
 
@@ -680,10 +999,22 @@ void AudioInputManager::_closeLoopbackDevice()
     }
 
     mOpenLoopbackEndpointId.clear();
-    mLoopbackFailed.store(false);
     mPeakLevel.store(0.0f);
 }
 #endif
+
+void AudioInputManager::_clampSelectedChannelSet(int inNumDeviceInputChannels)
+{
+    // What getInputChannelSetNames() lists for a device this wide: its stereo pairs, then each of
+    // its channels on its own.
+    const int num_sets = inNumDeviceInputChannels / 2 + inNumDeviceInputChannels;
+
+    if (num_sets <= 0 || mSelectedChannelSet < num_sets)
+        return;
+
+    mSelectedChannelSet = num_sets - 1;
+    _saveSelection();
+}
 
 BigInteger AudioInputManager::_getInputChannelMask(int inNumDeviceInputChannels) const
 {
@@ -714,9 +1045,10 @@ void AudioInputManager::_saveSelection() const
     if (mProperties == nullptr)
         return;
 
-    mProperties->setValue(kDriverKey + mKeySuffix, mSelectedDriverName);
-    mProperties->setValue(kDeviceKey + mKeySuffix, mSelectedInputDeviceName);
-    mProperties->setValue(kChannelSetKey + mKeySuffix, mSelectedChannelSet);
+    mProperties->setValue(kDriverKey, mSelectedDriverName);
+    mProperties->setValue(kDeviceKey, mSelectedInputDeviceId);
+    mProperties->setValue(kDeviceNameKey, mSelectedInputDeviceName);
+    mProperties->setValue(kChannelSetKey, mSelectedChannelSet);
     mProperties->saveIfNeeded();
 }
 
@@ -725,7 +1057,20 @@ void AudioInputManager::_loadSelection()
     if (mProperties == nullptr)
         return;
 
-    mSelectedDriverName = mProperties->getValue(kDriverKey + mKeySuffix, {});
-    mSelectedInputDeviceName = mProperties->getValue(kDeviceKey + mKeySuffix, {});
-    mSelectedChannelSet = mProperties->getIntValue(kChannelSetKey + mKeySuffix, 0);
+    mSelectedDriverName = mProperties->getValue(kDriverKey, {});
+    mSelectedInputDeviceId = mProperties->getValue(kDeviceKey, {});
+    // A file written before endpoints were kept by id has no name of its own: back then the name
+    // was the key, so it is both.
+    mSelectedInputDeviceName = mProperties->getValue(kDeviceNameKey, mSelectedInputDeviceId);
+    mSelectedChannelSet = jmax(0, mProperties->getIntValue(kChannelSetKey, 0));
+
+#if JUCE_WINDOWS
+    // Turn such a file's endpoint name into the endpoint id it names. Only worth a scan of its own
+    // when there is a selection to migrate: every later scan tries again anyway, so an endpoint
+    // that is not switched on until after this is still picked up when it appears.
+    if (_isLoopbackDriverSelected() && mSelectedInputDeviceId.isNotEmpty()) {
+        _scanLoopbackEndpoints();
+        _migrateLoopbackNameToId();
+    }
+#endif
 }

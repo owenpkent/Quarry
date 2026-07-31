@@ -101,6 +101,13 @@ public:
     int getNumSamplesDownAcquired() const;
 
     /**
+     * Number of blocks a writer refused because its FIFO was full while recording. Anything above
+     * zero means the take has gaps in it and does not represent what was played.
+     * @return Number of blocks lost during the current or last recording.
+     */
+    int getNumLostWriteBlocks() const;
+
+    /**
      * Same as getNumSamplesDownAcquired() but in seconds instead of number of samples.
      * @return The duration in seconds of the audio acquired for transcription.
      */
@@ -162,6 +169,7 @@ private:
 
     unsigned long long mNumSamplesAcquired = 0;
     unsigned long long mNumSamplesAcquiredDown = 0;
+    std::atomic<int> mNumLostWriteBlocks = 0;
     double mDuration = 0.0;
 
     String mDroppedFilename;

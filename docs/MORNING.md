@@ -1,6 +1,13 @@
 # Quarry — morning brief
 
-## What Quarry is now
+> **Written 2026-07-30 overnight. Five things below have since changed; the rest stands.**
+> The change is **committed** (branch `audio-input-and-recording`), the **rename happened**
+> (the product, the source directory and the plugin codes are all Quarry now), and the update
+> checker points at your own repo, `github.com/owenpkent/NeuralNoteVideo`. Two more fixes
+> landed after this was written: picking an audio device is standalone-only, so in a DAW the
+> panel hides the pickers and records the host's audio as it always did, and System Audio
+> outputs are remembered by their Windows endpoint id rather than by name. The five questions
+> at the bottom are still open and still want answers.
 
 Quarry listens to whatever your computer is playing, all the time, and keeps the last five
 minutes in memory. When you hear something good you click one button — **KEEP** — and the
@@ -44,12 +51,14 @@ the original and state its changes; neither had ever existed here), and the desi
 
 **Not done, deliberately:** the rename, and committing. Both are waiting on you — see below.
 
-## Two things I did not do
+## Two things I did not do *(both since done, kept for the reasoning)*
 
 **I didn't commit.** The 414-line change is sitting in your working tree on
 `audio-input-and-recording`. Look at it, then commit it yourself, or tell me to.
+*(Done: it is committed on that branch.)*
 
-**I didn't rename.** The full checklist is ready and I verified the dangerous parts of it, but
+**I didn't rename.** *(Done: `chore: rename NeuralNoteVideo to Quarry`. The three costs below
+were all paid knowingly.)* The full checklist is ready and I verified the dangerous parts of it, but
 renaming now would bury the change above under a ~200-file diff and make it unreviewable. Say
 the word and it's one pass. Three things you should know before you do:
 
@@ -61,7 +70,9 @@ the word and it's one pass. Three things you should know before you do:
 
 I also found a live bug while checking: the update checker points at
 `github.com/DamRsn/NeuralNote/releases`, so anyone who checks for updates is offered
-*upstream's* installers, not yours. Trivial fix, folded into the rename.
+*upstream's* installers, not yours. Trivial fix, folded into the rename. *(Fixed: it points
+at `github.com/owenpkent/NeuralNoteVideo` now, and it ignores anything that is not a 200 with
+a real version tag, so a 404 or a rate limit no longer parses as a release.)*
 
 ## Five questions
 

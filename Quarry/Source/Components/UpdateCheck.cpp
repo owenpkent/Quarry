@@ -75,9 +75,19 @@ void UpdateCheck::checkForUpdate(bool inShowNotificationOnLatestVersion)
     // Call async because of issue on Windows with spinning cursor.
     MessageManager::callAsync([this, inShowNotificationOnLatestVersion] {
         Thread::launch([this, inShowNotificationOnLatestVersion] {
-            const URL url("https://api.github.com/repos/owenpkent/Quarry/releases/latest");
+            const URL url(String("https://api.github.com/repos/") + mGitHubRepo + "/releases/latest");
 
-            const auto result = url.readEntireTextStream();
+            int status_code = 0;
+            const auto stream = url.createInputStream(URL::InputStreamOptions(URL::ParameterHandling::inAddress)
+                                                          .withConnectionTimeoutMs(5000)
+                                                          .withStatusCode(&status_code));
+
+            // An error body (404, rate limit) still parses as JSON, so only a 200 is worth looking at.
+            if (stream == nullptr || status_code != 200) {
+                return;
+            }
+
+            const auto result = stream->readEntireStreamAsString();
 
             if (result.isEmpty()) {
                 return;
@@ -91,7 +101,15 @@ void UpdateCheck::checkForUpdate(bool inShowNotificationOnLatestVersion)
                 // Uncomment this line to test the new version available notification
                 // const auto current_version_str = String("v0.0.1");
 
-                const auto latest_version = json.getProperty("tag_name", "unknown").toString().trim();
+                if (!json.hasProperty("tag_name")) {
+                    return;
+                }
+
+                const auto latest_version = json.getProperty("tag_name", var()).toString().trim();
+
+                if (!_isVersionTag(latest_version)) {
+                    return;
+                }
 
                 MessageManager::callAsync(
                     [current_version_str, latest_version, inShowNotificationOnLatestVersion, this] {
@@ -106,6 +124,11 @@ void UpdateCheck::checkForUpdate(bool inShowNotificationOnLatestVersion)
             }
         });
     });
+}
+
+bool UpdateCheck::_isVersionTag(const String& inTag)
+{
+    return inTag.length() >= 2 && inTag[0] == 'v' && CharacterFunctions::isDigit(inTag[1]);
 }
 
 void UpdateCheck::_showNewVersionAvailableNotification()

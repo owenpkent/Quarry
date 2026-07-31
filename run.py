@@ -32,7 +32,16 @@ import sysconfig
 import tarfile
 import time
 import urllib.request
-from ctypes import wintypes
+
+# Everything past this point is Win32: ctypes.wintypes, the WinDLL handles, the process
+# enumeration. They raise on import elsewhere, long before main() can say anything useful,
+# so the platform check has to sit above the first Windows-only line rather than in
+# __main__.
+if sys.platform != "win32":
+    print("run.py is Windows-only. On macOS or Linux use ./build.sh.")
+    sys.exit(1)
+
+from ctypes import wintypes  # noqa: E402 - Windows-only, must follow the check above
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 
@@ -280,6 +289,20 @@ def ensure_onnxruntime() -> bool:
     return True
 
 
+def build_system_exists(build_dir: str) -> bool:
+    """True once configure got far enough to actually generate something buildable.
+
+    CMakeCache.txt is not that signal: cmake writes it early, so a configure that dies
+    after project() leaves a cache behind and no solution at all. Treating the cache as
+    "already configured" hands that half-configured tree to MSBuild on every later run,
+    which then fails with an error about a missing project, permanently.
+    """
+    for pattern in ("*.sln", "*.slnx", "build.ninja", "Makefile"):
+        if glob.glob(os.path.join(build_dir, pattern)):
+            return True
+    return False
+
+
 def lto_is_on(cache_path: str) -> bool:
     """True if an existing build tree was configured with LTO, which cannot link here."""
     try:
@@ -435,9 +458,13 @@ def main() -> int:
         # cannot link against the prebuilt onnxruntime here. The VS generator re-runs
         # CMake by itself when CMakeLists.txt changes, so configuring every launch is
         # dead time.
-        cache = os.path.join(ROOT, "build", "CMakeCache.txt")
-        if not os.path.exists(cache) or lto_is_on(cache):
+        build_dir = os.path.join(ROOT, "build")
+        cache = os.path.join(build_dir, "CMakeCache.txt")
+        if not build_system_exists(build_dir) or lto_is_on(cache):
             if run_cmake(["-S", ".", "-B", "build", "-DLTO=OFF"]) != 0:
+                print(f"{YELLOW}Configuring the build tree failed, so nothing was built.{RESET}")
+                print(f"{YELLOW}  Fix the cause above and run this again; it will retry the "
+                      f"configure. If it keeps failing, delete {build_dir} first.{RESET}")
                 return 1
 
         started = time.monotonic()
@@ -490,9 +517,6 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    if sys.platform != "win32":
-        print("run.py is Windows-only. On macOS or Linux use ./build.sh.")
-        sys.exit(1)
     try:
         code = main()
     except Exception:  # noqa: BLE001 - a double-clicked window must show the traceback

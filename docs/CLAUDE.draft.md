@@ -1,11 +1,18 @@
 # CLAUDE.md — Quarry AI Onboarding
 
-> **Status, 2026-07-30.** Quarry is designed and not yet built. `docs/DESIGN.md` and
-> `docs/PLAN.md` are the shape; this file describes that shape in the present tense because
-> it is what the code will be, and **every bullet that is not yet code is marked
-> `[not built]`**. The only thing that works today is the loopback spike in the donor fork at
-> `../NeuralNoteVideo`. When something lands, delete its marker — do not let this file drift
-> into describing intentions as facts.
+> **Status, 2026-07-30, updated 2026-07-31.** This is a *draft* `CLAUDE.md` for the Quarry
+> repo, which does not exist yet; it lives in the donor fork until it does. `docs/DESIGN.md`
+> and `docs/PLAN.md` are the shape; this file describes that shape in the present tense
+> because it is what the code will be, and **every bullet that is not yet code is marked
+> `[not built]`**. The markers are about the Quarry repo. The only thing that works today is
+> the loopback spike in the donor fork at `../NeuralNoteVideo`, which has since been renamed
+> so that its product is also called Quarry, though its checkout path and git remote are
+> still `NeuralNoteVideo`. When something lands, delete its marker — do not let this file
+> drift into describing intentions as facts.
+>
+> **The Build & Run section below is the Quarry repo's, not the fork's.** The fork builds with
+> its own `run.py` (Windows only, no `--hold`, no `run.ps1`, a 240 s launch deadline) and
+> vendors what it needs; see the fork's `README.md`.
 
 ## About the Owner
 
@@ -70,8 +77,15 @@ cmake -B build -G "Visual Studio 17 2022" -A x64 -DQUARRY_COPY_PLUGIN=OFF -DLTO=
 cmake --build build --config Release --target Quarry_VST3 Quarry_Standalone
 ```
 
-Artifacts: `build/Quarry_artefacts/Release/{VST3,Standalone}/`. Needs JUCE at `../JUCE` and
-the kit at `../okstudio-juce-kit`.
+Artifacts: `build/Quarry_artefacts/Release/{VST3,Standalone}/`. Needs JUCE at `../JUCE`.
+
+**The kit is not a checkout requirement.** It is a private repo, so anything that needs a
+sibling `../okstudio-juce-kit` to build leaves a public clone unable to build at all. The
+fork settled this by **vendoring** the headers it uses into `ThirdParty/okstudio/include/`,
+pinning the source commit in `ThirdParty/okstudio/UPSTREAM.txt`, re-syncing with
+`py tools/sync_okstudio.py`, and warning at configure time when a kit checkout that *is*
+present has drifted from the vendored copy. Quarry should do the same, or make the kit
+public. A sibling checkout is for syncing and for editing the kit, never for building.
 
 **Three build facts that are not choices, and that every new dependency has to live with.**
 They are all properties of one prebuilt library — a minimal ONNX Runtime built once, in March
@@ -161,10 +175,14 @@ ideas:
   and it auto-fills the snap dropdown that already exists), and chords / section labels / the
   paragraph last, **gated on measured accuracy on 20 real captures Owen chose**. A chord chip
   that is wrong a third of the time is worse than no chord chip.
-- **Capture is standalone-only.** `[not built]` Loaded as a VST3 in Live with System Audio
-  selected, Quarry would hear Live's master bus, including its own audition voice and whatever
-  MIDI it is driving. The plugin build hard-disables the loopback source and explains why on a
-  34 px plate. The VST3 exists to *emit* MIDI, Strata's shape.
+- **Capture is standalone-only.** `[landed in the fork]` Loaded as a VST3 in Live with System
+  Audio selected, Quarry would hear Live's master bus, including its own audition voice and
+  whatever MIDI it is driving. There is a second reason found while building it: an ASIO
+  driver serves one client at a time, so a driver the plugin opened for itself is a driver the
+  host can lose. A hosted plugin therefore never constructs an `AudioDeviceManager`, never
+  lists drivers or devices, hides those pickers, and records the audio the host sends it. The
+  plugin build hard-disables the loopback source and explains why on a 34 px plate. The VST3
+  exists to *emit* MIDI, Strata's shape.
 - **Chrome is Keys', copied verbatim.** `[not built]` `SectionBar.h`, `DetachedWindow.h`,
   `StepComboBox.h` and the `Holder` / `Section` structs, namespace `keys` → `quarry`. Four
   sections in a `std::array<Section, 4>` wired by one lambda: **SOURCE, ROLL, ANALYSIS,
@@ -224,7 +242,7 @@ ideas:
   say-so. Every feature request answers "how is this reached with one left-click?" before it is
   worth designing.
 - **No typing, anywhere.** The fork's `NumericTextEditor` (tempo, both time-signature fields)
-  and `NeuralNoteMainView::keyPressed` (space, shift+space, shift+backspace, r, m, c) are
+  and `QuarryMainView::keyPressed` (space, shift+space, shift+backspace, r, m, c) are
   deleted rather than restyled. Every numeric value is a drag with a stepper twin or a
   click-through list. If a feature needs a string from the user, it needs a file chooser or a
   fixed list instead.
@@ -298,14 +316,17 @@ faulty.** Confidence display must cover offsets separately from onsets or it wil
 
 ## Sibling projects (same owner, same conventions)
 
-`../okstudio-juce-kit` — shared header-only kit. `Theme.h`, `Scales.h`, `StateHelpers.h`,
-`MouseOnly.h`, `Updater.h`, `Mcp.h`, `RotaryKnob.h`; `Transcribe.h` + `src/basicpitch/` (the
-engine, behind `-DOKSTUDIO_KIT_BASICPITCH=ON`); `AudioCapture.h` + `CaptureMath.h` +
-`WasapiLoopback.h` (system-audio loopback via hand-written COM, because JUCE 8.0.8 has none);
-`cmake/OKStudioPlugin.cmake` → `okstudio_add_plugin()`. **Fix shared behaviour there, not
-here.** `AudioCapture.h` is deliberately *not* on `okstudio_kit`'s link line — it needs
-`juce_audio_devices` and `juce_audio_formats`, and the failure mode is a link error, not a
-compile error.
+`../okstudio-juce-kit` — shared header-only kit, and **private**. `Theme.h`, `Scales.h`,
+`StateHelpers.h`, `MouseOnly.h`, `Updater.h`, `Mcp.h`, `RotaryKnob.h`; `Transcribe.h` +
+`src/basicpitch/` (the engine, behind `-DOKSTUDIO_KIT_BASICPITCH=ON`); `AudioCapture.h` +
+`CaptureMath.h` + `WasapiLoopback.h` (system-audio loopback via hand-written COM, because
+JUCE 8.0.8 has none); `cmake/OKStudioPlugin.cmake` → `okstudio_add_plugin()`. **Fix shared
+behaviour there, not here**, then re-sync the consumers that vendor it. Because the repo is
+private, a consumer that must be buildable from a public clone vendors the headers it needs
+rather than depending on this checkout; the fork's `ThirdParty/okstudio/` plus
+`tools/sync_okstudio.py` is the pattern. `AudioCapture.h` is deliberately *not* on
+`okstudio_kit`'s link line — it needs `juce_audio_devices` and `juce_audio_formats`, and the
+failure mode is a link error, not a compile error.
 
 `../Keys` — the line's **reference consumer and UI standard**. Its Section / SectionBar /
 DetachedWindow / LayoutState system, its bar chips, its knob bank, its `capture-window.ps1` and
@@ -320,14 +341,16 @@ three-slot two-atomic `ScoreFeed` as the only bulk crossing. Also the reference 
 `docs/SC.md` is the precedent for writing down a shelved road so it is not reopened from
 scratch — Quarry's equivalent is `docs/DESIGN.md` → *Roads not taken*.
 
-`../NeuralNoteVideo` — the donor fork (Apache-2.0). Kept checked out for reference and for the
-Synthesia prototype in `prototypes/synthesia_detector/` and
-`VIDEO_ENHANCEMENT_PROPOSAL.md`. **Both of those documents contain claims that are wrong**: the
-prototype cannot emit a single black key (`synthesia_detector.py:120`) and registers onsets when
-a block enters the top of the frame rather than the strike line (`:133` + `:216`); the proposal's
-Path B claims performance-video transcription is "direct physical ground truth" when the
-published numbers put visual-only at onset F1 0.68 against audio-only's 0.877 on the same clips.
-Do not treat either as a baseline.
+`../NeuralNoteVideo` — the donor fork (Apache-2.0), whose product is now also called Quarry;
+only the checkout path and the git remote still say NeuralNoteVideo. Kept checked out for
+reference, for the working loopback capture, and for the Synthesia prototype in
+`prototypes/synthesia_detector/` and `VIDEO_ENHANCEMENT_PROPOSAL.md`. **Both of those contain
+claims that are wrong**: the prototype cannot emit a single black key
+(`synthesia_detector.py:120`) and registers onsets when a block enters the top of the frame
+rather than the strike line (`:133` + `:216`); the proposal's Path B claims performance-video
+transcription is "direct physical ground truth" when the published numbers put visual-only at
+onset F1 0.68 against audio-only's 0.877 on the same clips. The proposal now carries a
+correction banner saying so. Do not treat either as a baseline.
 
 Also in the line: `../Contour` (drawn melodic contours), `../Undertow` (bass), `../Beatform`
 (drums), `../Hex`.

@@ -1,11 +1,13 @@
 # Quarry — Build Plan
 
-> ## Status, 2026-07-30 overnight
+> ## Status, 2026-07-31
 >
-> **The day-one spike in Milestone 0 has landed** and is sitting uncommitted in the working
-> tree of `c:/Users/owenp/dev/NeuralNoteVideo` (branch `audio-input-and-recording`). It
-> builds clean; it has not been run. See `## [Unreleased]` in `CHANGELOG.md` for what it
-> does, and the "What landed" note in Milestone 0 below.
+> **The day-one spike in Milestone 0 has landed and is committed** on branch
+> `audio-input-and-recording` in `c:/Users/owenp/dev/NeuralNoteVideo`. The fork's product has
+> also been renamed to Quarry, so "Quarry" now names both the shipped fork and the planned
+> new repo below; the checkout path and the git remote are still `NeuralNoteVideo`. See
+> `## [Unreleased]` in `CHANGELOG.md` for what the spike does, and the "What landed" note in
+> Milestone 0 below.
 >
 > **One correction to this plan.** All three reviewers independently ranked the spike, not
 > the new-repo build, as the correct Milestone 1, and said so more strongly than the plan
@@ -36,7 +38,16 @@ verified.
 
 **Repos.** `c:/Users/owenp/dev/NeuralNoteVideo` is the donor fork and the vehicle for the
 day-one spike. `c:/Users/owenp/dev/Quarry` is the product. `../JUCE` and
-`../okstudio-juce-kit` are siblings; no `ThirdParty/` tree ever lands in Quarry.
+`../okstudio-juce-kit` are siblings.
+
+*Superseded on the kit.* This plan said no `ThirdParty/` tree ever lands in Quarry. The fork
+now **vendors** the two kit headers it needs at `ThirdParty/okstudio/include/okstudio/`,
+pinned in `ThirdParty/okstudio/UPSTREAM.txt` and re-synced by `py tools/sync_okstudio.py`,
+with a CMake warning when a local kit checkout has drifted from the vendored copy. The kit
+repo is private, so a submodule or a required sibling checkout would leave a public clone
+unable to build at all; a sibling checkout is now a convenience for syncing, never a build
+dependency. Whether the new repo consumes the kit the same way is still open, and the answer
+should follow the same reasoning rather than this line.
 
 **Legend.** 🔴 BLOCKED ON OWEN — do not start. 🟡 GATED — start only if a measurement passes.
 
@@ -56,7 +67,7 @@ drags the MIDI onto an Ableton track holding Simpler. That is the entire product
 working, in the fork, before a single architectural decision is locked — and a week of him
 actually using it will settle more than any further planning can.
 
-- Graft `okstudio-juce-kit/include/okstudio/WasapiLoopback.h` in behind the existing
+- Graft `okstudio/WasapiLoopback.h` in behind the existing
   `AudioInputManager` as a synthetic **"System Audio (loopback)"** entry, made the **default**
   selection in `AudioInputView`'s driver dropdown. The fork has zero loopback support (no
   matches for `loopback` or `WASAPI` in `AudioInputManager.{h,cpp}`); the kit already ships it
@@ -65,20 +76,38 @@ actually using it will settle more than any further planning can.
 - **Auto-run transcription on Stop.** No third click.
 - Enlarge the Record button to 180 × 72.
 
-*Not 1 day.* The kit header is C++20 and the fork is C++17 (`CMakeLists.txt:5`), the fork has
-no kit dependency, and the loopback poll thread delivers at the endpoint's rate into a
-`_writeBlock` that takes a `ScopedLock` and expects host-rate blocks. Budget 2.
+*Not 1 day.* The kit header was assumed to need C++20 against the fork's C++17
+(`CMakeLists.txt:5`), the fork has no kit dependency, and the loopback poll thread delivers at
+the endpoint's rate into a `_writeBlock` that takes a `ScopedLock` and expects host-rate
+blocks. Budget 2.
 
-**Files:** `NeuralNote/Source/AudioInputManager.{h,cpp}`,
-`NeuralNote/Source/Components/Views/AudioInputView.{h,cpp}`,
-`NeuralNote/Source/SourceAudioManager.cpp`, `CMakeLists.txt` (bump to C++20, add the kit
-include path).
+**Files:** `Quarry/Source/AudioInputManager.{h,cpp}`,
+`Quarry/Source/Components/Views/AudioInputView.{h,cpp}`,
+`Quarry/Source/SourceAudioManager.cpp`, `CMakeLists.txt` (add the kit include path).
 **Done when:** Owen reports he captured a YouTube clip and heard it back through Simpler.
 **Throw away after M1.**
 
+**What landed**, and where it differs from the four bullets above:
+
+- The driver entry is called **"System Audio"**, not "System Audio (loopback)". It is the
+  default on Windows on first run only, pointed at the default playback endpoint, and the
+  choice is then the user's; elsewhere the standalone starts on the machine's default input.
+- The C++20 bump was not needed. `WasapiLoopback.h` compiles at C++17, so `CMakeLists.txt:5`
+  is unchanged and the only CMake change is the include path plus the drift check.
+- The kit headers are **vendored**, not consumed from the sibling checkout. See the note under
+  *Repos* above.
+- Transcribe-on-stop needed no work, as the status block at the top says.
+- Beyond the four bullets, and not planned here: picking a device is standalone-only (a hosted
+  plugin never constructs an `AudioDeviceManager`, because an ASIO driver serves one client at
+  a time), loopback endpoints are remembered by their stable Windows endpoint id rather than by
+  name, a capture that dies mid-take reports an error and ends the take instead of silently
+  truncating it, and `UpdateCheck` was pointed at this fork's own origin.
+- The 180 × 72 Record button is the one in the audio input panel. The toolbar's record button
+  is untouched at 35 × 35, and the panel grew to make room.
+
 ### 0B. Retire the two existential risks (1 day)
 
-1. **Mirror the ONNX Runtime tarball.** It is a **~100 MB** download (`run.py:248`), not
+1. **Mirror the ONNX Runtime tarball.** It is a **~100 MB** download (`ONNX_URL` in `run.py`), not
    2.9 GB — the inflated number has been getting this deferred. It comes from one individual's
    personal GitHub release published once in March 2023
    (`tiborvass/libonnxruntime-neuralnote v1.14.1-neuralnote.1`) and is gitignored. Copy it to
@@ -156,9 +185,11 @@ deliberate gap injected into the writer is zero-padded to real time, not closed 
   `TimeQuantizeOptions` + `TimeQuantizeUtils.h` (as a pure header), `SynthController` (the
   16-voice MPESynthesiser shrinks to one audition voice), and `Playhead::computePlayheadPositionPixel`
   (already a static pure function). `MidiFileWriter` went into the kit in 0C.
-- **Deleted outright, immediately:** `UpdateCheck` — it points at
-  `DamRsn/NeuralNote/releases/latest`, which in a sold product sends customers to the free
-  upstream.
+- **Deleted outright, immediately:** `UpdateCheck`. It polls a public GitHub releases API on
+  every launch, which is the wrong update story for a sold product. *(It pointed at
+  `DamRsn/NeuralNote/releases/latest`, sending customers to the free upstream. That is fixed
+  in the fork, which now polls `owenpkent/NeuralNoteVideo`, but the reason to drop it here
+  stands.)*
 
 **Done when:** `py run.py` builds and launches an empty-shell Quarry standalone titled
 "Quarry", and `Tests/` links `okstudio_kit` and runs green.

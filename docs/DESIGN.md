@@ -5,7 +5,11 @@ inside one.*
 
 Status: design settled 2026-07-30. Nothing in `c:/Users/owenp/dev/Quarry` is built yet;
 `c:/Users/owenp/dev/NeuralNoteVideo` is the donor fork and the vehicle for the day-one spike.
-Build order lives in `QUARRY_PLAN.md`.
+Build order lives in `docs/PLAN.md`.
+
+Updated 2026-07-31: the fork's product has since been renamed to Quarry, so "Quarry" names
+both the shipped fork and the repo designed here. Everything below describes the repo that
+does not exist yet, except where a note says a piece landed in the fork first.
 
 ---
 
@@ -295,7 +299,11 @@ so uniqueness is load-bearing rather than cosmetic.
 - **Capture is standalone-only.** Loaded as a VST3 in Live with System Audio selected,
   Quarry would hear Live's master bus, which contains its own audition voice and whatever
   MIDI it is driving. The plugin build hard-disables the loopback source and shows a 34 px
-  plate explaining why. The VST3 exists to *emit* MIDI, Strata's shape.
+  plate explaining why. The VST3 exists to *emit* MIDI, Strata's shape. *(Landed in the fork
+  first, and with a second reason this section did not have: an ASIO driver serves one client
+  at a time, so a driver the plugin took would be a driver the host could lose. A hosted
+  Quarry never constructs an `AudioDeviceManager` at all, hides the driver, input and channel
+  pickers, and records the audio the host sends it.)*
 - **Three threads, and the third one is new to the line.** Audio thread plays back and
   makes no decisions. Message thread does UI and the ~1 ms `retranscribe()` fast path.
   **Analysis thread** is a `juce::ThreadPoolJob` on a one-thread pool running the staged
@@ -344,7 +352,7 @@ so uniqueness is load-bearing rather than cosmetic.
 | Detach a section | one left-click, Detach | 90 × 24 |
 
 No double-click. No modifier. No keyboard path anywhere — the fork's `NumericTextEditor`
-and `NeuralNoteMainView::keyPressed` (space, shift+space, shift+backspace, r, m, c) are
+and `QuarryMainView::keyPressed` (space, shift+space, shift+backspace, r, m, c) are
 deleted rather than restyled. Right-click is an optional accelerator only, and every
 right-click path has a left-click twin.
 
@@ -539,19 +547,20 @@ its upstream repo and its training data — cheap at two models, archaeology at 
   editable artefact is MIDI, which is both the safer position and the better product, and
   Quarry should not be described in terms that invite the comparison.
 
-**Must be resolved before anything is sold** (see `QUARRY_PLAN.md` → *Licence decisions
+**Must be resolved before anything is sold** (see `docs/PLAN.md` → *Licence decisions
 required*): the vendored **ASIO SDK** (Steinberg requires a signed agreement to redistribute
 a binary containing it — and the kit's `AudioCapture` keeps ASIO deliberately, so this
 affects the kit too); a **paid JUCE licence** for a closed-source product with
 `JUCE_DISPLAY_SPLASH_SCREEN=0`; whether `spotify/basic-pitch` ships a NOTICE whose contents
 must be reproduced.
 
-**Apache-2.0 §4(b) is unsatisfied in the fork today** and must be satisfied in Quarry on day
-one. No file carries a statement of changes, and there has never been a NOTICE file in the
-repo's history. Every ported file **keeps** its `Created by Damien Ronssin` header (stripping
-it breaches §4(c)) and gains `// Modified 2026 by Owen Kent for Quarry.`; `NOTICE` at the
-repo root names Ronssin, Tibor Vass and Spotify's basic-pitch; `LICENSE` ships. §6 grants no
-trademark rights, which is why `NeuralNoteVideo` does not survive as a name.
+**Apache-2.0 §4(b) is now partly satisfied in the fork** and must be satisfied in the new repo
+on day one. A root `NOTICE` landed on 2026-07-30 naming Ronssin, Tibor Vass and Spotify's
+basic-pitch, stating the changes at the product level, and listing the third-party components
+in the tree; what is still missing is the per-file statement of changes. Every ported file **keeps** its `Created by Damien Ronssin`
+header (stripping it breaches §4(c)) and gains `// Modified 2026 by Owen Kent for Quarry.`;
+`LICENSE` ships. §6 grants no trademark rights, which is why `NeuralNoteVideo` does not survive
+as a product name.
 
 **The single point of failure nobody is protecting.** The prebuilt `onnxruntime.lib` is
 2.91 GB on disk and comes from a ~100 MB tarball published **once**, in March 2023, on one
@@ -619,9 +628,9 @@ readout stay; they are cheap and honest.
 timing is the failure mode. Rejected in favour of KEEP. Its only advantages — no always-on
 thread, no ring, ~130 px more roll — are not worth requiring prescience.
 
-**Renovating NeuralNoteVideo in place.** 2.9 GB of `ThirdParty`, two git submodules, C++17,
+**Renovating the fork in place.** 2.9 GB of `ThirdParty`, two git submodules, C++17,
 a `GLOB_RECURSE` build, and a main view that is hardcoded absolute pixel coordinates painted
-over a background PNG (`NeuralNoteMainView.cpp:285-303`) with a fixed window size. There is
+over a background PNG (`QuarryMainView::resized()`) with a fixed window size. There is
 no incremental path from that to Keys' Section system. Anyone estimating "just restyle it" is
 wrong by an order of magnitude. *(The fork stays checked out as the donor and as the day-one
 spike vehicle — that is not the same as renovating it.)*
@@ -633,8 +642,8 @@ system (ViT, IJCAI 2025) scores onset F1 **0.68** on real YouTube top-down piano
 the audio-only baseline scores **0.877** on the same clips — and that 0.68 is measured against
 pseudo-labels generated *from the audio*, so the comparison is already generous. Video buys
 pitch accuracy, never timing: 30 fps quantises onsets to ±16 ms against basic-pitch's 11.6 ms
-hop. Building it would make transcriptions *worse*. **That section of the proposal should be
-rewritten before anyone acts on it.** The Synthesia path is a different thing entirely —
+hop. Building it would make transcriptions *worse*. **The proposal now carries a correction
+banner and that section is marked closed.** The Synthesia path is a different thing entirely —
 de-rendering a MIDI file, not perception — and it is kept.
 
 **Path A2, sheet-music OMR.** Closed as a no: Audiveris is AGPL, oemer is Python plus deep
@@ -655,7 +664,8 @@ expensive thing you can ask for. Everything docks; the roll gets ≥ 12 rows at 
 window size; detach exists and is never required.
 
 **Capture inside the VST3.** It would hear Live's master bus, including Quarry's own audition
-voice. Loopback is hard-disabled in the plugin build.
+voice, and an ASIO driver the plugin opened for itself is a driver the host can lose. Loopback
+is hard-disabled in the plugin build. *(Already true in the fork.)*
 
 **An extended chord vocabulary, a single confident key label, asserted section names.**
 Chord estimation's ceiling is ~84 % on root/majmin and trained human annotators disagree by

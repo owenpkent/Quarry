@@ -17,6 +17,10 @@ constexpr int kMeterY = 140;
 constexpr int kMeterHeight = 16;
 constexpr int kStatusY = 172;
 
+// Where the meter and the status text sit when there are no pickers above them to make room for.
+constexpr int kNoPickersMeterY = kDriverRowY;
+constexpr int kNoPickersStatusY = kInputRowY;
+
 // The primary target of the whole app, so it is sized to be hit with a mouse without aiming.
 constexpr int kRecordButtonWidth = 180;
 constexpr int kRecordButtonHeight = 72;
@@ -25,6 +29,7 @@ constexpr int kRecordButtonHeight = 72;
 AudioInputView::AudioInputView(QuarryAudioProcessor& inProcessor, std::function<void()> inOnRecordClicked)
     : mProcessor(inProcessor)
     , mOnRecordClicked(std::move(inOnRecordClicked))
+    , mCanSelectInput(inProcessor.getAudioInputManager()->canSelectInputDevice())
 {
     auto make_drop_down = [this](const String& inName, const String& inTooltip, std::function<void()> inOnChange) {
         auto drop_down = std::make_unique<ComboBox>(inName);
@@ -39,6 +44,14 @@ AudioInputView::AudioInputView(QuarryAudioProcessor& inProcessor, std::function<
     mDriverDropDown = make_drop_down("Driver", QuarryTooltips::ai_driver, [this] { _driverChanged(); });
     mInputDropDown = make_drop_down("Input", QuarryTooltips::ai_device, [this] { _inputDeviceChanged(); });
     mChannelsDropDown = make_drop_down("Channels", QuarryTooltips::ai_channels, [this] { _channelsChanged(); });
+
+    // In a plugin there is nothing to pick: the manager lists no drivers and opens no devices, so
+    // an empty picker would only invite the user to try.
+    if (!mCanSelectInput) {
+        mDriverDropDown->setVisible(false);
+        mInputDropDown->setVisible(false);
+        mChannelsDropDown->setVisible(false);
+    }
 
     mRecordButton = std::make_unique<TextButton>("RECORD");
     mRecordButton->setTooltip(QuarryTooltips::record);
@@ -71,6 +84,10 @@ AudioInputView::AudioInputView(QuarryAudioProcessor& inProcessor, std::function<
 AudioInputView::~AudioInputView()
 {
     stopTimer();
+
+    // Closing the editor destroys the panel without hiding it first, and nothing else would ever
+    // turn the host input metering back off: it would keep scanning every block for no one.
+    mProcessor.setHostInputLevelWanted(false);
     mProcessor.getAudioInputManager()->setPanelOnScreen(false);
 }
 
@@ -107,14 +124,22 @@ void AudioInputView::paint(Graphics& g)
     g.drawText("AUDIO INPUT", Rectangle<int>(kLabelX, 8, 260, 20), Justification::centredLeft);
 
     g.setFont(UIDefines::LABEL_FONT());
-    g.drawText("DRIVER", Rectangle<int>(kLabelX, kDriverRowY, kLabelWidth, kRowHeight), Justification::centredLeft);
-    g.drawText("INPUT", Rectangle<int>(kLabelX, kInputRowY, kLabelWidth, kRowHeight), Justification::centredLeft);
-    g.drawText("CHANNELS", Rectangle<int>(kLabelX, kChannelsRowY, kLabelWidth, kRowHeight), Justification::centredLeft);
-    g.drawText("LEVEL", Rectangle<int>(kLabelX, kMeterY, kLabelWidth, kMeterHeight), Justification::centredLeft);
+
+    if (mCanSelectInput) {
+        g.drawText("DRIVER", Rectangle<int>(kLabelX, kDriverRowY, kLabelWidth, kRowHeight), Justification::centredLeft);
+        g.drawText("INPUT", Rectangle<int>(kLabelX, kInputRowY, kLabelWidth, kRowHeight), Justification::centredLeft);
+        g.drawText(
+            "CHANNELS", Rectangle<int>(kLabelX, kChannelsRowY, kLabelWidth, kRowHeight), Justification::centredLeft);
+    }
+
+    const int meter_y = mCanSelectInput ? kMeterY : kNoPickersMeterY;
+    const int status_y = mCanSelectInput ? kStatusY : kNoPickersStatusY;
+
+    g.drawText("LEVEL", Rectangle<int>(kLabelX, meter_y, kLabelWidth, kMeterHeight), Justification::centredLeft);
 
     // Level meter
     const int meter_width = getWidth() - kControlX - kLabelX;
-    auto meter_bounds = Rectangle<int>(kControlX, kMeterY, meter_width, kMeterHeight).toFloat();
+    auto meter_bounds = Rectangle<int>(kControlX, meter_y, meter_width, kMeterHeight).toFloat();
 
     g.setColour(BLACK.withAlpha(0.12f));
     g.fillRoundedRectangle(meter_bounds, 3.0f);
@@ -132,7 +157,7 @@ void AudioInputView::paint(Graphics& g)
     g.setColour(BLACK.withAlpha(0.7f));
     g.setFont(UIDefines::DROPDOWN_FONT());
     g.drawFittedText(mStatusText,
-                     Rectangle<int>(kLabelX, kStatusY, status_width, getHeight() - kStatusY - 10),
+                     Rectangle<int>(kLabelX, status_y, status_width, getHeight() - status_y - 10),
                      Justification::topLeft,
                      4);
 }
@@ -195,21 +220,34 @@ void AudioInputView::refresh()
     const int driver_index = driver_names.indexOf(input_manager->getSelectedDriverName());
     mDriverDropDown->setSelectedItemIndex(jmax(driver_index, 0), dontSendNotification);
 
-    // Inputs. The host's own audio is always the first entry.
-    mInputDeviceNames.clear();
-    mInputDeviceNames.add(AudioInputManager::getHostInputName());
-    mInputDeviceNames.addArray(input_manager->getInputDeviceNames());
+    // Inputs. The host's own audio is always the first entry, and has no device behind it.
+    mInputDevices.clearQuick();
+    mInputDevices.add({String(), AudioInputManager::getHostInputName()});
+    mInputDevices.addArray(input_manager->getInputDevices());
+
+    StringArray input_names;
+
+    for (const auto& device: mInputDevices)
+        input_names.add(device.name);
 
     mInputDropDown->clear(dontSendNotification);
-    mInputDropDown->addItemList(mInputDeviceNames, 1);
+    mInputDropDown->addItemList(input_names, 1);
 
-    const auto selected_device = input_manager->getSelectedInputDeviceName();
-    const int device_index = selected_device.isEmpty() ? 0 : mInputDeviceNames.indexOf(selected_device);
+    // Matched by id, never by what it is called: two System Audio endpoints can show the same name.
+    const auto selected_id = input_manager->getSelectedInputDeviceId();
+    int device_index = selected_id.isEmpty() ? 0 : -1;
+
+    for (int i = 1; device_index < 0 && i < mInputDevices.size(); i++)
+        if (mInputDevices[i].id == selected_id)
+            device_index = i;
+
+    mSelectedDeviceIsPresent = device_index >= 0;
 
     if (device_index < 0) {
-        // The remembered device isn't there any more (unplugged, or a different machine).
-        mInputDropDown->addItem(selected_device + " (not found)", mInputDeviceNames.size() + 1);
-        mInputDropDown->setSelectedItemIndex(mInputDeviceNames.size(), dontSendNotification);
+        // The remembered device isn't there any more (unplugged, renamed, or a different machine).
+        mInputDropDown->addItem(input_manager->getSelectedInputDeviceDisplayName() + " (not found)",
+                                mInputDevices.size() + 1);
+        mInputDropDown->setSelectedItemIndex(mInputDevices.size(), dontSendNotification);
     } else {
         mInputDropDown->setSelectedItemIndex(device_index, dontSendNotification);
     }
@@ -223,8 +261,19 @@ void AudioInputView::refresh()
         mChannelsDropDown->setSelectedItemIndex(0, dontSendNotification);
     } else {
         mChannelsDropDown->addItemList(channel_names, 1);
-        mChannelsDropDown->setSelectedItemIndex(
-            jlimit(0, channel_names.size() - 1, input_manager->getSelectedInputChannelSet()), dontSendNotification);
+
+        const int channel_set = jlimit(0, channel_names.size() - 1, input_manager->getSelectedInputChannelSet());
+
+        // Pushed back into the manager, never only displayed: a device that has come back with fewer
+        // inputs than when the choice was made would otherwise record a channel other than this one,
+        // and clicking the entry already shown cannot put that right. Only while these really are the
+        // selected device's channels, though: they are the open device's, and while some other device
+        // is the open one they are a fallback's, and writing those back would overwrite a choice that
+        // is still good, save it, and reopen a device over a selection that isn't there.
+        if (_isSelectedDeviceOpen())
+            input_manager->setSelectedInputChannelSet(channel_set);
+
+        mChannelsDropDown->setSelectedItemIndex(channel_set, dontSendNotification);
     }
 
     mStatusText = _getStatusText();
@@ -241,7 +290,9 @@ void AudioInputView::updateEnablements()
     // Switching device under a running recording would leave the writers mid-file.
     mDriverDropDown->setEnabled(!is_recording);
     mInputDropDown->setEnabled(!is_recording);
-    mChannelsDropDown->setEnabled(!is_recording && input_manager->isInputDeviceOpen());
+    // While the selected device is away, the open one is a fallback: picking from its channels would
+    // only overwrite the choice made for the device that is coming back.
+    mChannelsDropDown->setEnabled(!is_recording && mSelectedDeviceIsPresent && input_manager->isInputDeviceOpen());
 
     mRecordButton->setEnabled(state == EmptyAudioAndMidiRegions || is_recording);
     mRecordButton->setButtonText(is_recording ? "STOP" : "RECORD");
@@ -264,9 +315,10 @@ void AudioInputView::_inputDeviceChanged()
     const int index = mInputDropDown->getSelectedItemIndex();
 
     // Index 0 is the host input, and anything past the real device list is the "not found" entry.
-    const bool is_device = index > 0 && index < mInputDeviceNames.size();
+    const bool is_device = index > 0 && index < mInputDevices.size();
 
-    mProcessor.getAudioInputManager()->setSelectedInputDeviceName(is_device ? mInputDeviceNames[index] : String());
+    mProcessor.getAudioInputManager()->setSelectedInputDevice(is_device ? mInputDevices[index]
+                                                                        : AudioInputManager::InputDevice());
     refresh();
 }
 
@@ -279,15 +331,64 @@ void AudioInputView::_channelsChanged()
     refresh();
 }
 
+bool AudioInputView::_isSelectedDeviceOpen() const
+{
+    auto* input_manager = mProcessor.getAudioInputManager();
+
+    // Being listed is not being the one that opened. A device can be there and still refuse to open,
+    // busy in another app, and what the driver leaves open then is a different device of its own
+    // choosing, whose channels have nothing to do with the selection. The manager cannot yet say
+    // which device is the open one, so anything it is complaining about is taken as not ours:
+    // skipping a write-back costs a reopen, making one against a fallback overwrites a good choice.
+    return mSelectedDeviceIsPresent && input_manager->isInputDeviceOpen() && input_manager->getLastError().isEmpty();
+}
+
 String AudioInputView::_getStatusText() const
 {
     auto* input_manager = mProcessor.getAudioInputManager();
 
+    // Already a complete sentence, and says which way it went wrong: an input that died under a take
+    // and one that came back as a different input are different sentences, not one shared one.
     const auto error = input_manager->getLastError();
 
-    if (error.isNotEmpty())
-        return "Could not open this input: " + error;
+    const auto state = mProcessor.getState();
+    const bool take_landed = state == Processing || state == PopulatedAudioAndMidiRegions;
 
+    StringArray sentences;
+    sentences.add(error);
+
+    // Nothing else would ever say so: a take the writers dropped blocks from has holes in it and
+    // looks exactly like a whole one.
+    if (take_landed && mProcessor.getSourceAudioManager()->getNumLostWriteBlocks() > 0)
+        sentences.add("Some of the audio was lost while recording, so this take is incomplete.");
+
+    // A failure is never the last word once a take has landed: record is disabled until that take is
+    // cleared, and only the state message says how. The rest of the state messages describe a
+    // healthy input, so a failure still stands on its own there.
+    if (error.isEmpty() || take_landed)
+        sentences.add(_getStateText());
+
+    // Last, and never part of what decides any of the above: a driver reports statuses it carries on
+    // through without missing a block, so this is a note for whoever is diagnosing one rather than a
+    // verdict on the input, and a working device goes on reading as one. A failure of ours already
+    // quotes it, so it is only added when there is none to say it twice.
+    if (error.isEmpty()) {
+        const auto driver_message = input_manager->getLastDriverMessage();
+
+        // Wrapped in a sentence, never left standing on its own: the driver's wording is a fragment,
+        // and often just a code.
+        if (driver_message.isNotEmpty())
+            sentences.add("The driver reported: " + driver_message);
+    }
+
+    sentences.removeEmptyStrings();
+
+    return sentences.joinIntoString(" ");
+}
+
+String AudioInputView::_getStateText() const
+{
+    auto* input_manager = mProcessor.getAudioInputManager();
     const auto state = mProcessor.getState();
 
     if (state == Processing)
@@ -297,6 +398,9 @@ String AudioInputView::_getStatusText() const
         return "Clear the current take (the bin button) before recording another.";
 
     if (!input_manager->hasSelectedInputDevice()) {
+        if (!mCanSelectInput)
+            return "Recording the audio your DAW sends to the plugin.";
+
         return String("Recording the audio your DAW sends to the plugin. ")
                + "To record from this computer instead, pick an input above.";
     }
@@ -308,7 +412,7 @@ String AudioInputView::_getStatusText() const
     const auto rate_text = String(sample_rate / 1000.0, 1) + " kHz";
 
     if (state == Recording)
-        return "Recording from " + input_manager->getSelectedInputDeviceName() + " at " + rate_text + ".";
+        return "Recording from " + input_manager->getSelectedInputDeviceDisplayName() + " at " + rate_text + ".";
 
-    return "Ready to record from " + input_manager->getSelectedInputDeviceName() + " at " + rate_text + ".";
+    return "Ready to record from " + input_manager->getSelectedInputDeviceDisplayName() + " at " + rate_text + ".";
 }

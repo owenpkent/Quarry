@@ -71,10 +71,14 @@ void SourceAudioManager::_writeBlock(const AudioBuffer<float>& inBuffer)
     if (!mIsRecording.load() || mThreadedWriter == nullptr || mThreadedWriterDown == nullptr)
         return;
 
-    // Write incoming audio to file at native sample rate
-    bool result = mThreadedWriter->write(inBuffer.getArrayOfReadPointers(), inBuffer.getNumSamples());
-    jassertquiet(result);
-    mNumSamplesAcquired += inBuffer.getNumSamples();
+    // Write incoming audio to file at native sample rate. A writer whose FIFO is full drops the
+    // whole block, so only count samples that actually made it in.
+    if (mThreadedWriter->write(inBuffer.getArrayOfReadPointers(), inBuffer.getNumSamples())) {
+        mNumSamplesAcquired += inBuffer.getNumSamples();
+    } else {
+        mNumLostWriteBlocks.fetch_add(1);
+    }
+
     mDuration = static_cast<double>(mNumSamplesAcquiredDown) / BASIC_PITCH_SAMPLE_RATE;
 
     // Downmix to mono
@@ -92,11 +96,11 @@ void SourceAudioManager::_writeBlock(const AudioBuffer<float>& inBuffer)
     jassert(num_samples_down <= mInternalDownsampledBuffer.getNumSamples());
 
     // Write downsampled audio to file at downsampled sample rate
-    bool result_down =
-        mThreadedWriterDown->write(mInternalDownsampledBuffer.getArrayOfReadPointers(), num_samples_down);
-    jassertquiet(result_down);
-
-    mNumSamplesAcquiredDown += num_samples_down;
+    if (mThreadedWriterDown->write(mInternalDownsampledBuffer.getArrayOfReadPointers(), num_samples_down)) {
+        mNumSamplesAcquiredDown += num_samples_down;
+    } else {
+        mNumLostWriteBlocks.fetch_add(1);
+    }
 }
 
 void SourceAudioManager::startRecording()
@@ -197,6 +201,7 @@ void SourceAudioManager::_startRecording(double inSampleRate, int inNumChannels,
 
     mNumSamplesAcquired = 0;
     mNumSamplesAcquiredDown = 0;
+    mNumLostWriteBlocks.store(0);
 
     mIsRecording.store(true);
     mProcessor->setStateToRecording();
@@ -244,8 +249,13 @@ void SourceAudioManager::stopRecording()
         AudioUtils::resampleBuffer(mSourceAudio, tmp_buffer, mSourceAudioSampleRate, mSampleRate);
         mSourceAudio = std::move(tmp_buffer);
         mSourceAudioSampleRate = mSampleRate;
-        mNumSamplesAcquired = static_cast<unsigned long long>(mSourceAudio.getNumSamples());
     }
+
+    // What the writers were handed is not necessarily what reached disk, so take the counts from
+    // the buffers that were just loaded. They must never claim more samples than the buffers hold.
+    mNumSamplesAcquired = static_cast<unsigned long long>(mSourceAudio.getNumSamples());
+    mNumSamplesAcquiredDown = static_cast<unsigned long long>(mDownsampledSourceAudio.getNumSamples());
+    mDuration = static_cast<double>(mNumSamplesAcquiredDown) / BASIC_PITCH_SAMPLE_RATE;
 
     auto& tree = mProcessor->getValueTree();
     tree.setPropertyExcludingListener(this, NnId::SourceAudioNativeSrPathId, mSourceFile.getFullPathName(), nullptr);
@@ -316,6 +326,7 @@ void SourceAudioManager::clear()
 
     mNumSamplesAcquiredDown = 0;
     mNumSamplesAcquired = 0;
+    mNumLostWriteBlocks.store(0);
     mDuration = 0.0;
 
     _deleteFilesToDelete();
@@ -343,6 +354,11 @@ String SourceAudioManager::getDroppedFilename() const
 int SourceAudioManager::getNumSamplesDownAcquired() const
 {
     return static_cast<int>(mNumSamplesAcquiredDown);
+}
+
+int SourceAudioManager::getNumLostWriteBlocks() const
+{
+    return mNumLostWriteBlocks.load();
 }
 
 double SourceAudioManager::getAudioSampleDuration() const

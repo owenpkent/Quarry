@@ -36,7 +36,8 @@ The workflow is very simple:
 
 - Gather some audio
     - Click record. Works when recording for real or when playing the track in a DAW.
-    - Or pick an audio input in the **AUDIO INPUT** panel and record straight from it (see below).
+    - Or, in the standalone app, pick an audio input in the **AUDIO INPUT** panel and record straight from it
+      (see below).
     - Or drop an audio file on the plugin. (.wav, .aiff, .flac, .mp3 and .ogg (vorbis) supported)
 - The MIDI transcription instantly appears in the piano roll section.
 - Listen to the result by clicking the play button.
@@ -46,26 +47,39 @@ The workflow is very simple:
 
 ### Recording from an audio input
 
-The microphone button in the toolbar drops down the **AUDIO INPUT** panel, which records straight from this
-computer's audio hardware, with no DAW and no trip through the standalone app's Audio/MIDI Settings dialog:
+The microphone button in the toolbar drops down the **AUDIO INPUT** panel. In the standalone app it records
+straight from this computer's audio hardware, with no DAW and no trip through the Audio/MIDI Settings dialog:
 
-- **DRIVER** picks the audio driver to list inputs from (Windows Audio, ASIO, DirectSound, ...).
+- **DRIVER** picks the audio driver to list inputs from. On Windows the first entry is **System Audio**, whose
+  inputs are the computer's playback outputs rather than its microphones (see below). The rest are the real
+  drivers (Windows Audio, ASIO, DirectSound, ...).
 - **INPUT** picks what to record. `Host input (no device)` is the original NeuralNote behaviour: record whatever
-  audio the DAW sends the plugin. Anything else is a device Quarry opens itself, which works the same
-  way in the DAW and in the standalone app, and never disturbs the host's own audio setup.
+  audio the DAW sends the plugin. Anything else is a device Quarry opens itself, kept separate from the
+  standalone app's own audio setup, so choosing one never disturbs it.
 - **CHANNELS** picks which channel(s) of a multi-input interface to record.
 - **LEVEL** shows the input's level, so you can see signal arriving before you commit to a take.
 
+Picking a device is standalone-only. Loaded in a DAW, Quarry never opens an audio device of its own: the panel
+hides those three pickers and shows only the level and the record button, and recording uses the audio the host
+sends the plugin, exactly as it always did. An ASIO driver serves one client at a time, so a driver the plugin
+took for itself would be a driver the host could lose.
+
 Recording then works as it always did: hit record (in the panel or in the toolbar), play, hit stop, and the
-transcription appears. The chosen input is remembered between sessions.
+transcription appears. The chosen input is remembered between runs.
 
 The input device is only opened while the panel is on screen or while recording, so Quarry never holds
-a microphone open in the background. In the standalone app the panel starts on this computer's default input,
-because the standalone mutes the audio input it is handed to avoid a feedback loop.
+a microphone open in the background.
 
 To transcribe audio that is *playing* on this computer (a video in a browser, say) rather than audio coming in
-a microphone, select a loopback input if your sound card offers one ("Stereo Mix" on many Realtek cards) or a
-virtual audio cable. Windows has no loopback input of its own.
+a microphone, pick the **System Audio** driver and then the output you are listening on. Quarry records
+everything coming out of it, through WASAPI loopback, so no "Stereo Mix" input and no virtual audio cable is
+needed. That is Windows only: on macOS and Linux the driver list holds only the real drivers, and a loopback
+input your sound card offers, or a virtual audio cable, is still the way there.
+
+On Windows the standalone app starts on System Audio, pointed at the default playback output, so there is
+nothing to set up before hitting record; elsewhere it starts on this computer's default input. Either way it
+does not start on the host input, because the standalone mutes the audio input it is handed to avoid a
+feedback loop.
 
 **Watch the original NeuralNote presentation video for the Neural Audio Plugin
 competition [here](https://www.youtube.com/watch?v=6_MC0_aG_DQ)**.
@@ -95,7 +109,9 @@ only works on a matching toolchain.
 
 ### Full build
 
-Requirements are: `git`, `cmake`, and your OS's preferred compiler suite.
+Requirements are: `git`, `cmake`, and your OS's preferred compiler suite. Nothing else has to be fetched by
+hand: the okstudio kit headers Quarry uses for system-audio recording are checked in under
+[`ThirdParty/okstudio`](ThirdParty/okstudio/README.md).
 
 Use this when cloning:
 
@@ -189,6 +205,8 @@ Here's a list of all the third party libraries used in Quarry and the license un
 - [basic-pitch](https://github.com/spotify/basic-pitch) (Apache-2.0 license)
 - [basic-pitch-ts](https://github.com/spotify/basic-pitch-ts) (Apache-2.0 license)
 - [minimp3](https://github.com/lieff/minimp3) (CC0-1.0 license)
+- [okstudio JUCE kit](https://github.com/owenpkent/okstudio-juce-kit) (OK Studio's own, used for Windows
+  system-audio recording; the headers are vendored, see [`ThirdParty/okstudio`](ThirdParty/okstudio/README.md))
 
 ## Could Quarry transcribe audio in real-time?
 
