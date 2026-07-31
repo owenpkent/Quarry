@@ -39,7 +39,12 @@ public:
 
     CombinedAudioMidiRegion& getCombinedAudioMidiRegion();
 
-    static constexpr int KEYBOARD_WIDTH = 50;
+    // The keyboard is not drawn any more: it was the brightest thing on screen and
+    // spent 50 px of width on a pitch ruler. It stays alive as a geometry source,
+    // because PianoRoll asks it where every note and lane sits, so it keeps real
+    // bounds while reserving no space in the layout.
+    static constexpr int KEYBOARD_WIDTH = 0;
+    static constexpr int KEYBOARD_GEOMETRY_WIDTH = 50;
 
 private:
     QuarryAudioProcessor* mProcessor;

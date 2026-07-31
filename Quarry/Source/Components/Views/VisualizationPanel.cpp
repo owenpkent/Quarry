@@ -15,7 +15,8 @@ VisualizationPanel::VisualizationPanel(QuarryAudioProcessor* processor)
     addAndMakeVisible(mAudioMidiViewport);
     mCombinedAudioMidiRegion.setViewportPtr(&mAudioMidiViewport);
 
-    addAndMakeVisible(mKeyboard);
+    // Kept as a child so it lays out and answers geometry questions, never shown.
+    addChildComponent(mKeyboard);
 
     mAudioMidiViewport.setScrollBarsShown(false, true, false, false);
     addChildComponent(mMidiFileDrag);
@@ -72,8 +73,10 @@ VisualizationPanel::VisualizationPanel(QuarryAudioProcessor* processor)
 
 void VisualizationPanel::resized()
 {
-    mKeyboard.setBounds(
-        0, mCombinedAudioMidiRegion.mPianoRollY, KEYBOARD_WIDTH, getHeight() - mCombinedAudioMidiRegion.mPianoRollY);
+    mKeyboard.setBounds(0,
+                        mCombinedAudioMidiRegion.mPianoRollY,
+                        KEYBOARD_GEOMETRY_WIDTH,
+                        getHeight() - mCombinedAudioMidiRegion.mPianoRollY);
 
     mAudioMidiViewport.setBounds(KEYBOARD_WIDTH, 0, getWidth() - KEYBOARD_WIDTH, getHeight());
 
