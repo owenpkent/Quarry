@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(NeuralNotePlugin VERSION 1.1.0)
+project(QuarryPlugin VERSION 1.1.0)
 
 # C++ settings
 set(CMAKE_CXX_STANDARD 17)
@@ -27,7 +27,7 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 add_subdirectory(ThirdParty/JUCE)
 add_subdirectory(ThirdParty/RTNeural)
 
-set(BaseTargetName NeuralNote)
+set(BaseTargetName Quarry)
 
 # Set COPY_PLUGIN_AFTER_BUILD to TRUE on Mac and to FALSE on Windows due to permission issues
 if (APPLE)
@@ -38,10 +38,10 @@ endif ()
 
 juce_add_plugin("${BaseTargetName}"
         # VERSION ...                               # Set this if the plugin version is different to the project version
-        ICON_BIG "${CMAKE_CURRENT_LIST_DIR}/NeuralNote/Assets/logo.png"
-        ICON_SMALL "${CMAKE_CURRENT_LIST_DIR}/NeuralNote/Assets/logo.png"
-        COMPANY_NAME "Owen Kent"
-        BUNDLE_ID "com.owenkent.neuralnotevideo"
+        ICON_BIG "${CMAKE_CURRENT_LIST_DIR}/Quarry/Assets/logo.png"
+        ICON_SMALL "${CMAKE_CURRENT_LIST_DIR}/Quarry/Assets/logo.png"
+        COMPANY_NAME "OK Studio"
+        BUNDLE_ID "com.okstudio.quarry"
         IS_SYNTH FALSE
         NEEDS_MIDI_INPUT FALSE
         NEEDS_MIDI_OUTPUT TRUE
@@ -53,17 +53,17 @@ juce_add_plugin("${BaseTargetName}"
         HARDENED_RUNTIME_ENABLED TRUE
         # Distinct from upstream NeuralNote (DrAu/NRNT) so both can be installed
         # side by side without a DAW treating them as the same plugin.
-        PLUGIN_MANUFACTURER_CODE OwKe
-        PLUGIN_CODE NNVd
+        PLUGIN_MANUFACTURER_CODE OKSt
+        PLUGIN_CODE Quar
         FORMATS AU VST3 Standalone
-        PRODUCT_NAME "NeuralNoteVideo")
+        PRODUCT_NAME "Quarry")
 
 juce_generate_juce_header(${BaseTargetName})
 
 # Source files
-file(GLOB_RECURSE SOURCES_PLUGIN ${CMAKE_CURRENT_LIST_DIR}/NeuralNote/*.cpp ${CMAKE_CURRENT_LIST_DIR}/Lib/*.cpp)
+file(GLOB_RECURSE SOURCES_PLUGIN ${CMAKE_CURRENT_LIST_DIR}/Quarry/*.cpp ${CMAKE_CURRENT_LIST_DIR}/Lib/*.cpp)
 list(REMOVE_ITEM SOURCES_PLUGIN ${CMAKE_CURRENT_LIST_DIR}/Lib/Model/BasicPitchCNN.cpp)
-file(GLOB_RECURSE HEADERS_PLUGIN ${CMAKE_CURRENT_LIST_DIR}/NeuralNote/*.h ${CMAKE_CURRENT_LIST_DIR}/Lib/*.h)
+file(GLOB_RECURSE HEADERS_PLUGIN ${CMAKE_CURRENT_LIST_DIR}/Quarry/*.h ${CMAKE_CURRENT_LIST_DIR}/Lib/*.h)
 list(REMOVE_ITEM HEADERS_PLUGIN ${CMAKE_CURRENT_LIST_DIR}/Lib/Model/BasicPitchCNN.h)
 
 target_sources(${BaseTargetName} PRIVATE ${SOURCES_PLUGIN} ${HEADERS_PLUGIN})
@@ -78,7 +78,7 @@ foreach (dir ${lib_dirs})
     ENDIF ()
 endforeach ()
 
-file(GLOB_RECURSE source_dirs LIST_DIRECTORIES true ${CMAKE_CURRENT_LIST_DIR}/NeuralNote/*)
+file(GLOB_RECURSE source_dirs LIST_DIRECTORIES true ${CMAKE_CURRENT_LIST_DIR}/Quarry/*)
 
 foreach (dir ${source_dirs})
     IF (IS_DIRECTORY ${dir})
@@ -91,9 +91,9 @@ endforeach ()
 #Binary data
 file(GLOB RESOURCES_FILES ${CMAKE_CURRENT_LIST_DIR}/Lib/ModelData/*.json
         ${CMAKE_CURRENT_LIST_DIR}/Lib/ModelData/*.ort
-        ${CMAKE_CURRENT_LIST_DIR}/NeuralNote/Assets/*.ttf
-        ${CMAKE_CURRENT_LIST_DIR}/NeuralNote/Assets/*.png
-        ${CMAKE_CURRENT_LIST_DIR}/NeuralNote/Assets/*.svg)
+        ${CMAKE_CURRENT_LIST_DIR}/Quarry/Assets/*.ttf
+        ${CMAKE_CURRENT_LIST_DIR}/Quarry/Assets/*.png
+        ${CMAKE_CURRENT_LIST_DIR}/Quarry/Assets/*.svg)
 
 juce_add_binary_data(bin_data SOURCES ${RESOURCES_FILES})
 
@@ -110,6 +110,43 @@ target_link_libraries(BasicPitchCNN PUBLIC RTNeural bin_data)
 
 target_include_directories(${BaseTargetName} PRIVATE ${CMAKE_CURRENT_LIST_DIR}/ONNXRuntime/${ONNXRUNTIME_DIRNAME}/include)
 target_include_directories(${BaseTargetName} PRIVATE ${CMAKE_CURRENT_LIST_DIR}/ThirdParty/minimp3)
+
+# okstudio JUCE kit, vendored copies from github.com/owenpkent/okstudio-juce-kit. That repo
+# is private, so the headers live here instead of a submodule and must be re-synced by hand
+# when the kit changes; see ThirdParty/okstudio/README.md. Header-only; we use
+# okstudio/WasapiLoopback.h for recording what the computer is playing (Windows only, the
+# header is empty elsewhere).
+target_include_directories(${BaseTargetName} PRIVATE ${CMAKE_CURRENT_LIST_DIR}/ThirdParty/okstudio/include)
+
+# Vendoring means the copies above can silently fall behind the kit. If this machine has a
+# kit checkout, compare the two and say so. Clones without the kit see nothing, which is the
+# point: the warning fires where the drift actually originates.
+set(OKSTUDIO_KIT_DIR "${CMAKE_CURRENT_LIST_DIR}/../okstudio-juce-kit"
+        CACHE PATH "Optional okstudio-juce-kit checkout, used only to detect vendored header drift")
+if (EXISTS "${OKSTUDIO_KIT_DIR}/include/okstudio")
+    set(_okstudio_pin "unknown")
+    if (EXISTS "${CMAKE_CURRENT_LIST_DIR}/ThirdParty/okstudio/UPSTREAM.txt")
+        file(STRINGS "${CMAKE_CURRENT_LIST_DIR}/ThirdParty/okstudio/UPSTREAM.txt" _okstudio_pin_line
+                REGEX "^commit=")
+        if (_okstudio_pin_line)
+            string(REPLACE "commit=" "" _okstudio_pin "${_okstudio_pin_line}")
+        endif ()
+    endif ()
+    foreach (_hdr WasapiLoopback.h CaptureMath.h)
+        set(_upstream_hdr "${OKSTUDIO_KIT_DIR}/include/okstudio/${_hdr}")
+        set(_vendored_hdr "${CMAKE_CURRENT_LIST_DIR}/ThirdParty/okstudio/include/okstudio/${_hdr}")
+        if (EXISTS "${_upstream_hdr}" AND EXISTS "${_vendored_hdr}")
+            file(SHA256 "${_upstream_hdr}" _upstream_sha)
+            file(SHA256 "${_vendored_hdr}" _vendored_sha)
+            if (NOT _upstream_sha STREQUAL _vendored_sha)
+                message(WARNING
+                        "Vendored okstudio/${_hdr} has drifted from the kit at ${OKSTUDIO_KIT_DIR} "
+                        "(vendored copy pinned at ${_okstudio_pin}). "
+                        "Run: py tools/sync_okstudio.py")
+            endif ()
+        endif ()
+    endforeach ()
+endif ()
 
 target_compile_definitions(${BaseTargetName}
         PUBLIC

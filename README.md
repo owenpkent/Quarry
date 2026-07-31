@@ -1,9 +1,9 @@
-# NeuralNoteVideo <img style="float: right;" src="NeuralNote/Assets/logo.png" width="100" />
+# Quarry <img style="float: right;" src="Quarry/Assets/logo.png" width="100" />
 
-NeuralNoteVideo is the audio plugin that brings **state-of-the-art Audio to MIDI conversion** into
+Quarry is the audio plugin that brings **state-of-the-art Audio to MIDI conversion** into
 your favorite Digital Audio Workstation.
 
-> NeuralNoteVideo is a fork of [NeuralNote](https://github.com/DamRsn/NeuralNote) by Damien Ronssin and
+> Quarry is a fork of [NeuralNote](https://github.com/DamRsn/NeuralNote) by Damien Ronssin and
 > Tibor Vass, extending it with video-assisted transcription. The transcription engine is their work;
 > see [Credits](#credits). Both projects are Apache-2.0 licensed.
 
@@ -14,28 +14,30 @@ your favorite Digital Audio Workstation.
 - Allows to adjust the parameters while listening to the transcription
 - Allows to scale and time quantize transcribed MIDI directly in the plugin
 
-## Install NeuralNoteVideo
+## Install Quarry
 
-Download the latest release for your platform [here](https://github.com/owenpkent/NeuralNoteVideo/releases) (Windows,
+Download the latest release for your platform [here](https://github.com/owenpkent/Quarry/releases) (Windows,
 macOS (Universal) and Linux supported)!
 
 Installers are available for both Windows and Mac, including Standalone, VST3, and AU (Mac only) versions. The
 installers allow users to select which format(s) they want to install. On macOS, the code is signed, while on Windows,
-it is not. This means you may need to take a few additional steps to use NeuralNoteVideo on Windows.
+it is not. This means you may need to take a few additional steps to use Quarry on Windows.
 
 For Linux, raw binaries are provided for VST3 and Standalone. You can install them by copying the files to the
 appropriate locations.
 
 ## Usage
 
-![UI](NeuralNote_UI.png)
+![UI](Quarry_UI.png)
 
-NeuralNoteVideo comes as a simple AudioFX plugin (VST3/AU/Standalone app) to be applied on the track to transcribe.
+Quarry comes as a simple AudioFX plugin (VST3/AU/Standalone app) to be applied on the track to transcribe.
 
 The workflow is very simple:
 
 - Gather some audio
     - Click record. Works when recording for real or when playing the track in a DAW.
+    - Or, in the standalone app, pick an audio input in the **AUDIO INPUT** panel and record straight from it
+      (see below).
     - Or drop an audio file on the plugin. (.wav, .aiff, .flac, .mp3 and .ogg (vorbis) supported)
 - The MIDI transcription instantly appears in the piano roll section.
 - Listen to the result by clicking the play button.
@@ -43,12 +45,48 @@ The workflow is very simple:
     - Individually adjust the level of the source audio and of the synthesized transcription
 - Once you're satisfied, export the MIDI transcription with a simple drag and drop from the plugin to a MIDI track.
 
+### Recording from an audio input
+
+The microphone button in the toolbar drops down the **AUDIO INPUT** panel. In the standalone app it records
+straight from this computer's audio hardware, with no DAW and no trip through the Audio/MIDI Settings dialog:
+
+- **DRIVER** picks the audio driver to list inputs from. On Windows the first entry is **System Audio**, whose
+  inputs are the computer's playback outputs rather than its microphones (see below). The rest are the real
+  drivers (Windows Audio, ASIO, DirectSound, ...).
+- **INPUT** picks what to record. `Host input (no device)` is the original NeuralNote behaviour: record whatever
+  audio the DAW sends the plugin. Anything else is a device Quarry opens itself, kept separate from the
+  standalone app's own audio setup, so choosing one never disturbs it.
+- **CHANNELS** picks which channel(s) of a multi-input interface to record.
+- **LEVEL** shows the input's level, so you can see signal arriving before you commit to a take.
+
+Picking a device is standalone-only. Loaded in a DAW, Quarry never opens an audio device of its own: the panel
+hides those three pickers and shows only the level and the record button, and recording uses the audio the host
+sends the plugin, exactly as it always did. An ASIO driver serves one client at a time, so a driver the plugin
+took for itself would be a driver the host could lose.
+
+Recording then works as it always did: hit record (in the panel or in the toolbar), play, hit stop, and the
+transcription appears. The chosen input is remembered between runs.
+
+The input device is only opened while the panel is on screen or while recording, so Quarry never holds
+a microphone open in the background.
+
+To transcribe audio that is *playing* on this computer (a video in a browser, say) rather than audio coming in
+a microphone, pick the **System Audio** driver and then the output you are listening on. Quarry records
+everything coming out of it, through WASAPI loopback, so no "Stereo Mix" input and no virtual audio cable is
+needed. That is Windows only: on macOS and Linux the driver list holds only the real drivers, and a loopback
+input your sound card offers, or a virtual audio cable, is still the way there.
+
+On Windows the standalone app starts on System Audio, pointed at the default playback output, so there is
+nothing to set up before hitting record; elsewhere it starts on this computer's default input. Either way it
+does not start on the host input, because the standalone mutes the audio input it is handed to avoid a
+feedback loop.
+
 **Watch the original NeuralNote presentation video for the Neural Audio Plugin
 competition [here](https://www.youtube.com/watch?v=6_MC0_aG_DQ)**.
 
-NeuralNoteVideo uses internally the model from Spotify's [basic-pitch](https://github.com/spotify/basic-pitch). See
+Quarry uses internally the model from Spotify's [basic-pitch](https://github.com/spotify/basic-pitch). See
 their [blogpost](https://engineering.atspotify.com/2022/06/meet-basic-pitch/)
-and [paper](https://arxiv.org/abs/2203.09893) for more information. In NeuralNoteVideo, basic-pitch is run
+and [paper](https://arxiv.org/abs/2203.09893) for more information. In Quarry, basic-pitch is run
 using [RTNeural](https://github.com/jatinchowdhury18/RTNeural) for the CNN part
 and [ONNXRuntime](https://github.com/microsoft/onnxruntime) for the feature part (Constant-Q transform calculation +
 Harmonic Stacking).
@@ -57,12 +95,28 @@ As part of the original NeuralNote project, its authors
 
 ## Build from source
 
-Requirements are: `git`, `cmake`, and your OS's preferred compiler suite.
+### Windows: the quick loop
+
+Double-click `run.py` (or `py run.py`). It builds the standalone app and launches it, fetching
+the submodules and the prebuilt onnxruntime on a fresh clone. `py run.py --no-build` just
+relaunches what is already built. Most work can be tried there: the standalone records from this
+computer's own audio hardware, so no DAW is needed.
+
+`run.py` configures with `-DLTO=OFF`. The prebuilt `onnxruntime.lib` is compiled with `/GL` by a
+specific MSVC version, so with link-time optimisation on, linking fails with `C1047` unless your
+compiler matches the one it was built with. `build.bat` (below) does not pass that flag, so it
+only works on a matching toolchain.
+
+### Full build
+
+Requirements are: `git`, `cmake`, and your OS's preferred compiler suite. Nothing else has to be fetched by
+hand: the okstudio kit headers Quarry uses for system-audio recording are checked in under
+[`ThirdParty/okstudio`](ThirdParty/okstudio/README.md).
 
 Use this when cloning:
 
 ```
-git clone --recurse-submodules --shallow-submodules https://github.com/owenpkent/NeuralNoteVideo
+git clone --recurse-submodules --shallow-submodules https://github.com/owenpkent/Quarry
  ```
 
 The following OS-specific build scripts have to be executed at least once before being able to use the project as a
@@ -97,7 +151,7 @@ copy model.with_runtime_opt.ort ..\..\Lib\ModelData\features_model.ort
 cd ..\..
 ```
 
-Now you can get back to building NeuralNoteVideo as follows:
+Now you can get back to building Quarry as follows:
 
 ```
 > .\build.bat
@@ -108,7 +162,7 @@ Now you can get back to building NeuralNoteVideo as follows:
 Once the build script has been executed at least once, you can load this project in your favorite IDE
 (CLion/Visual Studio/VSCode/etc) and click 'build' for one of the targets.
 
-## Reuse code from NeuralNoteVideo’s transcription engine
+## Reuse code from Quarry’s transcription engine
 
 All the code to perform the transcription is in `Lib/Model` and all the model weights are in `Lib/ModelData/`. Feel free
 to use only this part of the code in your own project! It may be isolated further from the rest of the repo and made
@@ -137,11 +191,11 @@ please open a PR!
 
 ## License
 
-NeuralNoteVideo software and code is published under the Apache-2.0 license. See the [license file](LICENSE).
+Quarry software and code is published under the Apache-2.0 license. See the [license file](LICENSE).
 
 #### Third Party libraries used and license
 
-Here's a list of all the third party libraries used in NeuralNoteVideo and the license under which they are used.
+Here's a list of all the third party libraries used in Quarry and the license under which they are used.
 
 - [JUCE](https://juce.com/) (JUCE Starter)
 - [ASIO SDK](https://www.steinberg.net/developers/) (Steinberg ASIO SDK Licensing Agreement, Windows builds only)
@@ -151,8 +205,10 @@ Here's a list of all the third party libraries used in NeuralNoteVideo and the l
 - [basic-pitch](https://github.com/spotify/basic-pitch) (Apache-2.0 license)
 - [basic-pitch-ts](https://github.com/spotify/basic-pitch-ts) (Apache-2.0 license)
 - [minimp3](https://github.com/lieff/minimp3) (CC0-1.0 license)
+- [okstudio JUCE kit](https://github.com/owenpkent/okstudio-juce-kit) (OK Studio's own, used for Windows
+  system-audio recording; the headers are vendored, see [`ThirdParty/okstudio`](ThirdParty/okstudio/README.md))
 
-## Could NeuralNoteVideo transcribe audio in real-time?
+## Could Quarry transcribe audio in real-time?
 
 Unfortunately no and this for a few reasons:
 
@@ -166,11 +222,11 @@ But if you have ideas please share!
 
 ## Credits
 
-NeuralNoteVideo is maintained by [Owen Kent](https://github.com/owenpkent).
+Quarry is maintained by [Owen Kent](https://github.com/owenpkent).
 
 It is a fork of [NeuralNote](https://github.com/DamRsn/NeuralNote), which was developed by
 [Damien Ronssin](https://github.com/DamRsn) and [Tibor Vass](https://github.com/tiborvass), with the plugin user
-interface designed by Perrine Morel. The audio-to-MIDI transcription engine that NeuralNoteVideo is built on is
+interface designed by Perrine Morel. The audio-to-MIDI transcription engine that Quarry is built on is
 their work.
 
 #### Contributors

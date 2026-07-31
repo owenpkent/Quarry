@@ -33,9 +33,15 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
         BasicPitchCNN
         bin_data
         PUBLIC
-        juce_recommended_config_flags
-        juce_recommended_lto_flags)
+        juce_recommended_config_flags)
 #juce_recommended_warning_flags
+
+# Honour the top level LTO option, as the plugin target does. The prebuilt onnxruntime.lib is
+# compiled with /GL by a specific MSVC version, so with LTO on, linking fails outright (C1047)
+# unless your compiler matches the one it was built with.
+if (${LTO})
+    target_link_libraries(${PROJECT_NAME} PUBLIC juce_recommended_lto_flags)
+endif ()
 
 target_compile_definitions(${PROJECT_NAME}
         PRIVATE
