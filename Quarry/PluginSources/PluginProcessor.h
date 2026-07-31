@@ -56,13 +56,20 @@ public:
      */
     bool startRecording();
 
+    /** Ends the take started by startRecording(). Does nothing if it has already ended. */
     void stopRecording();
 
     /** Peak level of the audio the host has sent us since the previous call, in [0, 1]. */
     float getAndResetHostInputPeakLevel() { return mHostInputPeakLevel.exchange(0.0f); }
 
     /** Only measure the host input level while something is showing it. */
-    void setHostInputLevelWanted(bool inWanted) { mHostInputLevelWanted.store(inWanted); }
+    void setHostInputLevelWanted(bool inWanted)
+    {
+        // Nothing drains the peak while no one is showing it, so it would otherwise keep the loudest
+        // moment of the session and paint a full meter the moment something asks for it again.
+        mHostInputPeakLevel.store(0.0f);
+        mHostInputLevelWanted.store(inWanted);
+    }
 
     SourceAudioManager* getSourceAudioManager() const;
 
@@ -100,6 +107,9 @@ private:
     std::array<RangedAudioParameter*, ParameterHelpers::TotalNumParams> mParams {};
 
     std::atomic<State> mState = EmptyAudioAndMidiRegions;
+
+    // Whether a take is running, so it can only be ended once however it ends.
+    std::atomic<bool> mTakeInProgress {false};
 
     std::atomic<float> mHostInputPeakLevel {0.0f};
     std::atomic<bool> mHostInputLevelWanted {false};

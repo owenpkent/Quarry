@@ -53,10 +53,24 @@ private:
 
     void _channelsChanged();
 
+    /**
+     * True while the open device is the selected one, so what the open device answers about itself
+     * may be written back as the selection's. Being listed is not being open: a device that is there
+     * but busy leaves some other device of the driver's open in its place.
+     */
+    bool _isSelectedDeviceOpen() const;
+
     String _getStatusText() const;
+
+    /** What the panel would say if nothing had gone wrong: the plain state of the input. */
+    String _getStateText() const;
 
     QuarryAudioProcessor& mProcessor;
     std::function<void()> mOnRecordClicked;
+
+    // False in a plugin, which never opens an audio device of its own: the driver, input and
+    // channel pickers are hidden there, and the level meter and status text take their place.
+    const bool mCanSelectInput;
 
     std::unique_ptr<ComboBox> mDriverDropDown;
     std::unique_ptr<ComboBox> mInputDropDown;
@@ -65,10 +79,15 @@ private:
     std::unique_ptr<TextButton> mRecordButton;
     std::unique_ptr<ShapeButton> mCloseButton;
 
-    // Input names as shown in mInputDropDown. Index 0 is the host input, the rest are devices.
-    StringArray mInputDeviceNames;
+    // The entries of mInputDropDown, in the same order. Index 0 is the host input, which has no id,
+    // and the rest are devices. Kept because a picked entry is passed back by id, not by name.
+    Array<AudioInputManager::InputDevice> mInputDevices;
 
     bool mIsRefreshing = false;
+
+    // False while the selected input device is missing from the list, when the device manager can
+    // have fallen back to another device and nothing about that one may be written back as ours.
+    bool mSelectedDeviceIsPresent = true;
 
     float mLevel = 0.0f;
     String mStatusText;

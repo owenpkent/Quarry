@@ -121,6 +121,7 @@ void QuarryAudioProcessor::setStateInformation(const void* data, int sizeInBytes
 
 void QuarryAudioProcessor::clear()
 {
+    mTakeInProgress.store(false);
     mAudioInputManager->abortRecording();
     mPlayer->reset();
     mSourceAudioManager->clear();
@@ -132,18 +133,29 @@ void QuarryAudioProcessor::clear()
 bool QuarryAudioProcessor::startRecording()
 {
     // The audio input panel may never have been opened, and the saved selection (and the standalone
-    // app's default of recording what the computer is playing) only exists once this has run.
+    // app's default of recording what the computer is playing) only exists once this has run. Both
+    // are standalone-only, so in a plugin this always falls through to the audio the host sends us.
     mAudioInputManager->ensureInitialised();
 
-    if (mAudioInputManager->hasSelectedInputDevice())
-        return mAudioInputManager->startRecording();
+    if (mAudioInputManager->hasSelectedInputDevice()) {
+        if (!mAudioInputManager->startRecording())
+            return false;
+    } else {
+        mSourceAudioManager->startRecording();
+    }
 
-    mSourceAudioManager->startRecording();
+    mTakeInProgress.store(true);
     return true;
 }
 
 void QuarryAudioProcessor::stopRecording()
 {
+    // A take can also end on its own, when the input Quarry opened dies mid-recording. The record
+    // button notices a frame later and asks to stop as well, and stopping twice would finalise and
+    // transcribe the same take a second time.
+    if (!mTakeInProgress.exchange(false))
+        return;
+
     if (mAudioInputManager->isRecording())
         mAudioInputManager->stopRecording();
     else
