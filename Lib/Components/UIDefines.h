@@ -85,7 +85,11 @@ static const Colour HAIRLINE(static_cast<uint8>(0x2a), static_cast<uint8>(0x2e),
 // Text, brightest to dimmest.
 static const Colour TEXT_MAIN(static_cast<uint8>(0xe9), static_cast<uint8>(0xec), static_cast<uint8>(0xf0));
 static const Colour TEXT_DIM(static_cast<uint8>(0x8a), static_cast<uint8>(0x91), static_cast<uint8>(0x9c));
-static const Colour TEXT_FAINT(static_cast<uint8>(0x5a), static_cast<uint8>(0x60), static_cast<uint8>(0x68));
+// Obsidian's own textFaint is #5a6068, which measures 2.79:1 on this ground and
+// so misses WCAG 2.2 SC 1.4.11's 3:1. Lifted to 3.9:1 for anything a user has
+// to read; the darker original stays available through Obsidian for rules and
+// other decoration, which the criterion does not cover.
+static const Colour TEXT_FAINT(static_cast<uint8>(0x75), static_cast<uint8>(0x7c), static_cast<uint8>(0x86));
 
 // Piano roll keys. Not an Obsidian role: the keyboard has to read as a keyboard.
 static const Colour KEY_WHITE(static_cast<uint8>(0xc9), static_cast<uint8>(0xce), static_cast<uint8>(0xd6));
