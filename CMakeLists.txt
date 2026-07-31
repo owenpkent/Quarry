@@ -111,10 +111,42 @@ target_link_libraries(BasicPitchCNN PUBLIC RTNeural bin_data)
 target_include_directories(${BaseTargetName} PRIVATE ${CMAKE_CURRENT_LIST_DIR}/ONNXRuntime/${ONNXRUNTIME_DIRNAME}/include)
 target_include_directories(${BaseTargetName} PRIVATE ${CMAKE_CURRENT_LIST_DIR}/ThirdParty/minimp3)
 
-# okstudio JUCE kit, a sibling checkout shared by the whole line. Header-only; we use
+# okstudio JUCE kit, vendored copies from github.com/owenpkent/okstudio-juce-kit. That repo
+# is private, so the headers live here instead of a submodule and must be re-synced by hand
+# when the kit changes; see ThirdParty/okstudio/README.md. Header-only; we use
 # okstudio/WasapiLoopback.h for recording what the computer is playing (Windows only, the
 # header is empty elsewhere).
-target_include_directories(${BaseTargetName} PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../okstudio-juce-kit/include)
+target_include_directories(${BaseTargetName} PRIVATE ${CMAKE_CURRENT_LIST_DIR}/ThirdParty/okstudio/include)
+
+# Vendoring means the copies above can silently fall behind the kit. If this machine has a
+# kit checkout, compare the two and say so. Clones without the kit see nothing, which is the
+# point: the warning fires where the drift actually originates.
+set(OKSTUDIO_KIT_DIR "${CMAKE_CURRENT_LIST_DIR}/../okstudio-juce-kit"
+        CACHE PATH "Optional okstudio-juce-kit checkout, used only to detect vendored header drift")
+if (EXISTS "${OKSTUDIO_KIT_DIR}/include/okstudio")
+    set(_okstudio_pin "unknown")
+    if (EXISTS "${CMAKE_CURRENT_LIST_DIR}/ThirdParty/okstudio/UPSTREAM.txt")
+        file(STRINGS "${CMAKE_CURRENT_LIST_DIR}/ThirdParty/okstudio/UPSTREAM.txt" _okstudio_pin_line
+                REGEX "^commit=")
+        if (_okstudio_pin_line)
+            string(REPLACE "commit=" "" _okstudio_pin "${_okstudio_pin_line}")
+        endif ()
+    endif ()
+    foreach (_hdr WasapiLoopback.h CaptureMath.h)
+        set(_upstream_hdr "${OKSTUDIO_KIT_DIR}/include/okstudio/${_hdr}")
+        set(_vendored_hdr "${CMAKE_CURRENT_LIST_DIR}/ThirdParty/okstudio/include/okstudio/${_hdr}")
+        if (EXISTS "${_upstream_hdr}" AND EXISTS "${_vendored_hdr}")
+            file(SHA256 "${_upstream_hdr}" _upstream_sha)
+            file(SHA256 "${_vendored_hdr}" _vendored_sha)
+            if (NOT _upstream_sha STREQUAL _vendored_sha)
+                message(WARNING
+                        "Vendored okstudio/${_hdr} has drifted from the kit at ${OKSTUDIO_KIT_DIR} "
+                        "(vendored copy pinned at ${_okstudio_pin}). "
+                        "Run: py tools/sync_okstudio.py")
+            endif ()
+        endif ()
+    endforeach ()
+endif ()
 
 target_compile_definitions(${BaseTargetName}
         PUBLIC
