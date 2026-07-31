@@ -63,14 +63,32 @@ inline Font BUTTON_FONT()
 } // namespace Fonts
 
 // Colors
-static const Colour BLACK(static_cast<uint8>(14), static_cast<uint8>(14), static_cast<uint8>(14));
-static const Colour WHITE_TRANSPARENT(static_cast<uint8>(255), static_cast<uint8>(253), static_cast<uint8>(246), 0.7f);
-static const Colour WHITE_SOLID(static_cast<uint8>(255), static_cast<uint8>(253), static_cast<uint8>(246), 1.0f);
-static const Colour WAVEFORM_COLOR(static_cast<uint8>(255), static_cast<uint8>(253), static_cast<uint8>(246), 0.8f);
-static const Colour WAVEFORM_BG_COLOR(static_cast<uint8>(0), static_cast<uint8>(0), static_cast<uint8>(0), 0.35f);
-static const Colour RECORD_RED(246, 89, 89);
-static const Colour PINK = Colours::deeppink;
-static const Colour KNOB_GREY(218, 221, 217);
+//
+// These follow okstudio/Obsidian.h so the hand-painted components match the
+// widgets the look and feel draws. Obsidian owns the values; anything named
+// here is either a role Obsidian does not cover (piano keys, the record light)
+// or a convenience alias for one it does. The accent is deliberately absent:
+// it is user-selectable, so read it per component with
+// okstudio::obsidian::accentOf(component) rather than freezing one here.
+
+// Grounds, darkest to lightest.
+static const Colour VOID_BG(static_cast<uint8>(0x0e), static_cast<uint8>(0x0f), static_cast<uint8>(0x12));
+static const Colour WELL_BG(static_cast<uint8>(0x10), static_cast<uint8>(0x12), static_cast<uint8>(0x16));
+static const Colour PANEL_BG(static_cast<uint8>(0x1a), static_cast<uint8>(0x1c), static_cast<uint8>(0x21));
+static const Colour CONTROL_BG(static_cast<uint8>(0x26), static_cast<uint8>(0x2a), static_cast<uint8>(0x31));
+static const Colour HAIRLINE(static_cast<uint8>(0x2a), static_cast<uint8>(0x2e), static_cast<uint8>(0x35));
+
+// Text, brightest to dimmest.
+static const Colour TEXT_MAIN(static_cast<uint8>(0xe9), static_cast<uint8>(0xec), static_cast<uint8>(0xf0));
+static const Colour TEXT_DIM(static_cast<uint8>(0x8a), static_cast<uint8>(0x91), static_cast<uint8>(0x9c));
+static const Colour TEXT_FAINT(static_cast<uint8>(0x5a), static_cast<uint8>(0x60), static_cast<uint8>(0x68));
+
+// Piano roll keys. Not an Obsidian role: the keyboard has to read as a keyboard.
+static const Colour KEY_WHITE(static_cast<uint8>(0xc9), static_cast<uint8>(0xce), static_cast<uint8>(0xd6));
+static const Colour KEY_BLACK(static_cast<uint8>(0x15), static_cast<uint8>(0x18), static_cast<uint8>(0x1c));
+
+static const Colour WAVEFORM_BG_COLOR(static_cast<uint8>(0x0e), static_cast<uint8>(0x0f), static_cast<uint8>(0x12));
+static const Colour RECORD_RED(216, 74, 96);
 static const Colour TRANSPARENT(static_cast<uint8>(0), static_cast<uint8>(0), static_cast<uint8>(0), 0.0f);
 
 static constexpr float DISABLED_ALPHA = 0.5f;

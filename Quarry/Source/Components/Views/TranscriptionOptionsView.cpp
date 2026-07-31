@@ -46,7 +46,7 @@ void TranscriptionOptionsView::resized()
 
 void TranscriptionOptionsView::paint(Graphics& g)
 {
-    g.setColour(WHITE_TRANSPARENT);
+    g.setColour(PANEL_BG);
     g.fillRoundedRectangle(0.0f,
                            LEFT_SECTIONS_TOP_PAD,
                            static_cast<float>(getWidth()),
@@ -55,7 +55,7 @@ void TranscriptionOptionsView::paint(Graphics& g)
 
     float alpha = isEnabled() ? 1.0f : 0.5f;
 
-    g.setColour(BLACK.withAlpha(alpha));
+    g.setColour(TEXT_MAIN.withAlpha(alpha));
     g.setFont(UIDefines::TITLE_FONT());
     g.drawText("TRANSCRIPTION", Rectangle<int>(24, 0, 250, 17), juce::Justification::centredLeft);
 

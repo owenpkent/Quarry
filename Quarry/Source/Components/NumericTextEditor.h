@@ -27,8 +27,8 @@ public:
         : mProcessor(inProcessor)
         , mIdentifier(inPropIdentifier)
     {
-        setColour(textColourId, BLACK);
-        setColour(highlightedTextColourId, BLACK);
+        setColour(textColourId, TEXT_MAIN);
+        setColour(highlightedTextColourId, TEXT_MAIN);
         setColour(backgroundColourId, TRANSPARENT);
         setColour(focusedOutlineColourId, TRANSPARENT);
         setColour(outlineColourId, TRANSPARENT);
@@ -41,7 +41,7 @@ public:
         setInputRestrictions(inMaxLength, allowed_chars);
         setClicksOutsideDismissVirtualKeyboard(true);
         setSelectAllWhenFocused(true);
-        setTextToShowWhenEmpty(numberToStr(inDefaultValue), BLACK);
+        setTextToShowWhenEmpty(numberToStr(inDefaultValue), TEXT_FAINT);
         onReturnKey = [this] { giveAwayKeyboardFocus(); };
         onEscapeKey = [this] { giveAwayKeyboardFocus(); };
 

@@ -13,7 +13,6 @@ NoteOptionsView::NoteOptionsView(QuarryAudioProcessor& processor)
     mEnableButton->setClickingTogglesState(true);
 
     mEnableButton->setColour(TextButton::buttonColourId, Colours::white.withAlpha(0.2f));
-    mEnableButton->setColour(TextButton::buttonOnColourId, BLACK);
     mEnableButton->setTooltip(QuarryTooltips::sq_enable);
 
     mEnableAttachment = std::make_unique<AudioProcessorValueTreeState::ButtonAttachment>(
@@ -76,7 +75,7 @@ void NoteOptionsView::resized()
 
 void NoteOptionsView::paint(Graphics& g)
 {
-    g.setColour(WHITE_TRANSPARENT);
+    g.setColour(PANEL_BG);
     g.fillRoundedRectangle(0.0f,
                            static_cast<float>(LEFT_SECTIONS_TOP_PAD),
                            static_cast<float>(getWidth()),
@@ -86,7 +85,7 @@ void NoteOptionsView::paint(Graphics& g)
     float alpha = mIsViewEnabled && isEnabled() ? 1.0f : DISABLED_ALPHA;
 
     mMinMaxNoteSlider->setAlpha(alpha);
-    g.setColour(BLACK.withAlpha(alpha));
+    g.setColour(TEXT_MAIN.withAlpha(alpha));
 
     g.setFont(UIDefines::TITLE_FONT());
     g.drawText("SCALE QUANTIZE", Rectangle<int>(24, 0, 274, 17), Justification::centredLeft);

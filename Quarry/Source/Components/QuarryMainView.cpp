@@ -74,7 +74,7 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
     mAudioInputButton = std::make_unique<DrawableButton>("AudioInputButton", DrawableButton::ButtonStyle::ImageRaw);
     mAudioInputButton->setClickingTogglesState(true);
     mAudioInputButton->setColour(DrawableButton::ColourIds::backgroundColourId, TRANSPARENT);
-    mAudioInputButton->setColour(DrawableButton::ColourIds::backgroundOnColourId, WHITE_TRANSPARENT);
+    mAudioInputButton->setColour(DrawableButton::ColourIds::backgroundOnColourId, CONTROL_BG);
     mAudioInputButton->setTooltip(QuarryTooltips::audio_input);
 
     auto audio_input_drawable =
@@ -146,7 +146,7 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
     mSettingsButton = std::make_unique<DrawableButton>("SettingsButton", DrawableButton::ButtonStyle::ImageRaw);
     mSettingsButton->setClickingTogglesState(false);
     mSettingsButton->setColour(DrawableButton::ColourIds::backgroundColourId, TRANSPARENT);
-    mSettingsButton->setColour(DrawableButton::ColourIds::backgroundOnColourId, BLACK);
+    mSettingsButton->setColour(DrawableButton::ColourIds::backgroundOnColourId, CONTROL_BG);
     auto settings_icon_drawable = Drawable::createFromImageData(BinaryData::settings_svg, BinaryData::settings_svgSize);
     mSettingsButton->setImages(settings_icon_drawable.get());
     addAndMakeVisible(mSettingsButton.get());
@@ -306,6 +306,16 @@ void QuarryMainView::resized()
 void QuarryMainView::paint(Graphics& g)
 {
     g.drawImageAt(mBackgroundImage, 0, 0);
+
+    // The wordmark used to be baked into background.png, which is why renaming
+    // the project never changed it. Drawn as text it follows the product name.
+    g.setColour(TEXT_MAIN);
+    g.setFont(Font(FontOptions(UIDefines::MONTSERRAT_BOLD())).withPointHeight(26.0f).withExtraKerningFactor(0.16f));
+    g.drawText("QUARRY", 30, 22, 400, 34, Justification::centredLeft, false);
+
+    g.setColour(TEXT_FAINT);
+    g.setFont(Font(FontOptions(UIDefines::MONTSERRAT_SEMIBOLD())).withPointHeight(9.0f).withExtraKerningFactor(0.34f));
+    g.drawText("OK STUDIO", 32, 56, 400, 14, Justification::centredLeft, false);
 }
 
 void QuarryMainView::timerCallback()

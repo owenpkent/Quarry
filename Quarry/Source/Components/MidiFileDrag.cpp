@@ -22,10 +22,10 @@ void MidiFileDrag::resized()
 
 void MidiFileDrag::paint(Graphics& g)
 {
-    g.setColour(WHITE_TRANSPARENT);
+    g.setColour(PANEL_BG);
     g.fillRoundedRectangle(getLocalBounds().toFloat(), 4.0f);
 
-    g.setColour(BLACK);
+    g.setColour(TEXT_MAIN);
     g.setFont(UIDefines::LABEL_FONT());
     g.drawText("DRAG THE MIDI FILE FROM HERE", getLocalBounds(), juce::Justification::centred);
 }

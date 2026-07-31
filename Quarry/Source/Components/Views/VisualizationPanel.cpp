@@ -41,7 +41,7 @@ VisualizationPanel::VisualizationPanel(QuarryAudioProcessor* processor)
     mAudioGainSlider.setSliderStyle(Slider::SliderStyle::LinearHorizontal);
     mAudioGainSlider.setTextBoxStyle(Slider::TextEntryBoxPosition::TextBoxLeft, true, 40, 20);
     mAudioGainSlider.setTextValueSuffix(" dB");
-    mAudioGainSlider.setColour(Slider::ColourIds::textBoxTextColourId, BLACK);
+    mAudioGainSlider.setColour(Slider::ColourIds::textBoxTextColourId, TEXT_MAIN);
     mAudioGainSlider.setColour(Slider::ColourIds::textBoxOutlineColourId, Colours::transparentWhite);
     // To also receive mouseExit callback from this slider
     mAudioGainSlider.addMouseListener(this, true);
@@ -54,7 +54,7 @@ VisualizationPanel::VisualizationPanel(QuarryAudioProcessor* processor)
     mMidiGainSlider.setSliderStyle(Slider::SliderStyle::LinearHorizontal);
     mMidiGainSlider.setTextBoxStyle(Slider::TextEntryBoxPosition::TextBoxLeft, true, 40, 20);
     mMidiGainSlider.setTextValueSuffix(" dB");
-    mMidiGainSlider.setColour(Slider::ColourIds::textBoxTextColourId, BLACK);
+    mMidiGainSlider.setColour(Slider::ColourIds::textBoxTextColourId, TEXT_MAIN);
     mMidiGainSlider.setColour(Slider::ColourIds::textBoxOutlineColourId, Colours::transparentWhite);
     // To also receive mouseExit callback from this slider
     mMidiGainSlider.addMouseListener(this, true);
@@ -98,11 +98,11 @@ void VisualizationPanel::resized()
 void VisualizationPanel::paint(Graphics& g)
 {
     if (mMidiFileDrag.isVisible()) {
-        g.setColour(WHITE_TRANSPARENT);
+        g.setColour(PANEL_BG);
         g.fillRoundedRectangle(
             Rectangle<int>(0, 0, KEYBOARD_WIDTH, mCombinedAudioMidiRegion.mAudioRegionHeight).toFloat(), 4);
 
-        g.setColour(BLACK);
+        g.setColour(TEXT_MAIN);
         g.setFont(UIDefines::LABEL_FONT());
         g.drawFittedText("MIDI\nFILE\nTEMPO", Rectangle<int>(0, 0, KEYBOARD_WIDTH, 55), Justification::centred, 3);
     }

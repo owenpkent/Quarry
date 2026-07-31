@@ -5,6 +5,8 @@
 #include "AudioRegion.h"
 #include "CombinedAudioMidiRegion.h"
 
+#include <okstudio/Obsidian.h>
+
 AudioRegion::AudioRegion(QuarryAudioProcessor* processor, double inBaseNumPixelsPerSecond)
     : mProcessor(processor)
     , mPlayhead(processor, inBaseNumPixelsPerSecond)
@@ -31,7 +33,7 @@ void AudioRegion::paint(Graphics& g)
         auto thumbnail_area = getLocalBounds();
         thumbnail_area.setWidth(mThumbnailWidth);
 
-        g.setColour(WAVEFORM_COLOR);
+        g.setColour(okstudio::obsidian::accentOf(*this).base);
 
         thumbnail->drawChannel(g,
                                thumbnail_area,
@@ -46,11 +48,11 @@ void AudioRegion::paint(Graphics& g)
         if (mIsFileOver)
             g.setColour(WAVEFORM_BG_COLOR);
         else
-            g.setColour(WHITE_TRANSPARENT);
+            g.setColour(PANEL_BG);
 
         g.fillRoundedRectangle(getLocalBounds().toFloat(), 4.0f);
 
-        g.setColour(BLACK);
+        g.setColour(TEXT_MAIN);
         g.setFont(UIDefines::LARGE_FONT());
 
         if (mIsFileOver)

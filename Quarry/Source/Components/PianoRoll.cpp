@@ -102,12 +102,12 @@ void PianoRoll::paint(Graphics& g)
                     }
                     p.lineTo(_timeToPixel(static_cast<float>(note_event.endTime)), y_ref_pb);
 
-                    g.setColour(WHITE_SOLID);
+                    g.setColour(TEXT_MAIN);
                     g.strokePath(p, path_stroke_type);
 
                     p.closeSubPath();
 
-                    g.setColour(WHITE_TRANSPARENT.withAlpha(0.6f));
+                    g.setColour(TEXT_MAIN.withAlpha(0.35f));
                     g.fillPath(p);
                 }
             }
@@ -207,7 +207,7 @@ void PianoRoll::_drawBeatVerticalLines(Graphics& g) const
     const auto width = static_cast<float>(getWidth());
     const auto height = static_cast<float>(getHeight());
 
-    g.setColour(WHITE_SOLID);
+    g.setColour(HAIRLINE);
 
     while (beat_pixel < width) {
         if (beat_pixel >= 0) {

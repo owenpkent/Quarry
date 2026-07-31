@@ -4,6 +4,8 @@
 
 #include "AudioInputView.h"
 
+#include <okstudio/Obsidian.h>
+
 namespace
 {
 constexpr int kLabelX = 16;
@@ -71,7 +73,7 @@ AudioInputView::AudioInputView(QuarryAudioProcessor& inProcessor, std::function<
 
     PathStrokeType(0.18f, PathStrokeType::curved, PathStrokeType::rounded).createStrokedPath(cross, cross);
 
-    mCloseButton = std::make_unique<ShapeButton>("Close", BLACK, BLACK.withAlpha(0.6f), BLACK.withAlpha(0.4f));
+    mCloseButton = std::make_unique<ShapeButton>("Close", TEXT_DIM, TEXT_MAIN, TEXT_FAINT);
     mCloseButton->setShape(cross, true, true, false);
     mCloseButton->setTooltip("Close");
     mCloseButton->onClick = [this] {
@@ -112,14 +114,14 @@ void AudioInputView::paint(Graphics& g)
 {
     auto bounds = getLocalBounds().toFloat();
 
-    DropShadow(BLACK.withAlpha(0.4f), 12, {0, 3}).drawForRectangle(g, getLocalBounds().reduced(2));
+    DropShadow(Colours::black.withAlpha(0.5f), 12, {0, 3}).drawForRectangle(g, getLocalBounds().reduced(2));
 
-    g.setColour(WHITE_SOLID);
+    g.setColour(PANEL_BG);
     g.fillRoundedRectangle(bounds, 5.0f);
-    g.setColour(BLACK.withAlpha(0.25f));
+    g.setColour(HAIRLINE);
     g.drawRoundedRectangle(bounds.reduced(0.5f), 5.0f, 1.0f);
 
-    g.setColour(BLACK);
+    g.setColour(TEXT_MAIN);
     g.setFont(UIDefines::TITLE_FONT());
     g.drawText("AUDIO INPUT", Rectangle<int>(kLabelX, 8, 260, 20), Justification::centredLeft);
 
@@ -141,20 +143,20 @@ void AudioInputView::paint(Graphics& g)
     const int meter_width = getWidth() - kControlX - kLabelX;
     auto meter_bounds = Rectangle<int>(kControlX, meter_y, meter_width, kMeterHeight).toFloat();
 
-    g.setColour(BLACK.withAlpha(0.12f));
+    g.setColour(WELL_BG);
     g.fillRoundedRectangle(meter_bounds, 3.0f);
 
     if (mLevel > 0.0f) {
         auto filled = meter_bounds.withWidth(meter_bounds.getWidth() * jmin(mLevel, 1.0f));
 
-        g.setColour(mLevel > 0.95f ? RECORD_RED : BLACK.withAlpha(0.75f));
+        g.setColour(mLevel > 0.95f ? RECORD_RED : okstudio::obsidian::accentOf(*this).base);
         g.fillRoundedRectangle(filled, 3.0f);
     }
 
     // Status text sits to the left of the record button, never underneath it.
     const int status_width = mRecordButton->getX() - kLabelX - 16;
 
-    g.setColour(BLACK.withAlpha(0.7f));
+    g.setColour(TEXT_DIM);
     g.setFont(UIDefines::DROPDOWN_FONT());
     g.drawFittedText(mStatusText,
                      Rectangle<int>(kLabelX, status_y, status_width, getHeight() - status_y - 10),

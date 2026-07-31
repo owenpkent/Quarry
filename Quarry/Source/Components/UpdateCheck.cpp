@@ -23,7 +23,7 @@ void UpdateCheck::resized()
 
 void UpdateCheck::paint(Graphics& g)
 {
-    g.setColour(WHITE_SOLID);
+    g.setColour(PANEL_BG);
     g.setFont(UIDefines::LABEL_FONT());
 
     String text;
@@ -50,7 +50,7 @@ void UpdateCheck::paint(Graphics& g)
 
     g.fillRoundedRectangle(getLocalBounds().toFloat().withLeft(static_cast<float>(rect_x_start)), 4.0f);
 
-    g.setColour(BLACK);
+    g.setColour(TEXT_MAIN);
     text_layout.draw(
         g,
         Rectangle<float>(static_cast<float>(rect_x_start + mPadding), 0, text_width, static_cast<float>(getHeight())));

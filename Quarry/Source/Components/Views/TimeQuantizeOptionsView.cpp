@@ -14,7 +14,6 @@ TimeQuantizeOptionsView::TimeQuantizeOptionsView(QuarryAudioProcessor& processor
     mEnableButton->setTooltip(QuarryTooltips::tq_enable);
 
     mEnableButton->setColour(TextButton::buttonColourId, Colours::white.withAlpha(0.2f));
-    mEnableButton->setColour(TextButton::buttonOnColourId, BLACK);
 
     mEnableAttachment = std::make_unique<AudioProcessorValueTreeState::ButtonAttachment>(
         mProcessor.getAPVTS(), ParameterHelpers::getIdStr(ParameterHelpers::EnableTimeQuantizationId), *mEnableButton);
@@ -60,7 +59,7 @@ void TimeQuantizeOptionsView::resized()
 
 void TimeQuantizeOptionsView::paint(Graphics& g)
 {
-    g.setColour(WHITE_TRANSPARENT);
+    g.setColour(PANEL_BG);
     g.fillRoundedRectangle(0.0f,
                            static_cast<float>(LEFT_SECTIONS_TOP_PAD),
                            static_cast<float>(getWidth()),
@@ -70,7 +69,7 @@ void TimeQuantizeOptionsView::paint(Graphics& g)
     float alpha = isEnabled() && mIsViewEnabled ? 1.0f : DISABLED_ALPHA;
 
     mQuantizationForceSlider->setAlpha(alpha);
-    g.setColour(BLACK.withAlpha(alpha));
+    g.setColour(TEXT_MAIN.withAlpha(alpha));
     g.setFont(UIDefines::TITLE_FONT());
     g.drawText("TIME QUANTIZE", Rectangle<int>(24, 0, 210, 17), Justification::centredLeft);
 
