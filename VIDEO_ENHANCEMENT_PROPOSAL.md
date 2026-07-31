@@ -1,6 +1,6 @@
 # Video-Enhanced MIDI Transcription Proposal
 
-> **Project:** NeuralNoteVideo  
+> **Project:** Quarry  
 > **Status:** Proposal / Planning  
 > **Date:** January 2026
 
@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-NeuralNote currently uses audio-only analysis (Spotify's basic-pitch model) for MIDI transcription. This proposal explores **multimodal approaches** that incorporate video data to improve transcription accuracy. Two primary video sources are considered:
+Quarry currently uses audio-only analysis (Spotify's basic-pitch model) for MIDI transcription. This proposal explores **multimodal approaches** that incorporate video data to improve transcription accuracy. Two primary video sources are considered:
 
 1. **Sheet music tutorial videos** — Scrolling/highlighted notation synced to audio
 2. **Piano performance videos** — Visual detection of keys being pressed
@@ -19,7 +19,7 @@ Both approaches can provide ground-truth or supplementary signals that disambigu
 
 ## Current Architecture Overview
 
-NeuralNote's transcription pipeline:
+Quarry's transcription pipeline:
 
 ```
 Audio Input → CQT Features → CNN (basic-pitch) → Posteriorgrams → Note Events → MIDI
@@ -318,4 +318,4 @@ Use video analysis as a **correction layer** on top of existing audio transcript
 
 ---
 
-*Document created for NeuralNoteVideo project planning.*
+*Document created for Quarry project planning.*

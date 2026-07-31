@@ -1,8 +1,8 @@
-NeuralNoteVideo is licensed under the Apache-2.0 License.
-Source code is available at: https://github.com/owenpkent/NeuralNoteVideo
+Quarry is licensed under the Apache-2.0 License.
+Source code is available at: https://github.com/owenpkent/Quarry
 Copyright 2026 Owen Kent
 
-NeuralNoteVideo is a derivative work of NeuralNote (https://github.com/DamRsn/NeuralNote),
+Quarry is a derivative work of NeuralNote (https://github.com/DamRsn/NeuralNote),
 Copyright 2025 Damien Ronssin, also licensed under the Apache-2.0 License.
 
 

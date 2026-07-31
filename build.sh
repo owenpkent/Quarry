@@ -53,7 +53,7 @@ fi
 
 echo
 if test "$(uname -s)" = "Linux"; then
-	echo "Run: ./build/NeuralNote_artefacts/Release/Standalone/NeuralNoteVideo"
+	echo "Run: ./build/Quarry_artefacts/Release/Standalone/Quarry"
 else
-	echo "Run: ./build/NeuralNote_artefacts/Release/Standalone/NeuralNoteVideo.app/Contents/MacOS/NeuralNoteVideo"
+	echo "Run: ./build/Quarry_artefacts/Release/Standalone/Quarry.app/Contents/MacOS/Quarry"
 fi

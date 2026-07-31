@@ -31,9 +31,9 @@ del ncpus
 
 set config=Release
 cmake -S . -B build -DBUILD_UNIT_TESTS=ON || exit /b
-cmake --build build -j %ncpus% --config %config% --target NeuralNote_Standalone --target UnitTests --target NeuralNote_VST3 --target NeuralNote_AU
+cmake --build build -j %ncpus% --config %config% --target Quarry_Standalone --target UnitTests --target Quarry_VST3 --target Quarry_AU
 
 .\build\Tests\UnitTests_artefacts\Release\UnitTests.exe || exit /b
 
 echo
-echo "Run .\build\NeuralNote_artefacts\Release\Standalone\NeuralNoteVideo.exe"
+echo "Run .\build\Quarry_artefacts\Release\Standalone\Quarry.exe"

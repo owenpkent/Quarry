@@ -1,11 +1,11 @@
-NeuralNoteVideo
+Quarry
 Copyright 2026 Owen Kent
 
 This product includes software developed as part of NeuralNote
 (https://github.com/DamRsn/NeuralNote), Copyright 2023 Damien Ronssin,
 licensed under the Apache License, Version 2.0.
 
-NeuralNoteVideo is a modified fork of NeuralNote. Changes made to the original
+Quarry is a modified fork of NeuralNote. Changes made to the original
 work include, but are not limited to:
 
   - An audio input picker that records from a chosen audio device, and on

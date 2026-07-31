@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The fast prototyping loop: build the standalone and run it.
 
-Double-click this file (or right-click -> Open) to build and launch NeuralNoteVideo's
+Double-click this file (or right-click -> Open) to build and launch Quarry's
 standalone app. No VST3, no installer, no DAW rescan. The standalone can record from
 this computer's own audio hardware (the microphone button in the toolbar), so most
 changes can be tried without a DAW in the picture at all.
@@ -37,14 +37,14 @@ from ctypes import wintypes
 ROOT = os.path.dirname(os.path.abspath(__file__))
 
 # Our own messages interleave with cmake's, which writes straight to the console handle.
-# Without this, Python's block buffering lands "Closing running NeuralNoteVideo..." *after*
+# Without this, Python's block buffering lands "Closing running Quarry..." *after*
 # the build output it happened before, which reads like the script did things out of order.
 try:
     sys.stdout.reconfigure(line_buffering=True)
 except (AttributeError, OSError):
     pass
 
-# The onnxruntime build the NeuralNote authors publish, as used by build.bat.
+# The onnxruntime build the upstream NeuralNote authors publish, as used by build.bat.
 ONNX_VERSION = "v1.14.1-neuralnote.1"
 ONNX_DIRNAME = f"onnxruntime-{ONNX_VERSION}-windows-x86_64"
 ONNX_URL = (f"https://github.com/tiborvass/libonnxruntime-neuralnote/releases/download/"
@@ -411,7 +411,7 @@ def close_running(exe_name: str, product: str) -> None:
 # --------------------------------------------------------------------------------------
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Build and launch the NeuralNoteVideo standalone.")
+    parser = argparse.ArgumentParser(description="Build and launch the Quarry standalone.")
     parser.add_argument("--no-build", action="store_true",
                         help="skip the build and just relaunch what is already there")
     parser.add_argument("--config", default="Release")
@@ -419,9 +419,9 @@ def main() -> int:
 
     os.chdir(ROOT)
 
-    exe_name = "NeuralNoteVideo.exe"
-    product = "NeuralNoteVideo"
-    exe = os.path.join(ROOT, "build", "NeuralNote_artefacts", args.config, "Standalone", exe_name)
+    exe_name = "Quarry.exe"
+    product = "Quarry"
+    exe = os.path.join(ROOT, "build", "Quarry_artefacts", args.config, "Standalone", exe_name)
 
     close_running(exe_name, product)
 
@@ -442,7 +442,7 @@ def main() -> int:
 
         started = time.monotonic()
         if run_cmake(["--build", "build", "--config", args.config,
-                      "--target", "NeuralNote_Standalone"]) != 0:
+                      "--target", "Quarry_Standalone"]) != 0:
             return 1
         print(f"{GREEN}Built the standalone in {time.monotonic() - started:.1f}s{RESET}")
 
