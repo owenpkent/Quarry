@@ -30,6 +30,13 @@ const String sq_note_range = "Set note range";
 
 const String sq_root_note = "Set scale root note";
 
+const String detected_key =
+    "The key Quarry hears in this take, with how strongly it fits. A reading of the notes, not "
+    "something it snaps them to. Percussive or atonal material scores low, which means do not "
+    "trust the answer.";
+
+const String use_detected_key = "Set the snap key and scale to the detected key.";
+
 const String sq_scale_type = "Set scale type";
 
 const String sq_snap_mode = "Set snap mode\nAdjust: snap to closest note in scale\nRemove: remove if not in scale";

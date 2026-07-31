@@ -7,7 +7,7 @@ QuarryEditor::QuarryEditor(QuarryAudioProcessor& p)
     mMainView = std::make_unique<QuarryMainView>(p);
 
     addAndMakeVisible(*mMainView);
-    setSize(1000, 700);
+    setSize(1000, 730);
 
     getLookAndFeel().setDefaultSansSerifTypeface(UIDefines::MONTSERRAT_REGULAR());
 

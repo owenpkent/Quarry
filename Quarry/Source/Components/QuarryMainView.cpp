@@ -330,13 +330,13 @@ void QuarryMainView::resized()
 
     mVisualizationPanel.setBounds(328, 120, 642, 491);
     mTranscriptionOptions.setBounds(29, 120, 274, 190);
-    mNoteOptions.setBounds(29, 334, 274, 133);
-    mQuantizePanel.setBounds(29, 491, 274, 120);
+    mNoteOptions.setBounds(29, 334, 274, 163);
+    mQuantizePanel.setBounds(29, 505, 274, 120);
 
     // The window grew by 60 px to seat this; nothing above it moved.
-    mSampleBar->setBounds(29, 622, 941, 46);
+    mSampleBar->setBounds(29, 640, 941, 46);
 
-    mUpdateCheck->setBounds(680, 676, 290, 20);
+    mUpdateCheck->setBounds(680, 694, 290, 20);
 }
 
 void QuarryMainView::paint(Graphics& g)

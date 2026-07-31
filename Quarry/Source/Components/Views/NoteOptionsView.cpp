@@ -53,7 +53,23 @@ NoteOptionsView::NoteOptionsView(QuarryAudioProcessor& processor)
         *mProcessor.getParams()[ParameterHelpers::KeySnapModeId], *mSnapMode);
     addAndMakeVisible(mSnapMode.get());
 
-    setSize(266, 139);
+    // A reading of the take, not an instruction to it. Sits in a well beside the
+    // snap controls so output does not look like something you set.
+    mDetectedLabel = std::make_unique<Label>("DetectedKey");
+    mDetectedLabel->setJustificationType(Justification::centredLeft);
+    mDetectedLabel->setInterceptsMouseClicks(false, false);
+    mDetectedLabel->setTooltip(QuarryTooltips::detected_key);
+    addAndMakeVisible(*mDetectedLabel);
+
+    mUseKeyButton = std::make_unique<TextButton>("Use it");
+    mUseKeyButton->setTooltip(QuarryTooltips::use_detected_key);
+    mUseKeyButton->onClick = [this]() { _adoptDetectedKey(); };
+    addAndMakeVisible(*mUseKeyButton);
+
+    setSize(266, 169);
+
+    _refreshDetectedKey();
+    startTimerHz(2);
 
     mProcessor.getParams()[static_cast<size_t>(ParameterHelpers::EnableNoteQuantizationId)]->addListener(this);
 
@@ -63,6 +79,7 @@ NoteOptionsView::NoteOptionsView(QuarryAudioProcessor& processor)
 
 NoteOptionsView::~NoteOptionsView()
 {
+    stopTimer();
     mProcessor.getParams()[static_cast<size_t>(ParameterHelpers::EnableNoteQuantizationId)]->removeListener(this);
 }
 
@@ -73,6 +90,8 @@ void NoteOptionsView::resized()
     mRootNoteDropdown->setBounds(64, LEFT_SECTIONS_TOP_PAD + 46, 55, 17);
     mKeyType->setBounds(124, LEFT_SECTIONS_TOP_PAD + 46, 129, 17);
     mSnapMode->setBounds(100, LEFT_SECTIONS_TOP_PAD + 75, 154, 17);
+    mDetectedLabel->setBounds(83, LEFT_SECTIONS_TOP_PAD + 104, 116, 17);
+    mUseKeyButton->setBounds(203, LEFT_SECTIONS_TOP_PAD + 103, 50, 19);
 }
 
 void NoteOptionsView::paint(Graphics& g)
@@ -99,6 +118,11 @@ void NoteOptionsView::paint(Graphics& g)
     g.drawText("KEY", Rectangle<int>(19, mRootNoteDropdown->getY(), 80, 17), Justification::centredLeft);
 
     g.drawText("SNAP MODE", Rectangle<int>(19, mSnapMode->getY(), 80, 17), Justification::centredLeft);
+
+    // Detected is not part of the disabled group: it describes the take, which is
+    // true whether or not snapping is switched on.
+    g.setColour(TEXT_MAIN);
+    g.drawText("DETECTED", Rectangle<int>(19, mDetectedLabel->getY(), 80, 17), Justification::centredLeft);
 }
 
 void NoteOptionsView::parameterValueChanged(int parameterIndex, float newValue)
@@ -122,4 +146,48 @@ void NoteOptionsView::_enableView(bool inEnable)
     mKeyType->setEnabled(inEnable);
     mSnapMode->setEnabled(inEnable);
     repaint();
+}
+
+void NoteOptionsView::timerCallback()
+{
+    _refreshDetectedKey();
+}
+
+void NoteOptionsView::_refreshDetectedKey()
+{
+    const auto& events = mProcessor.getTranscriptionManager()->getNoteEventVector();
+
+    if (events.size() == mLastNoteCount)
+        return;
+
+    mLastNoteCount = events.size();
+    mDetected = estimateKey(events);
+
+    const bool usable = mDetected.isValid();
+
+    if (!usable) {
+        mDetectedLabel->setColour(Label::textColourId, TEXT_FAINT);
+        mDetectedLabel->setText(events.empty() ? "nothing yet" : "no clear key", dontSendNotification);
+    } else {
+        // Confidence is shown rather than hidden: percussive material scores low,
+        // and the user should be able to see that before trusting the answer.
+        mDetectedLabel->setColour(Label::textColourId, okstudio::obsidian::accentOf(*this).base);
+        mDetectedLabel->setText(mDetected.toString() + "  " + String(mDetected.confidence, 2),
+                                dontSendNotification);
+    }
+
+    mUseKeyButton->setEnabled(usable);
+}
+
+void NoteOptionsView::_adoptDetectedKey()
+{
+    if (!mDetected.isValid())
+        return;
+
+    // The estimator counts from C; the picker starts at A.
+    const int root_index = (mDetected.rootNote + 3) % 12;
+
+    mRootNoteDropdown->setSelectedItemIndex(root_index, sendNotificationSync);
+    mKeyType->setSelectedItemIndex(mDetected.isMinor ? NoteUtils::Minor : NoteUtils::Major,
+                                   sendNotificationSync);
 }
