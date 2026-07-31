@@ -93,6 +93,12 @@ public:
      */
     String getDroppedFilename() const;
 
+    /** The wav holding the current take, either recorded or dropped. Lives in the
+        app's working directory and is deleted with the take, so copy it rather
+        than handing the path out.
+    */
+    const File& getSourceFile() const { return mSourceFile; }
+
     /**
      * Get number of samples currently acquired (either recorded or loaded from file) at basic pitch sample rate (22.05 kHz)
      * Note that if recording is ongoing, those sample are not yet available in buffers returned by getDownsampledSourceAudioForTranscription() and getSourceAudioForPlayback().

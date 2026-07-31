@@ -168,6 +168,9 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
     QuarryMainView::valueTreePropertyChanged(mProcessor.getValueTree(), NnId::PlayheadCenteredId);
     addAndMakeVisible(*mCenterButton);
 
+    mSampleBar = std::make_unique<SampleBar>(mProcessor);
+    addAndMakeVisible(*mSampleBar);
+
     mUpdateCheck = std::make_unique<UpdateCheck>();
 
     mSettingsButton = std::make_unique<DrawableButton>("SettingsButton", DrawableButton::ButtonStyle::ImageRaw);
@@ -330,7 +333,10 @@ void QuarryMainView::resized()
     mNoteOptions.setBounds(29, 334, 274, 133);
     mQuantizePanel.setBounds(29, 491, 274, 120);
 
-    mUpdateCheck->setBounds(680, 615, 290, 20);
+    // The window grew by 60 px to seat this; nothing above it moved.
+    mSampleBar->setBounds(29, 622, 941, 46);
+
+    mUpdateCheck->setBounds(680, 676, 290, 20);
 }
 
 void QuarryMainView::paint(Graphics& g)

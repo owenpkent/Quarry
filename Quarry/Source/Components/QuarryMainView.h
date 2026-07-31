@@ -14,6 +14,7 @@
 #include "TranscriptionOptionsView.h"
 #include "VisualizationPanel.h"
 #include "AudioInputView.h"
+#include "SampleBar.h"
 #include <okstudio/Obsidian.h>
 #include "NnId.h"
 #include "UpdateCheck.h"
@@ -69,6 +70,8 @@ private:
     std::unique_ptr<DrawableButton> mPlayPauseButton;
     std::unique_ptr<DrawableButton> mCenterButton;
     std::unique_ptr<DrawableButton> mSettingsButton;
+
+    std::unique_ptr<SampleBar> mSampleBar;
 
     std::unique_ptr<TooltipWindow> mTooltipWindow;
 

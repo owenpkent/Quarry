@@ -45,9 +45,9 @@ void MidiFileDrag::mouseDown(const MouseEvent& event)
     String filename = mProcessor->getSourceAudioManager()->getDroppedFilename();
 
     if (filename.isEmpty())
-        filename = "NNTranscription.mid";
+        filename = "QuarryTranscription.mid";
     else
-        filename += "_NNTranscription.mid";
+        filename += "_QuarryTranscription.mid";
 
     auto out_file = mTempDirectory.getChildFile(filename);
 
