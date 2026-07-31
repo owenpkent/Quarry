@@ -24,6 +24,11 @@ class NeuralNoteAudioProcessor;
  *
  * When no device is selected, recording falls back to the audio the host sends to the plugin,
  * which is the original NeuralNote behaviour.
+ *
+ * On Windows there is one extra, synthetic driver called "System Audio", whose "input devices"
+ * are the machine's playback endpoints: picking one records whatever the computer is playing,
+ * through WASAPI loopback rather than through a juce::AudioIODevice. It behaves like any other
+ * selection - same open-only-when-needed lifecycle, same level meter, same recorder.
  */
 class AudioInputManager : private juce::AudioIODeviceCallback
 {
@@ -34,6 +39,14 @@ public:
 
     /** Item shown in the input list for "record whatever the host sends us instead". */
     static const String& getHostInputName();
+
+    /**
+     * Load the saved selection and, in the standalone app on its first run, pick a default input.
+     * Called by anything that asks a question whose answer depends on the selection, and by
+     * NeuralNoteAudioProcessor::startRecording() before it decides where to record from: the panel
+     * may never have been opened, and until this has run there is no selection at all.
+     */
+    void ensureInitialised();
 
     /** Names of the available drivers, e.g. "Windows Audio", "ASIO", "DirectSound". */
     StringArray getDriverNames();
@@ -68,8 +81,8 @@ public:
     /** Sample rate of the open input device, or 0 if no device is open. */
     double getCurrentSampleRate() const;
 
-    /** Empty unless opening the selected input device failed. */
-    String getLastError() const { return mLastError; }
+    /** Empty unless opening the selected input device failed, or it died while open. */
+    String getLastError();
 
     /**
      * Tell the manager whether the audio input panel is on screen. The selected device is held
@@ -108,14 +121,45 @@ private:
 
     void audioDeviceError(const String& errorMessage) override;
 
+#if JUCE_WINDOWS
+    /**
+     * Owns the WASAPI loopback stream and is its sink. Defined in the .cpp, because the Windows
+     * audio headers it needs must not be pulled into everything that includes this one: they
+     * define a Rectangle() that collides with juce::Rectangle.
+     */
+    struct LoopbackCapture;
+#endif
+
+    /**
+     * The one place captured input goes: peak metering, then the recorder. Every capture path
+     * (audio device callback, WASAPI loopback thread) hands its blocks to this and nothing else.
+     * Called on a capture thread, so it allocates nothing and takes no lock of its own.
+     */
+    void _processInputBlock(const float* const* inChannelData, int inNumChannels, int inNumSamples);
+
     void _ensureInitialised();
 
     AudioIODeviceType* _getSelectedDriver();
+
+    /** True when the synthetic "System Audio" driver is the selected one. Never initialises. */
+    bool _isLoopbackDriverSelected() const;
 
     /** @return true if the selected device ends up open. */
     bool _openInputDevice();
 
     void _closeInputDevice();
+
+#if JUCE_WINDOWS
+    /** Refresh mLoopbackEndpointNames / mLoopbackEndpointIds, default playback endpoint first. */
+    void _scanLoopbackEndpoints();
+
+    /** WASAPI endpoint id of the selected loopback "device", or empty if it isn't there. */
+    String _getSelectedLoopbackEndpointId();
+
+    bool _openLoopbackDevice();
+
+    void _closeLoopbackDevice();
+#endif
 
     /** Channels of the open device to record, as chosen with setSelectedInputChannelSet(). */
     BigInteger _getInputChannelMask(int inNumDeviceInputChannels) const;
@@ -135,6 +179,10 @@ private:
     bool mDeviceManagerInitialised = false;
     bool mPanelOnScreen = false;
 
+    // Appended to the saved selection's keys, so the standalone app and the plugin keep separate
+    // selections in the one settings file they share. Empty in the standalone.
+    String mKeySuffix;
+
     String mSelectedDriverName;
     String mSelectedInputDeviceName;
     int mSelectedChannelSet = 0;
@@ -145,8 +193,27 @@ private:
     // the UI disallows anyway) can never hand the writers more channels than they were made for.
     int mNumRecordedChannels = 1;
 
+    // Likewise for length: the writers' internal buffers were sized for this many samples, and a
+    // loopback packet can be far longer than an audio device's block, so blocks are cut to fit.
+    int mNumRecordedSamplesPerBlock = 512;
+
     std::atomic<bool> mIsRecording {false};
     std::atomic<float> mPeakLevel {0.0f};
+
+#if JUCE_WINDOWS
+    // Only alive while the loopback "device" is open, which is the same window of time a
+    // juce::AudioIODevice would be open for: panel on screen, or recording.
+    std::unique_ptr<LoopbackCapture> mLoopback;
+    String mOpenLoopbackEndpointId;
+
+    // Last scan of the playback endpoints: the names the picker shows, and the WASAPI endpoint ids
+    // they came from, in the same order.
+    StringArray mLoopbackEndpointNames;
+    StringArray mLoopbackEndpointIds;
+
+    // Set from the capture thread when the stream dies, so no String is touched there.
+    std::atomic<bool> mLoopbackFailed {false};
+#endif
 
     static constexpr int kMaxCaptureChannels = 32;
 

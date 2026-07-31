@@ -131,6 +131,10 @@ void NeuralNoteAudioProcessor::clear()
 
 bool NeuralNoteAudioProcessor::startRecording()
 {
+    // The audio input panel may never have been opened, and the saved selection (and the standalone
+    // app's default of recording what the computer is playing) only exists once this has run.
+    mAudioInputManager->ensureInitialised();
+
     if (mAudioInputManager->hasSelectedInputDevice())
         return mAudioInputManager->startRecording();
 

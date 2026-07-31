@@ -111,6 +111,11 @@ target_link_libraries(BasicPitchCNN PUBLIC RTNeural bin_data)
 target_include_directories(${BaseTargetName} PRIVATE ${CMAKE_CURRENT_LIST_DIR}/ONNXRuntime/${ONNXRUNTIME_DIRNAME}/include)
 target_include_directories(${BaseTargetName} PRIVATE ${CMAKE_CURRENT_LIST_DIR}/ThirdParty/minimp3)
 
+# okstudio JUCE kit, a sibling checkout shared by the whole line. Header-only; we use
+# okstudio/WasapiLoopback.h for recording what the computer is playing (Windows only, the
+# header is empty elsewhere).
+target_include_directories(${BaseTargetName} PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../okstudio-juce-kit/include)
+
 target_compile_definitions(${BaseTargetName}
         PUBLIC
         JUCE_WEB_BROWSER=0

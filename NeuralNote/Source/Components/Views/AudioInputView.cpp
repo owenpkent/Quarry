@@ -15,7 +15,11 @@ constexpr int kInputRowY = 74;
 constexpr int kChannelsRowY = 104;
 constexpr int kMeterY = 140;
 constexpr int kMeterHeight = 16;
-constexpr int kStatusY = 170;
+constexpr int kStatusY = 172;
+
+// The primary target of the whole app, so it is sized to be hit with a mouse without aiming.
+constexpr int kRecordButtonWidth = 180;
+constexpr int kRecordButtonHeight = 72;
 } // namespace
 
 AudioInputView::AudioInputView(NeuralNoteAudioProcessor& inProcessor, std::function<void()> inOnRecordClicked)
@@ -79,7 +83,12 @@ void AudioInputView::resized()
     mChannelsDropDown->setBounds(kControlX, kChannelsRowY, control_width, kRowHeight);
 
     mCloseButton->setBounds(getWidth() - kLabelX - 22, 10, 22, 22);
-    mRecordButton->setBounds(getWidth() - kLabelX - 110, kMeterY - 4, 110, 26);
+
+    // Bottom right, below the meter, clamped so it can never overflow the panel.
+    const int record_width = jmin(kRecordButtonWidth, getWidth() - 2 * kLabelX);
+    const int record_height = jmin(kRecordButtonHeight, getHeight() - kStatusY - 10);
+
+    mRecordButton->setBounds(getWidth() - kLabelX - record_width, kStatusY, record_width, record_height);
 }
 
 void AudioInputView::paint(Graphics& g)
@@ -104,7 +113,7 @@ void AudioInputView::paint(Graphics& g)
     g.drawText("LEVEL", Rectangle<int>(kLabelX, kMeterY, kLabelWidth, kMeterHeight), Justification::centredLeft);
 
     // Level meter
-    const int meter_width = mRecordButton->getX() - kControlX - 16;
+    const int meter_width = getWidth() - kControlX - kLabelX;
     auto meter_bounds = Rectangle<int>(kControlX, kMeterY, meter_width, kMeterHeight).toFloat();
 
     g.setColour(BLACK.withAlpha(0.12f));
@@ -117,12 +126,15 @@ void AudioInputView::paint(Graphics& g)
         g.fillRoundedRectangle(filled, 3.0f);
     }
 
+    // Status text sits to the left of the record button, never underneath it.
+    const int status_width = mRecordButton->getX() - kLabelX - 16;
+
     g.setColour(BLACK.withAlpha(0.7f));
     g.setFont(UIDefines::DROPDOWN_FONT());
     g.drawFittedText(mStatusText,
-                     Rectangle<int>(kLabelX, kStatusY, getWidth() - 2 * kLabelX, getHeight() - kStatusY - 10),
+                     Rectangle<int>(kLabelX, kStatusY, status_width, getHeight() - kStatusY - 10),
                      Justification::topLeft,
-                     3);
+                     4);
 }
 
 void AudioInputView::visibilityChanged()

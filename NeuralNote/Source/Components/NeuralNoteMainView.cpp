@@ -286,7 +286,8 @@ void NeuralNoteMainView::resized()
     mClearButton->setBounds(589, 43, 35, 35);
     mAudioInputButton->setBounds(637, 43, 35, 35);
 
-    mAudioInputView->setBounds(440, 86, 520, 214);
+    // Tall enough for the big record button under the level meter.
+    mAudioInputView->setBounds(440, 86, 520, 264);
 
     mBackButton->setBounds(682, 43, 35, 35);
     mPlayPauseButton->setBounds(734, 43, 35, 35);
