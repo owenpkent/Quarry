@@ -14,7 +14,7 @@
 #include "TranscriptionOptionsView.h"
 #include "VisualizationPanel.h"
 #include "AudioInputView.h"
-#include "QuarryLNF.h"
+#include <okstudio/Obsidian.h>
 #include "NnId.h"
 #include "UpdateCheck.h"
 
@@ -48,7 +48,6 @@ private:
     void _updateTooltipVisibility();
 
     QuarryAudioProcessor& mProcessor;
-    QuarryLNF mLNF;
 
     State mPrevState = EmptyAudioAndMidiRegions;
 

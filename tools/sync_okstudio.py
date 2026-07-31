@@ -32,6 +32,8 @@ from datetime import date
 VENDORED = [
     "okstudio/WasapiLoopback.h",
     "okstudio/CaptureMath.h",
+    "okstudio/Obsidian.h",
+    "okstudio/MouseOnly.h",
 ]
 
 KIT_REPO = "https://github.com/owenpkent/okstudio-juce-kit.git"

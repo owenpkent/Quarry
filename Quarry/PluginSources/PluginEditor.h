@@ -2,7 +2,8 @@
 
 #include "PluginProcessor.h"
 #include "QuarryMainView.h"
-#include "QuarryLNF.h"
+
+#include <okstudio/Obsidian.h>
 
 class QuarryEditor : public juce::AudioProcessorEditor
 {
@@ -20,5 +21,5 @@ public:
 private:
     std::unique_ptr<QuarryMainView> mMainView;
 
-    QuarryLNF mQuarryLnF;
+    okstudio::obsidian::LookAndFeel mLnF;
 };

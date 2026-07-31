@@ -208,9 +208,8 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
     mSettingsMenu->addSeparator();
     mSettingsMenu->addItem(check_updates_item);
 
+    // Colours come from Obsidian; only the font is ours.
     mPopupMenuLookAndFeel = std::make_unique<PopupMenuLookAndFeel>();
-    mPopupMenuLookAndFeel->setColour(PopupMenu::ColourIds::backgroundColourId, WHITE_SOLID);
-    mPopupMenuLookAndFeel->setColour(PopupMenu::ColourIds::textColourId, BLACK);
     mSettingsMenu->setLookAndFeel(mPopupMenuLookAndFeel.get());
 
     mSettingsButton->onClick = [this] {

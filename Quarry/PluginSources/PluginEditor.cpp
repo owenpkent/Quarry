@@ -11,7 +11,7 @@ QuarryEditor::QuarryEditor(QuarryAudioProcessor& p)
 
     getLookAndFeel().setDefaultSansSerifTypeface(UIDefines::MONTSERRAT_REGULAR());
 
-    mMainView->setLookAndFeel(&mQuarryLnF);
+    mMainView->setLookAndFeel(&mLnF);
 }
 
 QuarryEditor::~QuarryEditor()
