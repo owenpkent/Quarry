@@ -357,6 +357,15 @@ notes-per-minute, and never has to get the first slice right.
 
 ## Milestone 6 — Key, the ribbon, and the local description
 
+> **Superseded in part.** The key half landed in the fork ahead of this plan, as
+> `Lib/Model/KeyEstimate.h`: one global answer from a duration- and amplitude-weighted
+> histogram against Krumhansl-Kessler, shown as **DETECTED** beside the snap controls with a
+> **Use it** button. No ribbon, no runner-up, no relative sibling, so the honesty argument
+> below is still unanswered and is still the reason to build this properly. What the fork did
+> settle is that a raw correlation cannot be shown as a confidence: it never approaches zero
+> on material with no key, and a two-note histogram outscores a real scale, so a pitch-class
+> support gate and an absolute floor are both required. Keep them.
+
 **Files:** `src/analysis/KeyEstimator.h` (duration- **and confidence-**weighted 12-bin
 pitch-class histogram vs Temperley-Kostka-Payne, with Krumhansl and Albrecht-Shanahan
 selectable; plus an 8-bar sliding window), `src/analysis/Describe.h` (composes the paragraph

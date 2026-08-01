@@ -2,9 +2,10 @@
 
 `include/okstudio/` holds verbatim copies of four headers from the okstudio JUCE kit:
 `WasapiLoopback.h` and `CaptureMath.h` for recording what the computer is playing, and
-`Obsidian.h` with its `MouseOnly.h` dependency for the look and feel. They come, https://github.com/owenpkent/okstudio-juce-kit. That repo is
-private, so a submodule would leave public clones unable to build; the headers are checked in
-here instead. They are header-only and are consumed through
+`Obsidian.h` with its `MouseOnly.h` dependency for the look and feel. They come from
+https://github.com/owenpkent/okstudio-juce-kit. That repo is private, so a submodule would
+leave public clones unable to build; the headers are checked in here instead. The look and
+feel pair is needed on every platform, so this is not a Windows-only dependency. They are header-only and are consumed through
 `${CMAKE_CURRENT_LIST_DIR}/ThirdParty/okstudio/include`, which keeps
 `#include <okstudio/WasapiLoopback.h>` resolving unchanged.
 

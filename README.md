@@ -85,7 +85,9 @@ picked here.
 The **SAVE TO** bar along the bottom writes the finished take to a folder you pick once. Two toggles choose
 what gets written, the audio and the transcription, and both are on by default. The name of the next take is
 shown before you commit to it: a dropped file keeps its own name so the saved copy sits beside its source, and
-a recording takes the next free `quarry-take-NNN`. Nothing is ever overwritten.
+a recording takes the next free `quarry-take-NNN`. Both files of a take always share one name, and nothing is
+ever overwritten. A dropped file that is not already a wav is decoded and written out as one, so what lands in
+the folder is a file that opens.
 
 The folder and the two toggles are saved with the project, so a session reopened another day writes where it
 wrote before.
@@ -94,8 +96,10 @@ wrote before.
 
 **SCALE QUANTIZE** is an instruction: it snaps the transcription to a key you choose. **DETECTED**, on the row
 below, is the opposite, a reading of what Quarry actually heard, with a number beside it saying how strongly
-the notes fit. Tonal material scores around 0.9; a percussive take scores near zero, which means do not trust
-it. **Use it** copies the detected key into the snap controls.
+the notes fit. It reads the transcription as the model produced it, not what scale quantize left behind, so
+switching quantize on cannot make the reading agree with the key you set. A clear tonal phrase scores around
+0.95; anything below 0.5, or a take whose notes sit in too few pitch classes to be a key at all, reports
+`no clear key` instead of naming one. **Use it** copies the detected key into the snap controls.
 
 **Watch the original NeuralNote presentation video for the Neural Audio Plugin
 competition [here](https://www.youtube.com/watch?v=6_MC0_aG_DQ)**.
@@ -126,8 +130,10 @@ only works on a matching toolchain.
 ### Full build
 
 Requirements are: `git`, `cmake`, and your OS's preferred compiler suite. Nothing else has to be fetched by
-hand: the okstudio kit headers Quarry uses for system-audio recording are checked in under
-[`ThirdParty/okstudio`](ThirdParty/okstudio/README.md).
+hand: the okstudio kit headers Quarry uses are checked in under
+[`ThirdParty/okstudio`](ThirdParty/okstudio/README.md). They carry both the system-audio recording on Windows
+and the Obsidian look and feel the whole window is drawn in, so they are needed on every platform, not only
+where loopback recording works.
 
 Use this when cloning:
 
@@ -222,7 +228,8 @@ Here's a list of all the third party libraries used in Quarry and the license un
 - [basic-pitch-ts](https://github.com/spotify/basic-pitch-ts) (Apache-2.0 license)
 - [minimp3](https://github.com/lieff/minimp3) (CC0-1.0 license)
 - [okstudio JUCE kit](https://github.com/owenpkent/okstudio-juce-kit) (OK Studio's own, used for Windows
-  system-audio recording; the headers are vendored, see [`ThirdParty/okstudio`](ThirdParty/okstudio/README.md))
+  system-audio recording and for the Obsidian look and feel the window is drawn in; the headers are vendored,
+  see [`ThirdParty/okstudio`](ThirdParty/okstudio/README.md))
 
 ## Could Quarry transcribe audio in real-time?
 
@@ -241,9 +248,10 @@ But if you have ideas please share!
 Quarry is maintained by [Owen Kent](https://github.com/owenpkent).
 
 It is a fork of [NeuralNote](https://github.com/DamRsn/NeuralNote), which was developed by
-[Damien Ronssin](https://github.com/DamRsn) and [Tibor Vass](https://github.com/tiborvass), with the plugin user
-interface designed by Perrine Morel. The audio-to-MIDI transcription engine that Quarry is built on is
-their work.
+[Damien Ronssin](https://github.com/DamRsn) and [Tibor Vass](https://github.com/tiborvass), with the original
+plugin user interface designed by Perrine Morel. The audio-to-MIDI transcription engine that Quarry is built
+on is their work. Quarry's window has since been redrawn onto the OK Studio look and feel, but the layout it
+started from was theirs.
 
 #### Contributors
 

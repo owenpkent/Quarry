@@ -372,6 +372,16 @@ right-click path has a left-click twin.
 | 7 | Notes + the three-way split | **analysis thread** | ~1 ms | `Notes::convert` with the kit's `setNoteFilter` clamping range *inside* convert. Then `confidence` / `onsetConfidence` / `velocity` split apart |
 | 8 | Tempo + meter | **analysis thread** | < 0.1 s | `TempoEstimator.h` autocorrelates the summed **onset posteriorgram**, then phase-aligns to maximise onset energy on beats. Writes `TimeQuantizeInfo::bpm` |
 | 9 | Key + ribbon | **analysis thread** | < 0.05 s | `KeyEstimator.h`: duration- **and confidence-**weighted 12-bin pitch-class histogram vs Temperley-Kostka-Payne (~85 % on symbolic input), then an 8-bar sliding window |
+
+> **A cut-down version of row 9 landed in the fork first**, as `Lib/Model/KeyEstimate.h`. It is
+> the histogram and nothing else: weighted by duration and amplitude rather than by model
+> confidence, correlated against Krumhansl-Kessler rather than Temperley-Kostka-Payne, one global
+> answer with no ribbon and no runner-up, and it runs on the message thread because it is
+> microseconds over note events that already exist. Two guards the design above does not mention
+> turned out to be necessary: a correlation is positive for any histogram that is not perfectly
+> flat, and a sparse one outscores a real scale, so the fork gates on how many pitch classes carry
+> the take and on an absolute confidence floor. Anything built here should keep those and treat
+> the shipped struct as a different type that happens to share a name.
 | 10 | Chords *(gated)* | **analysis thread** | < 0.1 s | `ChordEstimator.h`: beat-synchronous chroma folded from **Quarry's own notes**, 25 templates (12 maj, 12 min, N.C.), small Viterbi smoothing |
 | 11 | Sections *(gated)* | **analysis thread** | < 0.2 s | `SectionEstimator.h`: self-similarity matrix over beat chroma, checkerboard-kernel novelty peaks. **Boundaries only** |
 | 12 | Describe (local) | **analysis thread** | < 1 ms | `Describe::local()` composes the paragraph from `AnalysisReport` by string formatting. **Always runs** |
@@ -470,6 +480,8 @@ Keeps Lattice's **file shape** (pure header, `juce_core` only, test-exe linkable
 
 ```cpp
 struct AnalysisReport {
+    // Note: the fork already ships a KeyEstimate (Lib/Model/KeyEstimate.h) carrying only
+    // rootNote, isMinor and confidence. This one is a richer type of the same name.
     KeyEstimate               global;      // winner, runnerUp, relative, confidence
     std::vector<KeyEstimate>  ribbon;      // 8-bar sliding window
     TempoEstimate             tempo;       // bpm, confidence, half/double alternatives
