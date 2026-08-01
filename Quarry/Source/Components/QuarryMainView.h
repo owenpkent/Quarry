@@ -63,7 +63,6 @@ private:
     std::unique_ptr<DrawableButton> mRecordButton;
     std::unique_ptr<DrawableButton> mClearButton;
 
-    std::unique_ptr<DrawableButton> mAudioInputButton;
     std::unique_ptr<AudioInputView> mAudioInputView;
 
     std::unique_ptr<DrawableButton> mBackButton;

@@ -1,5 +1,5 @@
 //
-// Drop-down panel to pick an audio input and record from it.
+// The docked SOURCE strip: pick an audio input and see its level.
 //
 
 #include "AudioInputView.h"
@@ -8,29 +8,22 @@
 
 namespace
 {
-constexpr int kLabelX = 16;
-constexpr int kLabelWidth = 88;
-constexpr int kControlX = 112;
+constexpr int kLabelX = 14;
+constexpr int kGap = 14;
+constexpr int kDriverLabelWidth = 52;
+constexpr int kDriverWidth = 118;
+constexpr int kInputLabelWidth = 44;
+constexpr int kInputWidth = 196;
+constexpr int kChannelsLabelWidth = 64;
+constexpr int kChannelsWidth = 96;
+constexpr int kLevelLabelWidth = 44;
+constexpr int kMeterWidth = 110;
 constexpr int kRowHeight = 22;
-constexpr int kDriverRowY = 44;
-constexpr int kInputRowY = 74;
-constexpr int kChannelsRowY = 104;
-constexpr int kMeterY = 140;
 constexpr int kMeterHeight = 16;
-constexpr int kStatusY = 172;
-
-// Where the meter and the status text sit when there are no pickers above them to make room for.
-constexpr int kNoPickersMeterY = kDriverRowY;
-constexpr int kNoPickersStatusY = kInputRowY;
-
-// The primary target of the whole app, so it is sized to be hit with a mouse without aiming.
-constexpr int kRecordButtonWidth = 180;
-constexpr int kRecordButtonHeight = 72;
 } // namespace
 
-AudioInputView::AudioInputView(QuarryAudioProcessor& inProcessor, std::function<void()> inOnRecordClicked)
+AudioInputView::AudioInputView(QuarryAudioProcessor& inProcessor)
     : mProcessor(inProcessor)
-    , mOnRecordClicked(std::move(inOnRecordClicked))
     , mCanSelectInput(inProcessor.getAudioInputManager()->canSelectInputDevice())
 {
     auto make_drop_down = [this](const String& inName, const String& inTooltip, std::function<void()> inOnChange) {
@@ -55,32 +48,6 @@ AudioInputView::AudioInputView(QuarryAudioProcessor& inProcessor, std::function<
         mChannelsDropDown->setVisible(false);
     }
 
-    mRecordButton = std::make_unique<TextButton>("RECORD");
-    mRecordButton->setTooltip(QuarryTooltips::record);
-    mRecordButton->onClick = [this] {
-        if (mOnRecordClicked != nullptr)
-            mOnRecordClicked();
-    };
-    addAndMakeVisible(*mRecordButton);
-
-    // A cross drawn as a path: the button is smaller than the look and feel's button font, so a
-    // text "X" would come out as an ellipsis.
-    Path cross;
-    cross.startNewSubPath(0.0f, 0.0f);
-    cross.lineTo(1.0f, 1.0f);
-    cross.startNewSubPath(1.0f, 0.0f);
-    cross.lineTo(0.0f, 1.0f);
-
-    PathStrokeType(0.18f, PathStrokeType::curved, PathStrokeType::rounded).createStrokedPath(cross, cross);
-
-    mCloseButton = std::make_unique<ShapeButton>("Close", TEXT_DIM, TEXT_MAIN, TEXT_FAINT);
-    mCloseButton->setShape(cross, true, true, false);
-    mCloseButton->setTooltip("Close");
-    mCloseButton->onClick = [this] {
-        if (onCloseClicked != nullptr)
-            onCloseClicked();
-    };
-    addAndMakeVisible(*mCloseButton);
 }
 
 AudioInputView::~AudioInputView()
@@ -95,73 +62,61 @@ AudioInputView::~AudioInputView()
 
 void AudioInputView::resized()
 {
-    const int control_width = getWidth() - kControlX - kLabelX;
+    // One row: the pickers left to right, then the meter, then whatever the strip
+    // has to say. In a plugin there are no pickers, so the meter and the status
+    // take the whole width.
+    auto row = getLocalBounds().reduced(kLabelX, 0).withSizeKeepingCentre(
+        getWidth() - 2 * kLabelX, kRowHeight);
 
-    mDriverDropDown->setBounds(kControlX, kDriverRowY, control_width, kRowHeight);
-    mInputDropDown->setBounds(kControlX, kInputRowY, control_width, kRowHeight);
-    mChannelsDropDown->setBounds(kControlX, kChannelsRowY, control_width, kRowHeight);
+    if (mCanSelectInput) {
+        row.removeFromLeft(kDriverLabelWidth);
+        mDriverDropDown->setBounds(row.removeFromLeft(kDriverWidth));
+        row.removeFromLeft(kGap + kInputLabelWidth);
+        mInputDropDown->setBounds(row.removeFromLeft(kInputWidth));
+        row.removeFromLeft(kGap + kChannelsLabelWidth);
+        mChannelsDropDown->setBounds(row.removeFromLeft(kChannelsWidth));
+        row.removeFromLeft(kGap);
+    }
 
-    mCloseButton->setBounds(getWidth() - kLabelX - 22, 10, 22, 22);
-
-    // Bottom right, below the meter, clamped so it can never overflow the panel.
-    const int record_width = jmin(kRecordButtonWidth, getWidth() - 2 * kLabelX);
-    const int record_height = jmin(kRecordButtonHeight, getHeight() - kStatusY - 10);
-
-    mRecordButton->setBounds(getWidth() - kLabelX - record_width, kStatusY, record_width, record_height);
+    row.removeFromLeft(kLevelLabelWidth);
+    mMeterBounds = row.removeFromLeft(jmin(kMeterWidth, jmax(0, row.getWidth() / 2)))
+                       .withSizeKeepingCentre(jmin(kMeterWidth, jmax(0, row.getWidth())), kMeterHeight);
+    row.removeFromLeft(kGap);
+    mStatusBounds = row;
 }
 
 void AudioInputView::paint(Graphics& g)
 {
-    auto bounds = getLocalBounds().toFloat();
+    okstudio::obsidian::raisedFill(g, getLocalBounds().toFloat().reduced(0.5f), 5.0f, PANEL_TOP, PANEL_BOT);
 
-    DropShadow(Colours::black.withAlpha(0.5f), 12, {0, 3}).drawForRectangle(g, getLocalBounds().reduced(2));
-
-    g.setColour(PANEL_BG);
-    g.fillRoundedRectangle(bounds, 5.0f);
-    g.setColour(HAIRLINE);
-    g.drawRoundedRectangle(bounds.reduced(0.5f), 5.0f, 1.0f);
-
-    g.setColour(TEXT_MAIN);
-    g.setFont(UIDefines::TITLE_FONT());
-    g.drawText("AUDIO INPUT", Rectangle<int>(kLabelX, 8, 260, 20), Justification::centredLeft);
-
+    g.setColour(TEXT_FAINT);
     g.setFont(UIDefines::LABEL_FONT());
 
     if (mCanSelectInput) {
-        g.drawText("DRIVER", Rectangle<int>(kLabelX, kDriverRowY, kLabelWidth, kRowHeight), Justification::centredLeft);
-        g.drawText("INPUT", Rectangle<int>(kLabelX, kInputRowY, kLabelWidth, kRowHeight), Justification::centredLeft);
-        g.drawText(
-            "CHANNELS", Rectangle<int>(kLabelX, kChannelsRowY, kLabelWidth, kRowHeight), Justification::centredLeft);
+        g.drawText("DRIVER", mDriverDropDown->getX() - kDriverLabelWidth, 0, kDriverLabelWidth,
+                   getHeight(), Justification::centredLeft);
+        g.drawText("INPUT", mInputDropDown->getX() - kInputLabelWidth, 0, kInputLabelWidth,
+                   getHeight(), Justification::centredLeft);
+        g.drawText("CHANNELS", mChannelsDropDown->getX() - kChannelsLabelWidth, 0, kChannelsLabelWidth,
+                   getHeight(), Justification::centredLeft);
     }
 
-    const int meter_y = mCanSelectInput ? kMeterY : kNoPickersMeterY;
-    const int status_y = mCanSelectInput ? kStatusY : kNoPickersStatusY;
-
-    g.drawText("LEVEL", Rectangle<int>(kLabelX, meter_y, kLabelWidth, kMeterHeight), Justification::centredLeft);
-
-    // Level meter
-    const int meter_width = getWidth() - kControlX - kLabelX;
-    auto meter_bounds = Rectangle<int>(kControlX, meter_y, meter_width, kMeterHeight).toFloat();
+    g.drawText("LEVEL", mMeterBounds.getX() - kLevelLabelWidth, 0, kLevelLabelWidth, getHeight(),
+               Justification::centredLeft);
 
     g.setColour(WELL_BG);
-    g.fillRoundedRectangle(meter_bounds, 3.0f);
+    g.fillRoundedRectangle(mMeterBounds.toFloat(), 3.0f);
 
     if (mLevel > 0.0f) {
-        auto filled = meter_bounds.withWidth(meter_bounds.getWidth() * jmin(mLevel, 1.0f));
+        auto filled = mMeterBounds.toFloat().withWidth(mMeterBounds.getWidth() * jmin(mLevel, 1.0f));
 
         g.setColour(mLevel > 0.95f ? RECORD_RED : okstudio::obsidian::accentOf(*this).base);
         g.fillRoundedRectangle(filled, 3.0f);
     }
 
-    // Status text sits to the left of the record button, never underneath it.
-    const int status_width = mRecordButton->getX() - kLabelX - 16;
-
     g.setColour(TEXT_DIM);
     g.setFont(UIDefines::DROPDOWN_FONT());
-    g.drawFittedText(mStatusText,
-                     Rectangle<int>(kLabelX, status_y, status_width, getHeight() - status_y - 10),
-                     Justification::topLeft,
-                     4);
+    g.drawFittedText(mStatusText, mStatusBounds, Justification::centredLeft, 1);
 }
 
 void AudioInputView::visibilityChanged()
@@ -296,8 +251,6 @@ void AudioInputView::updateEnablements()
     // only overwrite the choice made for the device that is coming back.
     mChannelsDropDown->setEnabled(!is_recording && mSelectedDeviceIsPresent && input_manager->isInputDeviceOpen());
 
-    mRecordButton->setEnabled(state == EmptyAudioAndMidiRegions || is_recording);
-    mRecordButton->setButtonText(is_recording ? "STOP" : "RECORD");
 }
 
 void AudioInputView::_driverChanged()

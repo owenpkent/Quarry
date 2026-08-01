@@ -12,21 +12,17 @@
 #include "UIDefines.h"
 
 /**
- * The AUDIO INPUT panel: drops down from the toolbar, picks the audio input Quarry
- * records from, and shows its level so it's obvious whether signal is arriving before hitting
- * record. Hidden by default; QuarryMainView owns it and toggles it.
+ * The SOURCE strip: docked under the toolbar, picks the audio input Quarry records
+ * from, and shows its level so it is obvious whether signal is arriving before hitting
+ * record. Always on screen, because what you are about to record is not something you
+ * should have to open a panel to check.
  */
 class AudioInputView
     : public Component
     , public Timer
 {
 public:
-    /**
-     * @param inProcessor The processor
-     * @param inOnRecordClicked Called when the panel's record button is clicked. Routed back to
-     *        the toolbar record button so there is only ever one way in and out of recording.
-     */
-    AudioInputView(QuarryAudioProcessor& inProcessor, std::function<void()> inOnRecordClicked);
+    explicit AudioInputView(QuarryAudioProcessor& inProcessor);
 
     ~AudioInputView() override;
 
@@ -43,8 +39,6 @@ public:
 
     /** Called by the main view when the plugin state changes, to lock the pickers while recording. */
     void updateEnablements();
-
-    std::function<void()> onCloseClicked;
 
 private:
     void _driverChanged();
@@ -66,7 +60,6 @@ private:
     String _getStateText() const;
 
     QuarryAudioProcessor& mProcessor;
-    std::function<void()> mOnRecordClicked;
 
     // False in a plugin, which never opens an audio device of its own: the driver, input and
     // channel pickers are hidden there, and the level meter and status text take their place.
@@ -76,8 +69,9 @@ private:
     std::unique_ptr<ComboBox> mInputDropDown;
     std::unique_ptr<ComboBox> mChannelsDropDown;
 
-    std::unique_ptr<TextButton> mRecordButton;
-    std::unique_ptr<ShapeButton> mCloseButton;
+    // Laid out in resized() and drawn in paint(), so the two cannot drift apart.
+    Rectangle<int> mMeterBounds;
+    Rectangle<int> mStatusBounds;
 
     // The entries of mInputDropDown, in the same order. Index 0 is the host input, which has no id,
     // and the rest are devices. Kept because a picked entry is passed back by id, not by name.

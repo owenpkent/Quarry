@@ -59,8 +59,6 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
                 mRecordButton->setToggleState(false, NotificationType::dontSendNotification);
 
                 // Show why in the audio input panel, opening it if it isn't already up.
-                mAudioInputButton->setToggleState(true, NotificationType::dontSendNotification);
-                mAudioInputView->setVisible(true);
                 mAudioInputView->refresh();
             }
         } else {
@@ -92,19 +90,6 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
     };
     addAndMakeVisible(*mClearButton);
 
-    mAudioInputButton = std::make_unique<DrawableButton>("AudioInputButton", DrawableButton::ButtonStyle::ImageRaw);
-    mAudioInputButton->setClickingTogglesState(true);
-    mAudioInputButton->setColour(DrawableButton::ColourIds::backgroundColourId, TRANSPARENT);
-    mAudioInputButton->setColour(DrawableButton::ColourIds::backgroundOnColourId, CONTROL_BG);
-    mAudioInputButton->setTooltip(QuarryTooltips::audio_input);
-
-    auto audio_input_drawable =
-        Drawable::createFromImageData(BinaryData::audioinput_svg, BinaryData::audioinput_svgSize);
-    recolourIcon(audio_input_drawable.get(), TEXT_MAIN);
-    mAudioInputButton->setImages(audio_input_drawable.get());
-
-    mAudioInputButton->onClick = [this]() { mAudioInputView->setVisible(mAudioInputButton->getToggleState()); };
-    addAndMakeVisible(*mAudioInputButton);
 
     mBackButton = std::make_unique<DrawableButton>("BackButton", DrawableButton::ButtonStyle::ImageRaw);
     mBackButton->setClickingTogglesState(false);
@@ -275,17 +260,11 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
     addAndMakeVisible(mNoteOptions);
     addAndMakeVisible(mQuantizePanel);
 
-    // Added after the panels it drops down over, so it draws on top of them.
-    mAudioInputView =
-        std::make_unique<AudioInputView>(mProcessor, [this] { mRecordButton->triggerClick(); });
-    mAudioInputView->onCloseClicked = [this] {
-        mAudioInputButton->setToggleState(false, NotificationType::dontSendNotification);
-        mAudioInputView->setVisible(false);
-    };
-    addChildComponent(*mAudioInputView);
+    mAudioInputView = std::make_unique<AudioInputView>(mProcessor);
+    addAndMakeVisible(*mAudioInputView);
 
     mBackgroundImage = ImageCache::getFromMemory(BinaryData::background_png, BinaryData::background_pngSize)
-                           .rescaled(1000, 640, Graphics::ResamplingQuality::highResamplingQuality);
+                           .rescaled(1000, 755, Graphics::ResamplingQuality::highResamplingQuality);
 
     _updateTooltipVisibility();
 
@@ -294,7 +273,6 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
     mBackButton->setWantsKeyboardFocus(false);
     mRecordButton->setWantsKeyboardFocus(false);
     mCenterButton->setWantsKeyboardFocus(false);
-    mAudioInputButton->setWantsKeyboardFocus(false);
     mSettingsButton->setWantsKeyboardFocus(false);
     mSettingsButton->setTooltip(QuarryTooltips::settings);
 
@@ -316,10 +294,9 @@ void QuarryMainView::resized()
 {
     mRecordButton->setBounds(537, 43, 35, 35);
     mClearButton->setBounds(589, 43, 35, 35);
-    mAudioInputButton->setBounds(637, 43, 35, 35);
 
     // Tall enough for the big record button under the level meter.
-    mAudioInputView->setBounds(440, 86, 520, 264);
+    mAudioInputView->setBounds(29, 86, 941, 40);
 
     mBackButton->setBounds(682, 43, 35, 35);
     mPlayPauseButton->setBounds(734, 43, 35, 35);
@@ -328,15 +305,15 @@ void QuarryMainView::resized()
 
     mMuteButton->setBounds(931, 43, 35, 35);
 
-    mVisualizationPanel.setBounds(328, 120, 642, 491);
-    mTranscriptionOptions.setBounds(29, 120, 274, 190);
-    mNoteOptions.setBounds(29, 334, 274, 163);
-    mQuantizePanel.setBounds(29, 505, 274, 120);
+    mVisualizationPanel.setBounds(328, 140, 642, 491);
+    mTranscriptionOptions.setBounds(29, 140, 274, 190);
+    mNoteOptions.setBounds(29, 354, 274, 163);
+    mQuantizePanel.setBounds(29, 525, 274, 120);
 
     // The window grew by 60 px to seat this; nothing above it moved.
-    mSampleBar->setBounds(29, 640, 941, 46);
+    mSampleBar->setBounds(29, 665, 941, 46);
 
-    mUpdateCheck->setBounds(680, 694, 290, 20);
+    mUpdateCheck->setBounds(680, 719, 290, 20);
 }
 
 void QuarryMainView::paint(Graphics& g)
