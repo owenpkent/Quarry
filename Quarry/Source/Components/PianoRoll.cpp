@@ -4,6 +4,8 @@
 
 #include "PianoRoll.h"
 
+#include <okstudio/Obsidian.h>
+
 PianoRoll::PianoRoll(QuarryAudioProcessor* inProcessor, Keyboard& keyboard, double inBaseNumPixelsPerSecond)
     : mBaseNumPixelsPerSecond(inBaseNumPixelsPerSecond)
       , mKeyboard(keyboard)
@@ -12,9 +14,9 @@ PianoRoll::PianoRoll(QuarryAudioProcessor* inProcessor, Keyboard& keyboard, doub
 {
     mKeyboard.addChangeListener(this);
 
-    mNoteGradient.addColour(0.0, Colours::green);
-    mNoteGradient.addColour(0.5, Colours::blue);
-    mNoteGradient.addColour(1.0, Colours::red);
+    // Amplitude in one channel: the accent, from deep at the quietest to hot at
+    // the loudest. Hue stays constant because it carries identity, not magnitude.
+    // Filled in on the first paint, once the look and feel can answer accentOf.
 
     addAndMakeVisible(mPlayhead);
 
@@ -40,6 +42,8 @@ void PianoRoll::setZoomLevel(double inZoomLevel)
 
 void PianoRoll::paint(Graphics& g)
 {
+    const auto accent = okstudio::obsidian::accentOf(*this);
+
     Rectangle<float> local_bounds = {0, 0, static_cast<float>(getWidth()), static_cast<float>(getHeight())};
 
     auto rect_width = static_cast<float>(getWidth());
@@ -51,11 +55,10 @@ void PianoRoll::paint(Graphics& g)
         // Draw horizontal note lines
         for (int i = MIN_MIDI_NOTE; i <= MAX_MIDI_NOTE; i++) {
             if (mKeyboard.getRectangleForKey(i).intersects(local_bounds)) {
-                Colour fill_colour = _isWhiteKey(i) ? Colours::white : Colours::black;
+                if (_isWhiteKey(i))
+                    continue;
 
-                fill_colour = fill_colour.withAlpha(0.2f);
-
-                g.setColour(fill_colour);
+                g.setColour(Colours::white.withAlpha(0.035f));
 
                 auto [note_y_start, note_height] = _getNoteHeightAndWidthPianoRoll(i);
                 g.fillRect(0.0f, note_y_start, rect_width, note_height);
@@ -76,10 +79,11 @@ void PianoRoll::paint(Graphics& g)
             if (note_y_start < 0 || note_height >= static_cast<float>(getHeight()))
                 continue;
 
-            g.setColour(mNoteGradient.getColourAtPosition(note_event.amplitude));
+            g.setColour(accent.deep.interpolatedWith(accent.hot,
+                                                    jlimit(0.0f, 1.0f, static_cast<float>(note_event.amplitude))));
             g.fillRect(_timeToPixel(start), note_y_start, _timeToPixel(end) - _timeToPixel(start), note_height);
 
-            g.setColour(Colours::black);
+            g.setColour(VOID_BG);
             g.drawRect(_timeToPixel(start), note_y_start, _timeToPixel(end) - _timeToPixel(start), note_height, 0.5);
 
             // Draw pitch bend

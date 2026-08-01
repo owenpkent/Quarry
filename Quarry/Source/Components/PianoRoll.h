@@ -72,7 +72,6 @@ private:
     const double mBaseNumPixelsPerSecond;
     double mZoomLevel = 1.0;
 
-    ColourGradient mNoteGradient;
 
     Keyboard& mKeyboard;
     QuarryAudioProcessor* mProcessor;
