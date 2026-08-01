@@ -58,7 +58,7 @@ void PianoRoll::paint(Graphics& g)
                 if (_isWhiteKey(i))
                     continue;
 
-                g.setColour(Colours::white.withAlpha(0.035f));
+                g.setColour(Colours::white.withAlpha(0.055f));
 
                 auto [note_y_start, note_height] = _getNoteHeightAndWidthPianoRoll(i);
                 g.fillRect(0.0f, note_y_start, rect_width, note_height);
@@ -211,12 +211,13 @@ void PianoRoll::_drawBeatVerticalLines(Graphics& g) const
     const auto width = static_cast<float>(getWidth());
     const auto height = static_cast<float>(getHeight());
 
-    g.setColour(HAIRLINE);
-
     while (beat_pixel < width) {
         if (beat_pixel >= 0) {
-            const float thickness =
-                std::abs(std::fmod(beat_pos_qn, static_cast<double>(tq_info.timeSignatureNum))) < 1e-6 ? 1.0f : 0.5f;
+            const bool is_bar =
+                std::abs(std::fmod(beat_pos_qn, static_cast<double>(tq_info.timeSignatureNum))) < 1e-6;
+            const float thickness = is_bar ? 1.0f : 0.5f;
+
+            g.setColour(Colours::white.withAlpha(is_bar ? 0.15f : 0.07f));
             g.fillRect(Rectangle<float>(static_cast<float>(beat_pixel) - thickness / 2.0f, 0, thickness, height));
         }
 
