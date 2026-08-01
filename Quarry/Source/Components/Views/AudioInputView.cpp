@@ -10,14 +10,21 @@ namespace
 {
 constexpr int kLabelX = 14;
 constexpr int kGap = 14;
-constexpr int kDriverLabelWidth = 52;
+// Each label width is that word measured at UIDefines::LABEL_FONT() plus about six pixels, so every
+// label sits nearer the control it names than the kGap between one control and the next.
+constexpr int kDriverLabelWidth = 46;
 constexpr int kDriverWidth = 118;
-constexpr int kInputLabelWidth = 44;
+constexpr int kInputLabelWidth = 38;
 constexpr int kInputWidth = 196;
 constexpr int kChannelsLabelWidth = 64;
 constexpr int kChannelsWidth = 96;
-constexpr int kLevelLabelWidth = 44;
+constexpr int kLevelLabelWidth = 38;
 constexpr int kMeterWidth = 110;
+// What the standalone says on a first run is "Ready to record from <device> at 48.0 kHz.", and at
+// UIDefines::DROPDOWN_FONT() that needs 156 px to break across the two lines the status is drawn
+// over. This is that with enough over for a device name of about thirty characters, which is where
+// a name honestly starts being too long to show.
+constexpr int kMinStatusWidth = 176;
 constexpr int kRowHeight = 22;
 constexpr int kMeterHeight = 16;
 } // namespace
@@ -79,8 +86,16 @@ void AudioInputView::resized()
     }
 
     row.removeFromLeft(kLevelLabelWidth);
-    mMeterBounds = row.removeFromLeft(jmin(kMeterWidth, jmax(0, row.getWidth() / 2)))
-                       .withSizeKeepingCentre(jmin(kMeterWidth, jmax(0, row.getWidth())), kMeterHeight);
+
+    // The status is served before the meter, because it is the only thing on the row that has to
+    // carry a sentence: a bar still reads as a level at any width, where a sentence cut off in the
+    // middle reads as nothing. Once the pickers have had theirs there is less than kMinStatusWidth
+    // left in the standalone, so there it is the meter that gives up the difference. A plugin has no
+    // pickers and room to spare, and the meter keeps its full kMeterWidth.
+    const int status_width = jmax(kMinStatusWidth, row.getWidth() - kGap - kMeterWidth);
+    const int meter_width = jmax(0, row.getWidth() - kGap - status_width);
+
+    mMeterBounds = row.removeFromLeft(meter_width).withSizeKeepingCentre(meter_width, kMeterHeight);
     row.removeFromLeft(kGap);
     // Two lines are welcome here, so the status gets the strip's full height
     // rather than the single control row the pickers sit on.
@@ -91,7 +106,7 @@ void AudioInputView::paint(Graphics& g)
 {
     okstudio::obsidian::raisedFill(g, getLocalBounds().toFloat().reduced(0.5f), 5.0f, PANEL_TOP, PANEL_BOT);
 
-    g.setColour(TEXT_FAINT);
+    g.setColour(TEXT_DIM);
     g.setFont(UIDefines::LABEL_FONT());
 
     if (mCanSelectInput) {

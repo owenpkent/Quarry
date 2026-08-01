@@ -25,7 +25,9 @@ void QuantizeForceSlider::resized()
 
 void QuantizeForceSlider::paint(Graphics& g)
 {
-    g.setColour(TEXT_MAIN);
+    // Painted here rather than by the look and feel, so nothing else fades it when the row
+    // is switched off. Same reason as the note names in MinMaxNoteSlider.
+    g.setColour(TEXT_MAIN.withMultipliedAlpha(isEnabled() ? 1.0f : DISABLED_ALPHA));
     g.setFont(UIDefines::DROPDOWN_FONT());
 
     g.drawText(std::to_string(static_cast<int>(std::round(mSlider.getValue() * 100.0f))),

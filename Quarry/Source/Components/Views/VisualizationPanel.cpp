@@ -78,23 +78,35 @@ void VisualizationPanel::resized()
                         KEYBOARD_GEOMETRY_WIDTH,
                         getHeight() - mCombinedAudioMidiRegion.mPianoRollY);
 
-    mAudioMidiViewport.setBounds(KEYBOARD_WIDTH, 0, getWidth() - KEYBOARD_WIDTH, getHeight());
+    mAudioMidiViewport.setBounds(0, 0, getWidth(), getHeight());
 
-    mCombinedAudioMidiRegion.setBaseWidth(getWidth() - KEYBOARD_WIDTH);
-    mCombinedAudioMidiRegion.setBounds(KEYBOARD_WIDTH, 0, getWidth() - KEYBOARD_WIDTH, getHeight());
+    mCombinedAudioMidiRegion.setBaseWidth(getWidth());
+    mCombinedAudioMidiRegion.setBounds(0, 0, getWidth(), getHeight());
     mCombinedAudioMidiRegion.changeListenerCallback(mProcessor->getSourceAudioManager()->getAudioThumbnail());
 
-    mMidiFileDrag.setBounds(0, mCombinedAudioMidiRegion.mPianoRollY - 13, getWidth(), 13);
-    mFileTempo->setBounds(6, 55, 40, 14);
+    // The export tempo used to sit in the keyboard gutter. With the gutter gone the
+    // waveform runs to the left edge, and every pixel of it seeks the playhead, so
+    // the tempo moves onto the strip between the waveform and the roll: the one band
+    // in here that is nobody's click target. The drag handle gives up its right end.
+    auto band =
+        Rectangle<int>(0, mCombinedAudioMidiRegion.mPianoRollY - TEMPO_BAND_HEIGHT, getWidth(), TEMPO_BAND_HEIGHT);
+    auto tempo_block = band.removeFromRight(TEMPO_BLOCK_WIDTH);
+
+    mMidiFileDrag.setBounds(band.withTrimmedRight(6));
+
+    mTempoBlockBounds = tempo_block;
+    tempo_block.removeFromRight(8);
+    mFileTempo->setBounds(tempo_block.removeFromRight(TEMPO_EDITOR_WIDTH));
+    mTempoLabelBounds = tempo_block.withTrimmedLeft(8).withTrimmedRight(6);
 
     mAudioGainSlider.setBounds(getWidth() - 205, 3, 200, 20);
     mMidiGainSlider.setBounds(getWidth() - 205, mCombinedAudioMidiRegion.mPianoRollY + 3, 200, 20);
 
-    mAudioRegionBounds = {KEYBOARD_WIDTH, 0, getWidth() - KEYBOARD_WIDTH, mCombinedAudioMidiRegion.mAudioRegionHeight};
+    mAudioRegionBounds = {0, 0, getWidth(), mCombinedAudioMidiRegion.mAudioRegionHeight};
     mPianoRollBounds = {
-        KEYBOARD_WIDTH,
+        0,
         mCombinedAudioMidiRegion.mAudioRegionHeight + mCombinedAudioMidiRegion.mHeightBetweenAudioMidi,
-        getWidth() - KEYBOARD_WIDTH,
+        getWidth(),
         getHeight() - (mCombinedAudioMidiRegion.mAudioRegionHeight + mCombinedAudioMidiRegion.mHeightBetweenAudioMidi)};
 }
 
@@ -102,18 +114,17 @@ void VisualizationPanel::paint(Graphics& g)
 {
     if (mMidiFileDrag.isVisible()) {
         g.setColour(PANEL_BG);
-        g.fillRoundedRectangle(
-            Rectangle<int>(0, 0, KEYBOARD_WIDTH, mCombinedAudioMidiRegion.mAudioRegionHeight).toFloat(), 4);
+        g.fillRoundedRectangle(mTempoBlockBounds.toFloat(), 4);
 
         g.setColour(TEXT_MAIN);
         g.setFont(UIDefines::LABEL_FONT());
-        g.drawFittedText("MIDI\nFILE\nTEMPO", Rectangle<int>(0, 0, KEYBOARD_WIDTH, 55), Justification::centred, 3);
+        g.drawFittedText("MIDI FILE TEMPO", mTempoLabelBounds, Justification::centredRight, 1);
     }
 }
 
 void VisualizationPanel::clear()
 {
-    mCombinedAudioMidiRegion.setSize(getWidth() - KEYBOARD_WIDTH, getHeight());
+    mCombinedAudioMidiRegion.setSize(getWidth(), getHeight());
     mMidiFileDrag.setVisible(false);
     mFileTempo->setVisible(false);
 }

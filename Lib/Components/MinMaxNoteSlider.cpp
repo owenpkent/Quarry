@@ -24,7 +24,10 @@ void MinMaxNoteSlider::resized()
 
 void MinMaxNoteSlider::paint(Graphics& g)
 {
-    g.setColour(TEXT_MAIN);
+    // These two names are painted here rather than by the look and feel, so nothing else
+    // fades them when the row is switched off and they would sit at full strength beside
+    // captions that have already gone quiet.
+    g.setColour(TEXT_MAIN.withMultipliedAlpha(isEnabled() ? 1.0f : DISABLED_ALPHA));
     g.setFont(UIDefines::DROPDOWN_FONT());
 
     g.drawText(NoteUtils::midiNoteToStr(int(mSlider.getMinValue())),

@@ -105,7 +105,13 @@ void TimeQuantizeOptionsView::_setViewEnabled(bool inEnable)
     mQuantizationForceSlider->setEnabled(inEnable);
     mTimeDivisionDropdown->setEnabled(inEnable);
 
+    // Obsidian dims the dropdown and the slider it draws, but a plain TextEditor keeps
+    // its colours whatever setEnabled says, so these three would read as live in a dead
+    // row. Nothing else dims them, so this is not the double-dimming removed elsewhere.
     auto alpha = inEnable ? 1.0f : DISABLED_ALPHA;
+    mTempoEditor->setAlpha(alpha);
+    mTimeSignatureNumEditor->setAlpha(alpha);
+    mTimeSignatureDenomEditor->setAlpha(alpha);
     mTempoEditor->setEnabled(inEnable);
     mTimeSignatureNumEditor->setEnabled(inEnable);
     mTimeSignatureDenomEditor->setEnabled(inEnable);

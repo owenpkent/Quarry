@@ -12,7 +12,7 @@ UpdateCheck::UpdateCheck()
     mUrlButton.setURL(mLatestReleaseUrl);
     mUrlButton.setFont(UIDefines::LABEL_FONT(), false);
     mUrlButton.setJustificationType(Justification::centred);
-    mUrlButton.setColour(HyperlinkButton::ColourIds::textColourId, Colours::blue);
+    mUrlButton.setColour(HyperlinkButton::ColourIds::textColourId, TEXT_MAIN);
     addAndMakeVisible(mUrlButton);
 }
 
@@ -36,6 +36,9 @@ void UpdateCheck::paint(Graphics& g)
     AttributedString attributed_string(text);
     attributed_string.setFont(UIDefines::LABEL_FONT());
     attributed_string.setJustification(Justification::centred);
+    // A TextLayout carries its own colour and ignores whatever the Graphics context
+    // is set to, so this is the only place the text colour can be chosen.
+    attributed_string.setColour(TEXT_MAIN);
 
     TextLayout text_layout;
     text_layout.createLayout(attributed_string, static_cast<float>(getWidth()), static_cast<float>(getHeight()));
@@ -50,7 +53,6 @@ void UpdateCheck::paint(Graphics& g)
 
     g.fillRoundedRectangle(getLocalBounds().toFloat().withLeft(static_cast<float>(rect_x_start)), 4.0f);
 
-    g.setColour(TEXT_MAIN);
     text_layout.draw(
         g,
         Rectangle<float>(static_cast<float>(rect_x_start + mPadding), 0, text_width, static_cast<float>(getHeight())));

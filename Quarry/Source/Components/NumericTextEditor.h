@@ -41,7 +41,7 @@ public:
         setInputRestrictions(inMaxLength, allowed_chars);
         setClicksOutsideDismissVirtualKeyboard(true);
         setSelectAllWhenFocused(true);
-        setTextToShowWhenEmpty(numberToStr(inDefaultValue), TEXT_FAINT);
+        setTextToShowWhenEmpty(numberToStr(inDefaultValue), TEXT_DIM);
         onReturnKey = [this] { giveAwayKeyboardFocus(); };
         onEscapeKey = [this] { giveAwayKeyboardFocus(); };
 

@@ -227,7 +227,9 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
     mSettingsMenu->addSeparator();
     mSettingsMenu->addItem(check_updates_item);
 
-    // Colours come from Obsidian; only the font is ours.
+    // A top-level PopupMenu only ever uses the look and feel handed to it here; JUCE does
+    // not walk up from the target component, so Obsidian never reaches it. The menu is
+    // therefore drawn by stock LookAndFeel_V4's dark scheme, and only the font is ours.
     mPopupMenuLookAndFeel = std::make_unique<PopupMenuLookAndFeel>();
     mSettingsMenu->setLookAndFeel(mPopupMenuLookAndFeel.get());
 
@@ -329,7 +331,7 @@ void QuarryMainView::paint(Graphics& g)
     g.setFont(Font(FontOptions(UIDefines::MONTSERRAT_BOLD())).withPointHeight(26.0f).withExtraKerningFactor(0.16f));
     g.drawText("QUARRY", 30, 22, 400, 34, Justification::centredLeft, false);
 
-    g.setColour(TEXT_FAINT);
+    g.setColour(TEXT_DIM);
     g.setFont(Font(FontOptions(UIDefines::MONTSERRAT_SEMIBOLD())).withPointHeight(9.0f).withExtraKerningFactor(0.34f));
     g.drawText("OK STUDIO", 32, 56, 400, 14, Justification::centredLeft, false);
 }

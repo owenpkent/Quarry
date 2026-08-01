@@ -117,9 +117,14 @@ bool ProcessorBase::isBusesLayoutSupported(const juce::AudioProcessor::BusesLayo
             return false;
     }
 
-    // This checks if the input layout matches the output layout
+    // This checks if the input layout matches the output layout. The standalone declares
+    // no input bus at all, see getDefaultProperties, so there is no input set to match and
+    // comparing the missing one against the output would reject every layout. The test is
+    // on whether a bus was ever declared, not on whether this layout happens to disable it:
+    // a host switching off an input bus the plugin does declare should still be rejected,
+    // because recording would then silently take the output buffer for host input.
 #if !JucePlugin_IsSynth
-    if (layouts.getMainOutputChannelSet() != layouts.getMainInputChannelSet())
+    if (getBusCount(true) > 0 && layouts.getMainOutputChannelSet() != layouts.getMainInputChannelSet())
         return false;
 #endif
 

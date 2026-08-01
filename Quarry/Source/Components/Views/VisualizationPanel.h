@@ -43,10 +43,15 @@ public:
     // spent 50 px of width on a pitch ruler. It stays alive as a geometry source,
     // because PianoRoll asks it where every note and lane sits, so it keeps real
     // bounds while reserving no space in the layout.
-    static constexpr int KEYBOARD_WIDTH = 0;
     static constexpr int KEYBOARD_GEOMETRY_WIDTH = 50;
 
 private:
+    // The band between the waveform and the roll: the midi file drag handle on the
+    // left, the export tempo and its caption on the right.
+    static constexpr int TEMPO_BAND_HEIGHT = 14;
+    static constexpr int TEMPO_BLOCK_WIDTH = 170;
+    static constexpr int TEMPO_EDITOR_WIDTH = 44;
+
     QuarryAudioProcessor* mProcessor;
     Keyboard mKeyboard;
     Viewport mAudioMidiViewport;
@@ -61,6 +66,8 @@ private:
 
     Rectangle<int> mAudioRegionBounds;
     Rectangle<int> mPianoRollBounds;
+    Rectangle<int> mTempoBlockBounds;
+    Rectangle<int> mTempoLabelBounds;
 
     std::unique_ptr<NumericTextEditor<double>> mFileTempo;
 };
