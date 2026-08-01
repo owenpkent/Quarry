@@ -7,6 +7,7 @@
 #include "cnn_test.h"
 #include "perf_test.h"
 #include "notes_test.h"
+#include "key_estimate_test.h"
 
 int main()
 {
@@ -23,6 +24,9 @@ int main()
 
     std::cout << std::endl << "NOTES TEST" << std::endl;
     result |= !notes_test();
+
+    std::cout << std::endl << "KEY ESTIMATE TEST" << std::endl;
+    result |= !key_estimate_test();
 
     return result;
 }

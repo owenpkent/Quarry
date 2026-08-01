@@ -18,6 +18,20 @@ const std::array<double, 12> kMinorProfile = {
 
 const char* kNoteNames[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
 
+// A pitch class counts towards support once it carries this much of the take.
+constexpr double kSupportShare = 0.01;
+
+// A one or two class histogram puts nearly all of its deviation onto those bins,
+// so correlating it measures that collapse rather than a key: a kick and a snare
+// alone score 0.84 against C minor, above a real scale. That degenerate case is
+// the only thing this gate is for. Three classes is the smallest histogram that
+// tells a major triad from a minor one, so the gate stops there and
+// KeyEstimate::kMinConfidence carries everything above it, which is where the
+// measured drum kits fall, between 0.28 and 0.38. Neither is a percussion filter:
+// a four class spread that happens to sit on a chord shape scores 0.75 and passes
+// both.
+constexpr int kMinSupportingPitchClasses = 3;
+
 /** Pearson correlation of a histogram against a profile rotated to inRoot. */
 double correlate(const std::array<double, 12>& inHistogram,
                  const std::array<double, 12>& inProfile,
@@ -94,6 +108,16 @@ KeyEstimate estimateKey(const std::vector<Notes::Event>& inNoteEvents)
     if (total_weight <= 0.0)
         return estimate;
 
+    int supporting_pitch_classes = 0;
+
+    for (const auto bin : histogram) {
+        if (bin >= kSupportShare * total_weight)
+            supporting_pitch_classes++;
+    }
+
+    if (supporting_pitch_classes < kMinSupportingPitchClasses)
+        return estimate;
+
     double best = -1.0;
 
     for (int root = 0; root < 12; root++) {
@@ -113,8 +137,8 @@ KeyEstimate estimateKey(const std::vector<Notes::Event>& inNoteEvents)
         }
     }
 
-    // A negative correlation means the material does not fit any key; report it
-    // as no confidence rather than as a key nobody should act on.
+    // The clamp only keeps the number inside its advertised range; what decides
+    // whether the answer is usable is KeyEstimate::kMinConfidence.
     estimate.confidence = static_cast<float>(jlimit(0.0, 1.0, best));
 
     return estimate;

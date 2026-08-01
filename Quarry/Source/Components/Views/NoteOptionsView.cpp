@@ -57,7 +57,9 @@ NoteOptionsView::NoteOptionsView(QuarryAudioProcessor& processor)
     // snap controls so output does not look like something you set.
     mDetectedLabel = std::make_unique<Label>("DetectedKey");
     mDetectedLabel->setJustificationType(Justification::centredLeft);
-    mDetectedLabel->setInterceptsMouseClicks(false, false);
+    // Hit tested only so the tooltip can be found under the mouse. The label is not editable, so
+    // there is nothing for a click to do.
+    mDetectedLabel->setInterceptsMouseClicks(true, false);
     mDetectedLabel->setTooltip(QuarryTooltips::detected_key);
     addAndMakeVisible(*mDetectedLabel);
 
@@ -68,6 +70,7 @@ NoteOptionsView::NoteOptionsView(QuarryAudioProcessor& processor)
 
     setSize(266, 169);
 
+    _clearDetectedKey();
     _refreshDetectedKey();
     startTimerHz(2);
 
@@ -155,18 +158,36 @@ void NoteOptionsView::timerCallback()
 
 void NoteOptionsView::_refreshDetectedKey()
 {
-    const auto& events = mProcessor.getTranscriptionManager()->getNoteEventVector();
+    auto* transcription_manager = mProcessor.getTranscriptionManager();
 
-    if (events.size() == mLastNoteCount)
+    // The transcription job rebuilds the note vector on a worker thread, and the store of this state
+    // at the end of that job is the only thing that makes it safe to read from here. The piano roll
+    // waits on the same edge.
+    if (mProcessor.getState() != PopulatedAudioAndMidiRegions) {
+        if (mHasReading)
+            _clearDetectedKey();
+
+        return;
+    }
+
+    const std::uint32_t revision = transcription_manager->getRawNoteEventsRevision();
+
+    if (mHasReading && revision == mLastNoteRevision)
         return;
 
-    mLastNoteCount = events.size();
+    mLastNoteRevision = revision;
+    mHasReading = true;
+
+    // Judged on the model output rather than on what scale quantize left behind. With SNAP MODE set
+    // to Remove every out-of-key note is already gone, so the readout would do no more than repeat
+    // the key the user typed in.
+    const auto& events = transcription_manager->getRawNoteEventVector();
     mDetected = estimateKey(events);
 
     const bool usable = mDetected.isValid();
 
     if (!usable) {
-        mDetectedLabel->setColour(Label::textColourId, TEXT_FAINT);
+        mDetectedLabel->setColour(Label::textColourId, TEXT_DIM);
         mDetectedLabel->setText(events.empty() ? "nothing yet" : "no clear key", dontSendNotification);
     } else {
         // Confidence is shown rather than hidden: percussive material scores low,
@@ -177,6 +198,16 @@ void NoteOptionsView::_refreshDetectedKey()
     }
 
     mUseKeyButton->setEnabled(usable);
+}
+
+void NoteOptionsView::_clearDetectedKey()
+{
+    mHasReading = false;
+    mDetected = KeyEstimate();
+
+    mDetectedLabel->setColour(Label::textColourId, TEXT_DIM);
+    mDetectedLabel->setText("nothing yet", dontSendNotification);
+    mUseKeyButton->setEnabled(false);
 }
 
 void NoteOptionsView::_adoptDetectedKey()

@@ -106,6 +106,8 @@ void TranscriptionManager::_runModel()
         mProcessor->getSourceAudioManager()->getDownsampledSourceAudioForTranscription().getWritePointer(0),
         mProcessor->getSourceAudioManager()->getNumSamplesDownAcquired());
 
+    mRawNoteEventsRevision.fetch_add(1);
+
     mNoteOptions.setParameters(
         mProcessor->getParameterValue(ParameterHelpers::EnableNoteQuantizationId) > 0.5f,
         static_cast<NoteUtils::RootNote>(mProcessor->getParameterValue(ParameterHelpers::KeyRootNoteId)),
@@ -143,6 +145,7 @@ void TranscriptionManager::_updateTranscription()
                                   mProcessor->getParameterValue(ParameterHelpers::MinimumNoteDurationId));
 
         mBasicPitch.updateMIDI();
+        mRawNoteEventsRevision.fetch_add(1);
         _updatePostProcessing();
     }
 
@@ -196,6 +199,16 @@ const std::vector<Notes::Event>& TranscriptionManager::getNoteEventVector() cons
     return mPostProcessedNotes;
 }
 
+const std::vector<Notes::Event>& TranscriptionManager::getRawNoteEventVector() const
+{
+    return mBasicPitch.getNoteEvents();
+}
+
+std::uint32_t TranscriptionManager::getRawNoteEventsRevision() const
+{
+    return mRawNoteEventsRevision.load();
+}
+
 TimeQuantizeOptions& TranscriptionManager::getTimeQuantizeOptions()
 {
     return mTimeQuantizeOptions;
@@ -204,6 +217,7 @@ TimeQuantizeOptions& TranscriptionManager::getTimeQuantizeOptions()
 void TranscriptionManager::clear()
 {
     mBasicPitch.reset();
+    mRawNoteEventsRevision.fetch_add(1);
     mShouldRunNewTranscription = false;
     mShouldUpdateTranscription = false;
     mShouldUpdatePostProcessing = false;

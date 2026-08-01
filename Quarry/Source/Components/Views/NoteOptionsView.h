@@ -5,6 +5,8 @@
 #ifndef NoteOptionsView_h
 #define NoteOptionsView_h
 
+#include <cstdint>
+
 #include <JuceHeader.h>
 
 #include "PluginProcessor.h"
@@ -41,8 +43,11 @@ private:
 
     void _enableView(bool inEnable);
 
-    /** Recompute only when the notes actually changed. */
+    /** Recompute only when the transcription actually changed. */
     void _refreshDetectedKey();
+
+    /** Back to the state before anything has been transcribed. */
+    void _clearDetectedKey();
 
     /** Push the detected key into the snap controls. */
     void _adoptDetectedKey();
@@ -67,9 +72,11 @@ private:
     std::unique_ptr<TextButton> mUseKeyButton;
 
     KeyEstimate mDetected;
-    // Not 0: an empty take is a real count, and the first refresh has to run so
-    // the readout and the Use it button start in the right state.
-    size_t mLastNoteCount = static_cast<size_t>(-1);
+
+    // Whether the readout is showing a judgement of a transcription at all, as opposed to the
+    // nothing-yet state. Without it the revision below cannot tell a first look from a repeat.
+    bool mHasReading = false;
+    std::uint32_t mLastNoteRevision = 0;
 
     bool mIsViewEnabled = false;
 };
