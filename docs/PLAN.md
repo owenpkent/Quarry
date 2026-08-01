@@ -102,8 +102,9 @@ blocks. Budget 2.
   a time), loopback endpoints are remembered by their stable Windows endpoint id rather than by
   name, a capture that dies mid-take reports an error and ends the take instead of silently
   truncating it, and `UpdateCheck` was pointed at this fork's own origin.
-- The 180 × 72 Record button is the one in the audio input panel. The toolbar's record button
-  is untouched at 35 × 35, and the panel grew to make room.
+- Superseded: the audio input panel had a 180 × 72 Record button of its own. The panel is now
+  the docked SOURCE strip and that button is gone, since it only ever routed back to the
+  toolbar's. Recording has one way in and out, at 35 × 35 in the toolbar.
 
 ### 0B. Retire the two existential risks (1 day)
 

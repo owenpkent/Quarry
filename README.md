@@ -36,19 +36,21 @@ The workflow is very simple:
 
 - Gather some audio
     - Click record. Works when recording for real or when playing the track in a DAW.
-    - Or, in the standalone app, pick an audio input in the **AUDIO INPUT** panel and record straight from it
+    - Or, in the standalone app, pick an audio input in the **SOURCE** strip and record straight from it
       (see below).
     - Or drop an audio file on the plugin. (.wav, .aiff, .flac, .mp3 and .ogg (vorbis) supported)
 - The MIDI transcription instantly appears in the piano roll section.
 - Listen to the result by clicking the play button.
     - Play with the different settings to adjust the transcription, even while listening to it
     - Individually adjust the level of the source audio and of the synthesized transcription
-- Once you're satisfied, export the MIDI transcription with a simple drag and drop from the plugin to a MIDI track.
+- Once you're satisfied, keep it: drag the MIDI straight into a track, or use the **SAVE TO** bar along the
+  bottom to write the audio and the transcription to a folder.
 
 ### Recording from an audio input
 
-The microphone button in the toolbar drops down the **AUDIO INPUT** panel. In the standalone app it records
-straight from this computer's audio hardware, with no DAW and no trip through the Audio/MIDI Settings dialog:
+The **SOURCE** strip sits under the toolbar, always on screen: what Quarry is about to record is not something
+you should have to open a panel to check. In the standalone app it records straight from this computer's audio
+hardware, with no DAW and no trip through the Audio/MIDI Settings dialog:
 
 - **DRIVER** picks the audio driver to list inputs from. On Windows the first entry is **System Audio**, whose
   inputs are the computer's playback outputs rather than its microphones (see below). The rest are the real
@@ -59,16 +61,13 @@ straight from this computer's audio hardware, with no DAW and no trip through th
 - **CHANNELS** picks which channel(s) of a multi-input interface to record.
 - **LEVEL** shows the input's level, so you can see signal arriving before you commit to a take.
 
-Picking a device is standalone-only. Loaded in a DAW, Quarry never opens an audio device of its own: the panel
-hides those three pickers and shows only the level and the record button, and recording uses the audio the host
-sends the plugin, exactly as it always did. An ASIO driver serves one client at a time, so a driver the plugin
-took for itself would be a driver the host could lose.
+Picking a device is standalone-only. Loaded in a DAW, Quarry never opens an audio device of its own: the strip
+hides those three pickers and shows only the level and what it is recording, and recording uses the audio the
+host sends the plugin, exactly as it always did. An ASIO driver serves one client at a time, so a driver the
+plugin took for itself would be a driver the host could lose.
 
-Recording then works as it always did: hit record (in the panel or in the toolbar), play, hit stop, and the
-transcription appears. The chosen input is remembered between runs.
-
-The input device is only opened while the panel is on screen or while recording, so Quarry never holds
-a microphone open in the background.
+Recording then works as it always did: hit record in the toolbar, play, hit stop, and the transcription
+appears. The chosen input is remembered between runs.
 
 To transcribe audio that is *playing* on this computer (a video in a browser, say) rather than audio coming in
 a microphone, pick the **System Audio** driver and then the output you are listening on. Quarry records
@@ -77,9 +76,26 @@ needed. That is Windows only: on macOS and Linux the driver list holds only the 
 input your sound card offers, or a virtual audio cable, is still the way there.
 
 On Windows the standalone app starts on System Audio, pointed at the default playback output, so there is
-nothing to set up before hitting record; elsewhere it starts on this computer's default input. Either way it
-does not start on the host input, because the standalone mutes the audio input it is handed to avoid a
-feedback loop.
+nothing to set up before hitting record; elsewhere it starts on this computer's default input. The standalone
+has no host input at all: it declares no input bus, because everything it records comes through the device
+picked here.
+
+### Keeping a take
+
+The **SAVE TO** bar along the bottom writes the finished take to a folder you pick once. Two toggles choose
+what gets written, the audio and the transcription, and both are on by default. The name of the next take is
+shown before you commit to it: a dropped file keeps its own name so the saved copy sits beside its source, and
+a recording takes the next free `quarry-take-NNN`. Nothing is ever overwritten.
+
+The folder and the two toggles are saved with the project, so a session reopened another day writes where it
+wrote before.
+
+### What key is this in
+
+**SCALE QUANTIZE** is an instruction: it snaps the transcription to a key you choose. **DETECTED**, on the row
+below, is the opposite, a reading of what Quarry actually heard, with a number beside it saying how strongly
+the notes fit. Tonal material scores around 0.9; a percussive take scores near zero, which means do not trust
+it. **Use it** copies the detected key into the snap controls.
 
 **Watch the original NeuralNote presentation video for the Neural Audio Plugin
 competition [here](https://www.youtube.com/watch?v=6_MC0_aG_DQ)**.

@@ -9,6 +9,40 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- feat: keep a take without opening a dialog. A **SAVE TO** bar along the bottom writes the
+  recorded audio and the transcription to a folder picked once, with a toggle for each format.
+  The name of the next take is shown before you commit to it, and nothing is ever overwritten.
+  The folder and the toggles are saved with the project, so a session reopened another day
+  writes where it wrote before.
+- feat: Quarry now says what key a take is in. **DETECTED**, under the scale quantize controls,
+  reads the transcribed notes and names the key, with a number beside it saying how strongly
+  they fit: tonal material scores around 0.9, percussive material near zero. **Use it** copies
+  that key into the snap controls. Scale quantize was only ever an instruction; this is the
+  reading it looked like it was giving.
+
+### Changed
+
+- ui: the whole window moves to Obsidian, the look and feel shared across the OK Studio line,
+  so Quarry matches Keys rather than the plugin it was forked from. New wordmark drawn as text
+  instead of baked into the background image, new app icon, and a toolbar icon set drawn for
+  this window rather than inherited from a light one.
+- ui: the audio input panel is now the **SOURCE** strip, docked under the toolbar instead of
+  hidden behind a microphone button. What Quarry is about to record is always on screen.
+- ui: the piano keyboard down the side of the roll is gone. It was the brightest thing in the
+  window, competing with the notes it labelled, and it spent 50 px of width on a pitch ruler.
+- ui: transcribed notes are drawn in the app's accent, from deep to bright with amplitude,
+  rather than a green to blue to red ramp that read as three categories instead of a scale.
+
+### Fixed
+
+- fix: the standalone no longer shows a yellow "audio input is muted to avoid feedback loop"
+  banner above the window. It declared a stereo input bus it never read, since recording goes
+  through the device picked in the source strip, and JUCE inferred a feedback loop from it.
+- fix: text and icons meet WCAG 2.2 contrast on the dark window. The toolbar icons were drawn
+  near-black for the old light theme and measured 1.09:1 against the background; several
+  components still painted their labels in black, so values like the note range read at
+  1.58:1. Both are well clear of the 3:1 the criterion asks for now.
+
 - feat: record what the computer is playing. The audio input panel has a new **System Audio**
   driver at the top of the driver list, whose inputs are the machine's playback outputs
   (speakers, headphones, an interface). Pick one and Quarry records everything coming
