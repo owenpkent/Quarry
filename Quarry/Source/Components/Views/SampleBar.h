@@ -35,15 +35,23 @@ public:
     void timerCallback() override;
 
 private:
-    /** The stem shared by both files, without an extension. */
-    String _nextBaseName() const;
+    /** The stem shared by both files, without an extension. Walks inFolder, so the timer
+        reads mNextBaseName instead of calling this.
+    */
+    String _nextBaseName(const File& inFolder) const;
+
+    void _refreshNextBaseName(const File& inFolder);
 
     /** Where takes land. Falls back to Music/Quarry Samples on a first run. */
     File _folder() const;
 
     void _chooseFolder();
 
+    /** Gathers what the write needs, then hands it to a background thread. */
     void _save();
+
+    /** Back on the message thread once the writing is done. */
+    void _finishSave(const StringArray& inWritten, const StringArray& inProblems);
 
     void _updateEnablements();
 
@@ -59,12 +67,20 @@ private:
 
     std::unique_ptr<FileChooser> mFileChooser;
 
-    MidiFileWriter mMidiFileWriter;
-
     // Cleared on the next state change so a result does not sit there forever.
     State mPreviousState = EmptyAudioAndMidiRegions;
 
     bool mShowingResult = false;
+
+    // Decoding an hour of audio is not something to do on the message thread, so the write
+    // runs elsewhere and this keeps a second click from starting a race with the first.
+    bool mSaveInFlight = false;
+
+    // Working the next name out walks the save folder, which can be a network share, so it
+    // is remembered until a save, a new take or a different folder can have changed it.
+    String mNextBaseName;
+    String mNextBaseNameFolder;
+    bool mNextBaseNameStale = true;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SampleBar)
 };

@@ -4,11 +4,65 @@
 
 #include "SampleBar.h"
 
+#include "AudioUtils.h"
+
 #include <okstudio/Obsidian.h>
 
 namespace
 {
 constexpr int kMaxTakeNumber = 9999;
+constexpr int kMaxStemAttempts = 999;
+
+/** A stem free for every extension this save writes, so the pair cannot drift apart.
+    Empty when every candidate is taken, which the caller has to report rather than
+    write over somebody's take.
+*/
+String freeStem(const File& inFolder, const String& inBase, const StringArray& inExtensions)
+{
+    for (int attempt = 1; attempt <= kMaxStemAttempts; attempt++) {
+        const auto stem = attempt == 1 ? inBase : inBase + " (" + String(attempt) + ")";
+        bool taken = false;
+
+        for (const auto& extension: inExtensions)
+            taken = taken || inFolder.getChildFile(stem + extension).existsAsFile();
+
+        if (!taken)
+            return stem;
+    }
+
+    return {};
+}
+
+/** Opens a wav writer on inDestination, leaving nothing behind if it cannot. */
+std::unique_ptr<AudioFormatWriter>
+    makeWavWriter(const File& inDestination, double inSampleRate, unsigned int inNumChannels, int inBitDepth)
+{
+    // A FileOutputStream opens an existing file and seeks to the end, so without this a
+    // second wav would be glued onto the first rather than replacing it.
+    inDestination.deleteFile();
+
+    auto stream = std::make_unique<FileOutputStream>(inDestination);
+
+    if (stream->failedToOpen())
+        return nullptr;
+
+    WavAudioFormat format;
+    StringPairArray meta_data_values;
+
+    std::unique_ptr<AudioFormatWriter> writer(
+        format.createWriterFor(stream.get(), inSampleRate, inNumChannels, inBitDepth, meta_data_values, 0));
+
+    if (writer == nullptr) {
+        stream.reset();
+        inDestination.deleteFile();
+        return nullptr;
+    }
+
+    // createWriterFor only takes the stream on when it succeeds.
+    stream.release();
+
+    return writer;
+}
 } // namespace
 
 SampleBar::SampleBar(QuarryAudioProcessor& inProcessor)
@@ -19,24 +73,19 @@ SampleBar::SampleBar(QuarryAudioProcessor& inProcessor)
     mFolderButton->onClick = [this]() { _chooseFolder(); };
     addAndMakeVisible(*mFolderButton);
 
+    // Bound to the tree rather than read from it once, so a session loaded with the editor
+    // open moves the boxes instead of leaving them showing the previous session's answer.
+    // A tree-driven change reaches onStateChange but never onClick.
     mWavToggle = std::make_unique<ToggleButton>("Wav");
-    mWavToggle->setToggleState(mProcessor.getValueTree().getProperty(NnId::SampleWriteWavId, true),
-                               dontSendNotification);
+    mWavToggle->getToggleStateValue().referTo(
+        mProcessor.getValueTree().getPropertyAsValue(NnId::SampleWriteWavId, nullptr));
     mWavToggle->setTooltip("Write the recorded audio.");
-    mWavToggle->onClick = [this]() {
-        mProcessor.getValueTree().setProperty(NnId::SampleWriteWavId, mWavToggle->getToggleState(), nullptr);
-        _updateEnablements();
-    };
     addAndMakeVisible(*mWavToggle);
 
     mMidiToggle = std::make_unique<ToggleButton>("Midi");
-    mMidiToggle->setToggleState(mProcessor.getValueTree().getProperty(NnId::SampleWriteMidiId, true),
-                                dontSendNotification);
+    mMidiToggle->getToggleStateValue().referTo(
+        mProcessor.getValueTree().getPropertyAsValue(NnId::SampleWriteMidiId, nullptr));
     mMidiToggle->setTooltip("Write the transcription.");
-    mMidiToggle->onClick = [this]() {
-        mProcessor.getValueTree().setProperty(NnId::SampleWriteMidiId, mMidiToggle->getToggleState(), nullptr);
-        _updateEnablements();
-    };
     addAndMakeVisible(*mMidiToggle);
 
     mSaveButton = std::make_unique<TextButton>("Save");
@@ -46,9 +95,13 @@ SampleBar::SampleBar(QuarryAudioProcessor& inProcessor)
 
     mStatusLabel = std::make_unique<Label>("SampleStatus");
     mStatusLabel->setJustificationType(Justification::centredRight);
-    mStatusLabel->setColour(Label::textColourId, TEXT_FAINT);
+    mStatusLabel->setColour(Label::textColourId, TEXT_DIM);
     mStatusLabel->setInterceptsMouseClicks(false, false);
     addAndMakeVisible(*mStatusLabel);
+
+    // Hooked up last because _updateEnablements reads every child above.
+    mWavToggle->onStateChange = [this]() { _updateEnablements(); };
+    mMidiToggle->onStateChange = [this]() { _updateEnablements(); };
 
     _updateEnablements();
     startTimerHz(4);
@@ -69,7 +122,7 @@ File SampleBar::_folder() const
     return File::getSpecialLocation(File::userMusicDirectory).getChildFile("Quarry Samples");
 }
 
-String SampleBar::_nextBaseName() const
+String SampleBar::_nextBaseName(const File& inFolder) const
 {
     // A dropped file keeps its own name, so a saved take is recognisable next to
     // the thing it came from. A recording gets the next free take number.
@@ -78,18 +131,31 @@ String SampleBar::_nextBaseName() const
     if (dropped.isNotEmpty())
         return File::createLegalFileName(dropped);
 
-    const auto folder = _folder();
+    const String prefix = "quarry-take-";
+    int highest = 0;
 
-    for (int i = 1; i <= kMaxTakeNumber; i++) {
-        const auto candidate = "quarry-take-" + String(i).paddedLeft('0', 3);
-
-        if (!folder.getChildFile(candidate + ".wav").existsAsFile()
-            && !folder.getChildFile(candidate + ".mid").existsAsFile()) {
-            return candidate;
+    // One pass over the folder rather than a stat per candidate: the folder can be a
+    // network share and this runs to draw a hint, not to save anything.
+    if (inFolder.isDirectory()) {
+        for (const auto& entry: RangedDirectoryIterator(inFolder, false, prefix + "*", File::findFiles)) {
+            const auto suffix = entry.getFile().getFileNameWithoutExtension().substring(prefix.length());
+            highest = jmax(highest, suffix.getIntValue());
         }
     }
 
-    return "quarry-take";
+    const int next = highest + 1;
+
+    if (next > kMaxTakeNumber)
+        return "quarry-take";
+
+    return prefix + String(next).paddedLeft('0', 3);
+}
+
+void SampleBar::_refreshNextBaseName(const File& inFolder)
+{
+    mNextBaseName = _nextBaseName(inFolder);
+    mNextBaseNameFolder = inFolder.getFullPathName();
+    mNextBaseNameStale = false;
 }
 
 void SampleBar::_chooseFolder()
@@ -98,20 +164,139 @@ void SampleBar::_chooseFolder()
 
     const auto flags = FileBrowserComponent::openMode | FileBrowserComponent::canSelectDirectories;
 
-    mFileChooser->launchAsync(flags, [this](const FileChooser& inChooser) {
+    // The dialog outlives nothing here by design, but closing the editor while it is open
+    // would otherwise call back into a bar that has gone.
+    Component::SafePointer<SampleBar> safe_this(this);
+
+    mFileChooser->launchAsync(flags, [safe_this](const FileChooser& inChooser) {
+        auto* self = safe_this.getComponent();
+
+        if (self == nullptr)
+            return;
+
         const auto chosen = inChooser.getResult();
 
         if (chosen == File())
             return;
 
-        mProcessor.getValueTree().setProperty(NnId::SampleFolderId, chosen.getFullPathName(), nullptr);
-        mShowingResult = false;
-        _updateEnablements();
+        self->mProcessor.getValueTree().setProperty(NnId::SampleFolderId, chosen.getFullPathName(), nullptr);
+        self->mShowingResult = false;
+        self->_updateEnablements();
     });
 }
 
+namespace
+{
+Result writeWav(const File& inSource, const File& inDestination)
+{
+    // A recording is already a wav written by a wav writer, so copying it is exact and free.
+    if (inSource.hasFileExtension("wav")) {
+        if (!inSource.copyFileTo(inDestination))
+            return Result::fail("Could not write " + inDestination.getFileName());
+
+        return Result::ok();
+    }
+
+    const auto write_failed = [&inDestination]() {
+        inDestination.deleteFile();
+        return Result::fail("Could not write " + inDestination.getFileName());
+    };
+
+    // A dropped file is whatever the user dragged in. Its bytes under a .wav name would be
+    // a file nothing can open, Quarry included, so it is decoded and re-encoded instead.
+    AudioFormatManager format_manager;
+    format_manager.registerBasicFormats();
+
+    std::unique_ptr<AudioFormatReader> reader(format_manager.createReaderFor(inSource));
+
+    if (reader != nullptr) {
+        // Snapped rather than clamped: a wav writer takes 8, 16, 24 or 32 and refuses
+        // everything else, so the 20 bits a flac can report would write nothing at all.
+        const int bit_depth = (reader->usesFloatingPointData || reader->bitsPerSample > 16) ? 24 : 16;
+
+        auto writer = makeWavWriter(inDestination, reader->sampleRate, reader->numChannels, bit_depth);
+
+        if (writer == nullptr)
+            return write_failed();
+
+        // Block by block: a dropped file can be an hour long.
+        const bool ok = writer->writeFromAudioReader(*reader, 0, reader->lengthInSamples);
+        writer.reset();
+
+        return ok ? Result::ok() : write_failed();
+    }
+
+    // Some formats are decoded by the project's own loader rather than by JUCE, so there is
+    // no reader to stream from and the whole thing has to come into memory.
+    AudioBuffer<float> decoded;
+    double sample_rate = 0.0;
+
+    if (!AudioUtils::loadAudioFile(inSource, decoded, sample_rate) || decoded.getNumSamples() == 0
+        || sample_rate <= 0.0) {
+        return Result::fail("Could not read " + inSource.getFileName());
+    }
+
+    auto writer = makeWavWriter(inDestination, sample_rate, static_cast<unsigned int>(decoded.getNumChannels()), 24);
+
+    if (writer == nullptr)
+        return write_failed();
+
+    const bool ok = writer->writeFromAudioSampleBuffer(decoded, 0, decoded.getNumSamples());
+    writer.reset();
+
+    return ok ? Result::ok() : write_failed();
+}
+
+/** Everything the write needs, copied off the message thread before it starts. */
+struct SaveRequest {
+    File folder;
+    String stem;
+    bool wantWav = false;
+    bool wantMidi = false;
+    File source;
+    std::vector<Notes::Event> notes;
+    TimeQuantizeOptions::TimeQuantizeInfo quantizeInfo;
+    double exportBpm = 120.0;
+    PitchBendModes pitchBendMode = NoPitchBend;
+};
+
+/** Runs on a background thread, so it touches nothing but its own copy of the request. */
+void runSave(const SaveRequest& inRequest, StringArray& outWritten, StringArray& outProblems)
+{
+    if (inRequest.wantWav) {
+        if (!inRequest.source.existsAsFile()) {
+            outProblems.add("The recorded audio is no longer on disk");
+        } else {
+            const auto destination = inRequest.folder.getChildFile(inRequest.stem + ".wav");
+            const auto result = writeWav(inRequest.source, destination);
+
+            if (result.wasOk())
+                outWritten.add(destination.getFileName());
+            else
+                outProblems.add(result.getErrorMessage());
+        }
+    }
+
+    if (inRequest.wantMidi) {
+        const auto destination = inRequest.folder.getChildFile(inRequest.stem + ".mid");
+
+        const MidiFileWriter writer;
+        const bool ok = writer.writeMidiFile(
+            inRequest.notes, destination, inRequest.quantizeInfo, inRequest.exportBpm, inRequest.pitchBendMode);
+
+        if (ok)
+            outWritten.add(destination.getFileName());
+        else
+            outProblems.add("Could not write " + destination.getFileName());
+    }
+}
+} // namespace
+
 void SampleBar::_save()
 {
+    if (mSaveInFlight)
+        return;
+
     const auto folder = _folder();
 
     if (!folder.isDirectory()) {
@@ -123,53 +308,81 @@ void SampleBar::_save()
         }
     }
 
-    const auto base = _nextBaseName();
-    const bool want_wav = mWavToggle->getToggleState();
-    const bool want_midi = mMidiToggle->getToggleState();
+    SaveRequest request;
+    request.folder = folder;
+    request.wantWav = mWavToggle->getToggleState();
+    request.wantMidi = mMidiToggle->getToggleState();
 
-    StringArray written;
+    StringArray extensions;
 
-    if (want_wav) {
-        const auto source = mProcessor.getSourceAudioManager()->getSourceFile();
+    if (request.wantWav)
+        extensions.add(".wav");
 
-        if (!source.existsAsFile()) {
-            _setStatus("The recorded audio is no longer on disk.", true);
-            return;
-        }
+    if (request.wantMidi)
+        extensions.add(".mid");
 
-        auto destination = folder.getChildFile(base + ".wav");
-        destination = destination.getNonexistentSibling();
+    // One stem cleared against every extension at once. Resolving them separately is how a take
+    // ends up as loop(2).wav beside loop.mid, which is not the pair this feature exists to make.
+    request.stem = freeStem(folder, _nextBaseName(folder), extensions);
 
-        if (!source.copyFileTo(destination)) {
-            _setStatus("Could not write " + destination.getFileName(), true);
-            return;
-        }
-
-        written.add(destination.getFileName());
+    if (request.stem.isEmpty()) {
+        _setStatus("No free name left in " + folder.getFileName(), true);
+        return;
     }
 
-    if (want_midi) {
-        auto destination = folder.getChildFile(base + ".mid");
-        destination = destination.getNonexistentSibling();
+    // Read here rather than on the writing thread: these come from the transcription, which the
+    // message thread owns, and a copy is cheap next to the decode that follows.
+    auto* transcription_manager = mProcessor.getTranscriptionManager();
 
-        const double export_bpm = mProcessor.getValueTree().getProperty(NnId::ExportTempoId, 120.0);
+    request.source = mProcessor.getSourceAudioManager()->getSourceFile();
+    request.notes = transcription_manager->getNoteEventVector();
+    request.quantizeInfo = transcription_manager->getTimeQuantizeOptions().getTimeQuantizeInfo();
+    request.exportBpm = mProcessor.getValueTree().getProperty(NnId::ExportTempoId, 120.0);
+    request.pitchBendMode =
+        static_cast<PitchBendModes>(mProcessor.getParameterValue(ParameterHelpers::PitchBendModeId));
 
-        const bool ok = mMidiFileWriter.writeMidiFile(
-            mProcessor.getTranscriptionManager()->getNoteEventVector(),
-            destination,
-            mProcessor.getTranscriptionManager()->getTimeQuantizeOptions().getTimeQuantizeInfo(),
-            export_bpm,
-            static_cast<PitchBendModes>(mProcessor.getParameterValue(ParameterHelpers::PitchBendModeId)));
+    mSaveInFlight = true;
+    mSaveButton->setEnabled(false);
+    _setStatus("Saving " + request.stem, false);
 
-        if (!ok) {
-            _setStatus("Could not write " + destination.getFileName(), true);
-            return;
-        }
+    // Decoding a dropped file can take seconds, and doing that here would stop the window
+    // painting and, in a plugin, the host's whole message loop with it.
+    Component::SafePointer<SampleBar> safe_this(this);
 
-        written.add(destination.getFileName());
+    Thread::launch([request, safe_this]() {
+        StringArray written;
+        StringArray problems;
+
+        runSave(request, written, problems);
+
+        MessageManager::callAsync([safe_this, written, problems]() {
+            if (auto* self = safe_this.getComponent())
+                self->_finishSave(written, problems);
+        });
+    });
+}
+
+void SampleBar::_finishSave(const StringArray& written, const StringArray& problems)
+{
+    mSaveInFlight = false;
+    mNextBaseNameStale = true;
+    _updateEnablements();
+
+    if (problems.isEmpty()) {
+        _setStatus("Saved " + written.joinIntoString(" and "), false);
+        return;
     }
 
-    _setStatus("Saved " + written.joinIntoString(" and "), false);
+    // Half a take is still worth keeping, so the half that landed is named alongside the
+    // half that did not, and neither is quietly thrown away.
+    const auto trouble = problems.joinIntoString(". ");
+
+    if (written.isEmpty()) {
+        _setStatus(trouble, true);
+        return;
+    }
+
+    _setStatus("Saved " + written.joinIntoString(" and ") + ". " + trouble, true);
 }
 
 void SampleBar::_setStatus(const String& inText, bool inIsError)
@@ -184,7 +397,9 @@ void SampleBar::_updateEnablements()
     const bool has_take = mProcessor.getState() == PopulatedAudioAndMidiRegions;
     const bool any_format = mWavToggle->getToggleState() || mMidiToggle->getToggleState();
 
-    mSaveButton->setEnabled(has_take && any_format);
+    // The timer runs through here four times a second, so without the in-flight test it would
+    // put the button back under a write that has not finished.
+    mSaveButton->setEnabled(has_take && any_format && !mSaveInFlight);
 
     const auto folder = _folder();
     mFolderButton->setButtonText(folder.getFullPathName());
@@ -193,14 +408,18 @@ void SampleBar::_updateEnablements()
     if (mShowingResult)
         return;
 
-    mStatusLabel->setColour(Label::textColourId, TEXT_FAINT);
+    mStatusLabel->setColour(Label::textColourId, TEXT_DIM);
 
-    if (!has_take)
+    if (!has_take) {
         mStatusLabel->setText("Record or drop something to save.", dontSendNotification);
-    else if (!any_format)
+    } else if (!any_format) {
         mStatusLabel->setText("Pick a format.", dontSendNotification);
-    else
-        mStatusLabel->setText("Next: " + _nextBaseName(), dontSendNotification);
+    } else {
+        if (mNextBaseNameStale || mNextBaseNameFolder != folder.getFullPathName())
+            _refreshNextBaseName(folder);
+
+        mStatusLabel->setText("Next: " + mNextBaseName, dontSendNotification);
+    }
 }
 
 void SampleBar::timerCallback()
@@ -211,6 +430,7 @@ void SampleBar::timerCallback()
     if (state != mPreviousState) {
         mPreviousState = state;
         mShowingResult = false;
+        mNextBaseNameStale = true;
     }
 
     _updateEnablements();
@@ -220,7 +440,7 @@ void SampleBar::paint(Graphics& g)
 {
     okstudio::obsidian::raisedFill(g, getLocalBounds().toFloat().reduced(0.5f), 5.0f, PANEL_TOP, PANEL_BOT);
 
-    g.setColour(TEXT_FAINT);
+    g.setColour(TEXT_DIM);
     g.setFont(UIDefines::LABEL_FONT());
     g.drawText("SAVE TO", 14, 0, 70, getHeight(), Justification::centredLeft);
 }
