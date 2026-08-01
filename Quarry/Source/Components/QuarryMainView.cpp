@@ -45,6 +45,9 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
     auto record_on_drawable =
         Drawable::createFromImageData(BinaryData::recordingon_svg, BinaryData::recordingon_svgSize);
 
+    recolourIcon(record_off_drawable.get(), TEXT_MAIN);
+    recolourIcon(record_on_drawable.get(), RECORD_RED);
+
     mRecordButton->setImages(
         record_off_drawable.get(), nullptr, nullptr, nullptr, record_on_drawable.get(), nullptr, nullptr);
 

@@ -82,7 +82,9 @@ void AudioInputView::resized()
     mMeterBounds = row.removeFromLeft(jmin(kMeterWidth, jmax(0, row.getWidth() / 2)))
                        .withSizeKeepingCentre(jmin(kMeterWidth, jmax(0, row.getWidth())), kMeterHeight);
     row.removeFromLeft(kGap);
-    mStatusBounds = row;
+    // Two lines are welcome here, so the status gets the strip's full height
+    // rather than the single control row the pickers sit on.
+    mStatusBounds = row.withY(5).withHeight(getHeight() - 10);
 }
 
 void AudioInputView::paint(Graphics& g)
@@ -116,7 +118,7 @@ void AudioInputView::paint(Graphics& g)
 
     g.setColour(TEXT_DIM);
     g.setFont(UIDefines::DROPDOWN_FONT());
-    g.drawFittedText(mStatusText, mStatusBounds, Justification::centredLeft, 1);
+    g.drawFittedText(mStatusText, mStatusBounds, Justification::centredLeft, 2);
 }
 
 void AudioInputView::visibilityChanged()
