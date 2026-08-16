@@ -123,6 +123,10 @@ int record(juce::uint32 processId, double seconds, const juce::File& root)
     std::printf("sidecar       : %s\n", written.sidecarFile.getFileName().toRawUTF8());
     std::printf("window title  : %s\n",
                 meta.source.windowTitle.isEmpty() ? "(none found)" : meta.source.windowTitle.toRawUTF8());
+    std::printf("url           : %s\n",
+                meta.source.url.isEmpty() ? "(none, or not a browser)" : meta.source.url.toRawUTF8());
+    std::printf("screenshot    : %s\n",
+                meta.source.screenshotFile.isEmpty() ? "(none)" : meta.source.screenshotFile.toRawUTF8());
     std::printf("format        : %d ch @ %.0f Hz float32\n", meta.audio.channels, meta.audio.sampleRate);
     std::printf("duration      : %.2f s kept of %.2f s captured\n",
                 meta.audio.durationSec, meta.trim.originalDurationSec);

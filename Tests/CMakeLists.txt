@@ -65,7 +65,8 @@ if (WIN32)
 
     target_sources(SamplerSmoke PRIVATE
             SamplerSmoke.cpp
-            ${CMAKE_CURRENT_LIST_DIR}/../Quarry/Source/Sampler/SampleRecorder.cpp)
+            ${CMAKE_CURRENT_LIST_DIR}/../Quarry/Source/Sampler/SampleRecorder.cpp
+            ${CMAKE_CURRENT_LIST_DIR}/../Quarry/Source/Sampler/SourceIdentity.cpp)
 
     target_include_directories(SamplerSmoke PRIVATE
             ${CMAKE_CURRENT_LIST_DIR}/../Quarry/Source
@@ -78,6 +79,7 @@ if (WIN32)
     target_link_libraries(SamplerSmoke PRIVATE
             juce::juce_audio_formats
             juce::juce_audio_basics
+            juce::juce_graphics
             juce::juce_core
             PUBLIC
             juce_recommended_config_flags)

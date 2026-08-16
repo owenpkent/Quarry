@@ -125,6 +125,17 @@ every field is nullable in the schema.
    then the omnibox Edit control's `ValuePattern`. The omnibox is native UI, so this does
    not require renderer accessibility. It is the most fragile signal here and breaks
    silently across browser updates, so it falls back to the window title without comment.
+
+   Three things learned building it. Search `TreeScope_Subtree`, not `Descendants`: the
+   omnibox is chrome, a few levels down, while a descendant search can walk into the
+   rendered page and take as long as the page is large. Chrome hides the scheme, so the
+   omnibox reads `youtube.com/watch?v=...` and the `https://` has to be put back for the
+   sidecar to hold something pasteable. And the omnibox holds search queries as readily as
+   addresses, so anything with a space in it is discarded rather than recorded as a URL.
+
+   The cost worth naming: Chrome switches on renderer accessibility when a UIA client
+   appears. That is paid by the browser, and it is why this is a deliberate call once at the
+   start of a take rather than anything polled.
 3. **Media session.** WinRT `GlobalSystemMediaTransportControlsSessionManager` gives title,
    artist, album and thumbnail for Spotify, browsers and most media apps. Sessions are keyed
    by AUMID, which does not map cleanly to a PID, so match by AUMID and treat a
@@ -327,9 +338,12 @@ them into RAM at startup, which is how search works without ever adding a databa
    blocks rather than one growing buffer, so a long take costs an occasional small
    allocation instead of copying everything so far, which at a hundred megabytes would drop
    audio on the floor.
-4. Source identification, one signal at a time, each independently skippable:
-   process/window, then screenshot, then SMTC, then browser URL last since it is the
-   most fragile.
+4. Source identification, one signal at a time, each independently skippable.
+   **Three of four done** in `Sampler/SourceIdentity`: process and window title, browser
+   URL, and the window screenshot, all measured working against a live browser. The media
+   session is the one left, and it is blocked rather than merely pending: SMTC needs
+   C++/WinRT, and this project is on C++17 with no `/await`. Raising that is a build change
+   to argue for on its own, not something to slip in beside a metadata field.
 5. Endpoint fallback path.
 6. Library browser: load, filter, play, reveal, delete, tag.
 7. Hand-off to the Transcribe page.

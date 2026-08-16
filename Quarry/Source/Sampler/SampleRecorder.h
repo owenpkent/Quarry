@@ -1,6 +1,7 @@
 #pragma once
 
 #include "SampleMetadata.h"
+#include "SourceIdentity.h"
 
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_core/juce_core.h>
@@ -106,6 +107,10 @@ private:
 
     SampleMetadata pending;
     juce::File root;
+
+    // Taken when the take starts and written when it ends. By then the window may show
+    // something else entirely, and the sample records what was playing.
+    juce::Image sourceImage;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SampleRecorder)
 };

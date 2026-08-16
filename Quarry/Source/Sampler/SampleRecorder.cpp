@@ -11,127 +11,11 @@
 
 #if JUCE_WINDOWS
 
-#include <tlhelp32.h>
-
 #include <cstring>
 #include <limits>
 
 namespace quarry::sampler
 {
-
-namespace
-{
-struct WindowSearch
-{
-    DWORD processId = 0;
-    HWND best = nullptr;
-    long long bestArea = 0;
-};
-
-BOOL CALLBACK pickLargestWindow(HWND window, LPARAM userData)
-{
-    auto* search = reinterpret_cast<WindowSearch*>(userData);
-
-    DWORD owner = 0;
-    GetWindowThreadProcessId(window, &owner);
-
-    if (owner != search->processId || ! IsWindowVisible(window))
-        return TRUE;
-
-    // Owned windows are tooltips, popups and menus. The title we want is on the frame.
-    if (GetWindow(window, GW_OWNER) != nullptr || GetWindowTextLengthW(window) == 0)
-        return TRUE;
-
-    RECT bounds {};
-    if (! GetWindowRect(window, &bounds))
-        return TRUE;
-
-    const auto area = (long long) (bounds.right - bounds.left) * (long long) (bounds.bottom - bounds.top);
-
-    if (area > search->bestArea)
-    {
-        search->bestArea = area;
-        search->best = window;
-    }
-
-    return TRUE;
-}
-
-/** The title of the biggest visible top-level window belonging to `processId`, or nothing. */
-juce::String titleOfWindowOwnedBy(DWORD processId)
-{
-    if (processId == 0)
-        return {};
-
-    WindowSearch search;
-    search.processId = processId;
-    EnumWindows(pickLargestWindow, reinterpret_cast<LPARAM>(&search));
-
-    if (search.best == nullptr)
-        return {};
-
-    wchar_t title[512] = {};
-    const auto length = GetWindowTextW(search.best, title, (int) juce::numElementsInArray(title));
-
-    return length > 0 ? juce::String(title) : juce::String();
-}
-
-/** The process that started `processId`, or 0. */
-DWORD parentOf(DWORD processId)
-{
-    if (processId == 0)
-        return 0;
-
-    auto* snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    if (snapshot == INVALID_HANDLE_VALUE)
-        return 0;
-
-    PROCESSENTRY32W entry {};
-    entry.dwSize = sizeof(entry);
-
-    DWORD parent = 0;
-
-    if (Process32FirstW(snapshot, &entry))
-    {
-        do
-        {
-            if (entry.th32ProcessID == processId)
-            {
-                parent = entry.th32ParentProcessID;
-                break;
-            }
-        } while (Process32NextW(snapshot, &entry));
-    }
-
-    CloseHandle(snapshot);
-    return parent;
-}
-
-/**
- * The window title to record against a capture.
- *
- * The pid that owns the render session is not always the pid with the window. A browser
- * renders audio from a child process that has no window at all, so a lookup that stopped at
- * the target would come back empty for exactly the case the sampler exists to serve. Walk up
- * a few generations until a window turns up.
- */
-juce::String windowTitleFor(juce::uint32 processId)
-{
-    auto current = (DWORD) processId;
-
-    for (int generation = 0; generation < 4 && current != 0; ++generation)
-    {
-        const auto title = titleOfWindowOwnedBy(current);
-
-        if (title.isNotEmpty())
-            return title;
-
-        current = parentOf(current);
-    }
-
-    return {};
-}
-} // namespace
 
 //==============================================================================
 SampleRecorder::SampleRecorder() = default;
@@ -149,6 +33,7 @@ void SampleRecorder::reset()
     capturedRate = 0.0;
     totalFrames.store(0);
     peakSinceRead.store(0.0f);
+    sourceImage = juce::Image();
 
     const juce::ScopedLock lock(failureLock);
     failure.clear();
@@ -169,7 +54,14 @@ juce::Result SampleRecorder::start(const okstudio::capture::AudioSession& source
     pending.source.processName = source.processName;
     pending.source.processPath = source.executablePath;
     pending.source.sessionVolume = source.volume;
-    pending.source.windowTitle = windowTitleFor(source.processId);
+
+    // Asked once, at the start. The window may be showing something else by the time this
+    // take ends, and what a sample records is what was playing.
+    const auto identity = identifySource(source.processId);
+    pending.source.windowTitle = identity.windowTitle;
+    pending.source.url = identity.url;
+
+    sourceImage = captureWindowImage(source.processId);
 
     // Armed before the stream opens, not after: the capture thread starts delivering the
     // moment Start() returns, and a flag set afterwards would throw the first blocks away.
@@ -378,6 +270,24 @@ SampleRecorder::Written SampleRecorder::stop()
 
     auto audioFile   = folder.getChildFile(stem + ".wav");
     auto sidecarFile = folder.getChildFile(stem + ".json");
+
+    // The picture, if there is one. Written before the sidecar so the sidecar only ever
+    // names a file that is already there.
+    if (sourceImage.isValid())
+    {
+        auto imageFile = folder.getChildFile(stem + ".png");
+        juce::FileOutputStream imageStream(imageFile);
+
+        if (imageStream.openedOk())
+        {
+            juce::PNGImageFormat png;
+
+            if (png.writeImageToStream(sourceImage, imageStream))
+                pending.source.screenshotFile = imageFile.getFileName();
+            else
+                imageFile.deleteFile();
+        }
+    }
 
     //==========================================================================
     // The audio. Float32 straight through: what loopback handed us is what lands on disk,
