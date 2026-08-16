@@ -7,7 +7,10 @@ juce_generate_juce_header(${PROJECT_NAME})
 file(GLOB_RECURSE SOURCES_TESTS ${CMAKE_CURRENT_LIST_DIR}/../Lib/*.cpp)
 file(GLOB_RECURSE HEADERS_TESTS ${CMAKE_CURRENT_LIST_DIR}/../Lib/*.h)
 
-target_sources(${PROJECT_NAME} PRIVATE Tests.cpp ${SOURCES_TESTS} ${HEADERS_TESTS})
+# SampleLibrary is juce_core only, so unlike the recorder it can be linked in here and its
+# path guard tested directly. That guard is a security boundary, not a convenience.
+target_sources(${PROJECT_NAME} PRIVATE Tests.cpp ${SOURCES_TESTS} ${HEADERS_TESTS}
+        ${CMAKE_CURRENT_LIST_DIR}/../Quarry/Source/Sampler/SampleLibrary.cpp)
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../ThirdParty/ONNXRuntime/${ONNXRUNTIME_DIRNAME}/include)
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../ThirdParty/minimp3)

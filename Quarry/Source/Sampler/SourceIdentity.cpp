@@ -221,31 +221,57 @@ juce::String addressBarOf(HWND window)
     if (FAILED(automation->CreatePropertyCondition(UIA_ControlTypePropertyId, wanted, isEdit.put())))
         return {};
 
-    ComPtr<IUIAutomationElement> edit;
+    ComPtr<IUIAutomationElementArray> edits;
 
-    // Subtree rather than the whole descendant tree: bounded, and the omnibox is near the top.
-    if (FAILED(root->FindFirst(TreeScope_Subtree, isEdit.get(), edit.put())) || ! edit)
+    if (FAILED(root->FindAll(TreeScope_Subtree, isEdit.get(), edits.put())) || ! edits)
         return {};
 
-    ComPtr<IUIAutomationValuePattern> value;
+    int count = 0;
 
-    if (FAILED(edit->GetCurrentPatternAs(UIA_ValuePatternId, IID_PPV_ARGS(value.put()))) || ! value)
+    if (FAILED(edits->get_Length(&count)))
         return {};
 
-    BSTR raw = nullptr;
+    // Every edit box, not the first one.
+    //
+    // The omnibox is reliably first today, but asking UI Automation anything is what makes
+    // Chrome switch on renderer accessibility, and from the next call onwards the page's own
+    // fields are in this tree too. Taking whatever came first would eventually mean reading
+    // a text box on a web page. So: skip anything marked as a password outright, and accept
+    // only a value that actually parses as an address.
+    for (int i = 0; i < count && i < 32; ++i)
+    {
+        ComPtr<IUIAutomationElement> edit;
 
-    if (FAILED(value->get_CurrentValue(&raw)) || raw == nullptr)
-        return {};
+        if (FAILED(edits->GetElement(i, edit.put())) || ! edit)
+            continue;
 
-    const juce::String text = juce::String(raw).trim();
-    SysFreeString(raw);
+        BOOL isPassword = FALSE;
 
-    if (! looksLikeAnAddress(text))
-        return {};
+        if (FAILED(edit->get_CurrentIsPassword(&isPassword)) || isPassword)
+            continue;
 
-    // Chrome hides the scheme in the omnibox. Put back what it is showing you, not what it
-    // literally said, so the sidecar holds something you can paste.
-    return text.startsWithIgnoreCase("http") ? text : "https://" + text;
+        ComPtr<IUIAutomationValuePattern> value;
+
+        if (FAILED(edit->GetCurrentPatternAs(UIA_ValuePatternId, IID_PPV_ARGS(value.put()))) || ! value)
+            continue;
+
+        BSTR raw = nullptr;
+
+        if (FAILED(value->get_CurrentValue(&raw)) || raw == nullptr)
+            continue;
+
+        const juce::String text = juce::String(raw).trim();
+        SysFreeString(raw);
+
+        if (! looksLikeAnAddress(text))
+            continue;
+
+        // Chrome hides the scheme in the omnibox. Put back what it is showing you, not what
+        // it literally said, so the sidecar holds something you can paste.
+        return text.startsWithIgnoreCase("http") ? text : "https://" + text;
+    }
+
+    return {};
 }
 } // namespace
 

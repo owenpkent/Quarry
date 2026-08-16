@@ -71,6 +71,16 @@ public:
     /** Removes a capture and everything written beside it. */
     static bool remove(const LibraryEntry& entry);
 
+    /**
+     * A file named by a sidecar, resolved only if it really sits beside that sidecar, and an
+     * invalid File otherwise.
+     *
+     * Public so it can be tested, because it is a security boundary rather than a
+     * convenience. The name comes out of a file that may have arrived from another machine,
+     * and what it names is later passed to moveToTrash.
+     */
+    static juce::File siblingNamed(const juce::File& sidecar, const juce::String& name);
+
 private:
     static LibraryEntry parse(const juce::File& sidecar);
 };

@@ -110,13 +110,18 @@ juce::Result SampleRecorder::startEndpoint(const juce::File& libraryRoot)
         pending.source.processName = loudest->processName;
         pending.source.processPath = loudest->executablePath;
         pending.source.sessionVolume = loudest->volume;
-
-        const auto identity = identifySource(loudest->processId);
-        pending.source.windowTitle = identity.windowTitle;
-        pending.source.url = identity.url;
-
-        sourceImage = captureWindowImage(loudest->processId);
     }
+
+    // Name only. Deliberately no window title, no URL and no screenshot, unlike the
+    // per-application path.
+    //
+    // There the target is the one thing the person picked off a list, so describing it is
+    // describing what they asked for. Here the program chose it, out of windows they never
+    // saw, on the strength of being loudest for one instant. "Record everything this
+    // computer plays" is consent about audio; reading the address bar of whatever happened
+    // to be making noise, and photographing it, is not covered by it. A banking tab that
+    // beeped at the wrong moment would end up as a URL and a picture on disk, and would
+    // travel with any sample pack built from that folder.
 
     usingEndpoint = true;
     recording.store(true);

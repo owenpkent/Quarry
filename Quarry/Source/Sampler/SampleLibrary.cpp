@@ -24,7 +24,30 @@ double numberOf(const juce::var& object, const char* property, double fallback)
     const auto value = object.getProperty(property, juce::var());
     return value.isDouble() || value.isInt() || value.isInt64() ? (double) value : fallback;
 }
+
 } // namespace
+
+/**
+ * This string arrives from a file, and the whole point of the sidecar design is that
+ * captures travel between machines, so it is not ours and must not be trusted. JUCE resolves
+ * "../" inside getSiblingFile, and the result is later handed to moveToTrash: a crafted
+ * sidecar in a downloaded sample pack could otherwise delete something else entirely.
+ *
+ * Checked twice on purpose. The character test rejects the obvious shapes, and comparing the
+ * resolved parent catches whatever the first test did not think of.
+ */
+juce::File SampleLibrary::siblingNamed(const juce::File& sidecar, const juce::String& name)
+{
+    if (name.isEmpty() || name.containsAnyOf("/\\:") || name.contains(".."))
+        return {};
+
+    const auto resolved = sidecar.getSiblingFile(name);
+
+    if (resolved.getParentDirectory() != sidecar.getParentDirectory())
+        return {};
+
+    return resolved;
+}
 
 LibraryEntry SampleLibrary::parse(const juce::File& sidecar)
 {
@@ -47,10 +70,7 @@ LibraryEntry SampleLibrary::parse(const juce::File& sidecar)
         entry.url = textOf(source, "url");
         entry.isolatedToProcess = textOf(source, "isolation") != "endpoint";
 
-        const auto screenshot = textOf(source, "screenshot");
-
-        if (screenshot.isNotEmpty())
-            entry.imageFile = sidecar.getSiblingFile(screenshot);
+        entry.imageFile = siblingNamed(sidecar, textOf(source, "screenshot"));
     }
 
     if (audio.isObject())

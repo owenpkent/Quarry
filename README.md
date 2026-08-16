@@ -113,6 +113,61 @@ Harmonic Stacking).
 As part of the original NeuralNote project, its authors
 [contributed to RTNeural](https://github.com/jatinchowdhury18/RTNeural/pull/89) to add 2D convolution support.
 
+## Sampling one application
+
+The standalone has a second page. **SAMPLE**, next to **TRANSCRIBE** in the toolbar, captures
+audio in the first place rather than converting it; Transcribe is unchanged and is still where
+a take becomes MIDI.
+
+It lists what is making a sound right now, one row each with a live meter, and records the one
+you pick **in isolation**. Not the speakers, the application: a browser tab and nothing else, no
+notification arriving halfway through, no second app bleeding in. Because the capture follows
+that process rather than the output, focus does not matter. Arm the tab, hit record, switch to
+the browser, play it, switch back, stop. Nothing you did in between is in the file, and the
+silence at the end is trimmed off anyway.
+
+This is Windows 10 build 20348 and later; the page hides itself elsewhere. **Everything this
+computer plays** sits at the top of the list as the fallback, and says plainly that its source
+can only be guessed at.
+
+### What a capture knows about itself
+
+The application, the window title, the browser tab's URL and a picture of the window at the
+moment you started. Written into the wav where the format has somewhere to put it, and in full
+to a `.json` beside it.
+
+The sidecar is the record. There is no database, which means the folder is the truth: delete a
+sample in Explorer and it is gone from the browser too, with nothing left over pointing at a
+file that is not there.
+
+**Everything mode gathers none of that**, on purpose. There, the loudest thing playing is only a
+guess at what you meant, and reading the address bar of a window you never picked, or
+photographing it, is not something "record everything the computer plays" asked for. It records
+the application's name and stops.
+
+### Volume is the one thing you cannot fix later
+
+Loopback captures **after** an application's own volume slider, so a tab at 50% is 6 dB of loss
+baked permanently into the file. No format recovers it. The list says so in orange next to any
+app below 100%, with a button that sets it back before you record.
+
+### What lands on disk
+
+32-bit float wav, exactly as the audio arrived: no conversion, no dither, and no decision to
+make about peaks above 0 dBFS. Silence is trimmed from both ends and the crop written down.
+Peak, true peak and integrated loudness are measured and recorded, and applied to nothing.
+
+Files go to dated folders under a captures folder you pick once, named for the time, the
+application and what it was playing: `2026-08/2026-08-16/141901-chrome-silence-youtube.wav`.
+
+### Finding one again
+
+The lower half of the page is everything captured so far. One search box, matched against the
+name, the application, the window title, the URL and the tags at once, because knowing which of
+those your memory of a sample lives in is not a reasonable thing to ask. Several words narrow.
+**TRANSCRIBE** hands a capture to the other page, which is also how you listen to one, and
+deleting moves a file to the recycle bin rather than destroying it.
+
 ## Build from source
 
 ### Windows: the quick loop

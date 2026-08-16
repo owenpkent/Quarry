@@ -9,6 +9,29 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- feat: sample one application, not the whole computer. The standalone gains a second page,
+  **SAMPLE**, switched from the toolbar. It lists what is making a sound right now with a
+  meter each, and records the one you pick in isolation: a browser tab and nothing else, no
+  notification, no Discord ping. Because it follows that application rather than the speakers,
+  you can start the take, switch to the source, play it, and switch back without any of that
+  landing in the file. Windows 10 build 20348 and later; **Everything this computer plays** is
+  there as a fallback, and says outright that its source is a guess.
+- feat: a captured sample says where it came from. The application, the window title, the
+  browser tab's URL and a picture of the window, written into the wav where the format allows
+  and in full to a `.json` beside it. The sidecar is the record: there is no database, so
+  deleting a sample in Explorer leaves nothing behind pointing at it.
+- feat: the captures you have made, in one list. Search matches the name, the application, the
+  window title, the URL and the tags at once, because knowing which field a memory lives in is
+  not something anyone should have to do. **TRANSCRIBE** hands a capture to the other page,
+  which is also how you listen to one.
+- feat: an application at half volume is called out before you record it, in orange, with a
+  button that sets it back. Loopback captures after an app's own volume slider, so 50% is 6 dB
+  of loss baked into the file that no format can undo. It is the one thing about a capture that
+  cannot be fixed afterwards.
+- feat: captures are 32-bit float wav, exactly as the audio arrived, with no conversion, no
+  dither and no decision about peaks above 0 dBFS. Silence is trimmed from both ends and the
+  crop recorded, and peak, true peak and integrated loudness are measured and written down
+  without anything being applied to the audio.
 - feat: keep a take without opening a dialog. A **SAVE TO** bar along the bottom writes the
   recorded audio and the transcription to a folder picked once, with a toggle for each format.
   The name of the next take is shown before you commit to it, and nothing is ever overwritten.

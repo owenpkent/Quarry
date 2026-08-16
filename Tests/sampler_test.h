@@ -10,6 +10,7 @@
 #include <iostream>
 #include <vector>
 
+#include "Sampler/SampleLibrary.h"
 #include "Sampler/SampleMath.h"
 
 namespace sampler_test_utils
@@ -200,6 +201,35 @@ inline bool sampler_test()
 
         check(uniqueStem("143052-chrome", isTaken) == "143052-chrome-03", "collisions count past what is taken");
         check(uniqueStem("143052-firefox", isTaken) == "143052-firefox", "a free name is left alone");
+    }
+
+    //==========================================================================
+    // The sidecar path guard. A security boundary, not a convenience: the name comes from a
+    // file that may have arrived from another machine, and what it names is later passed to
+    // moveToTrash. These are the shapes a crafted sidecar in a downloaded sample pack would
+    // use to reach outside its own folder.
+    {
+        using quarry::sampler::SampleLibrary;
+
+        const auto sidecar = juce::File::getSpecialLocation(juce::File::tempDirectory)
+                                 .getChildFile("captures")
+                                 .getChildFile("take.json");
+
+        check(SampleLibrary::siblingNamed(sidecar, "take.png")
+                  == sidecar.getSiblingFile("take.png"),
+              "a plain name beside the sidecar resolves");
+
+        check(SampleLibrary::siblingNamed(sidecar, "../escape.png") == juce::File(),
+              "a relative escape is refused");
+        check(SampleLibrary::siblingNamed(sidecar, "../../../../windows/system32/x.dll") == juce::File(),
+              "a deep relative escape is refused");
+        check(SampleLibrary::siblingNamed(sidecar, "sub/take.png") == juce::File(),
+              "a forward slash is refused");
+        check(SampleLibrary::siblingNamed(sidecar, "sub\\take.png") == juce::File(),
+              "a backslash is refused");
+        check(SampleLibrary::siblingNamed(sidecar, "C:\\windows\\x.dll") == juce::File(),
+              "an absolute path is refused");
+        check(SampleLibrary::siblingNamed(sidecar, "") == juce::File(), "an empty name is refused");
     }
 
     if (failures == 0)

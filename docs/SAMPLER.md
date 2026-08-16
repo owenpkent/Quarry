@@ -313,6 +313,38 @@ without the keyboard.
 
 ---
 
+## Two things a security pass changed
+
+Both were found reviewing this work before it was proposed, and both are recorded here
+because they are decisions about what the product may do, not bugs that happened to be fixed.
+
+**A sidecar's filenames are not trusted.** The `screenshot` field names a file, and that name
+arrives inside a file which the whole sidecar design expects to travel between machines. JUCE
+resolves `../` inside `getSiblingFile`, and the resolved path was later handed to
+`moveToTrash`, so a crafted sidecar in a downloaded sample pack could have deleted something
+else entirely on a single click of DELETE. `SampleLibrary::siblingNamed` now refuses
+separators, `..` and drive prefixes, and then checks the resolved parent is the sidecar's own
+folder. It is public rather than tucked away in the .cpp so it can be tested, because it is a
+boundary rather than a convenience, and `Tests/sampler_test.h` covers the shapes an attack
+would use.
+
+**Endpoint mode gathers no visual identity.** Recording one application means describing the
+one thing the person picked off a list. Recording everything means the program picks the
+target, out of windows nobody saw, on the strength of being loudest for one instant. Reading
+that window's address bar and photographing it is not covered by "record everything this
+computer plays", and a banking tab that beeped at the wrong moment would have become a URL and
+an image on disk that then travelled with any sample pack built from the folder. Endpoint mode
+records the inferred application's name, which is all a guess needs, and leaves `url` and
+`screenshot` null exactly as every other ungathered field already is.
+
+A third, smaller thing came out of the same pass. `addressBarOf` used to take the first Edit
+control in the window's subtree. The omnibox is reliably first today, but asking UI Automation
+anything is what makes Chrome switch on renderer accessibility, and from the next call onward
+the page's own fields are in that tree. It now walks the matches, skips anything marked as a
+password, and accepts only a value that parses as an address.
+
+---
+
 ## Open: classification
 
 Auto semantic classification is wanted and deliberately unresolved. It costs nothing to
