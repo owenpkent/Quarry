@@ -357,6 +357,68 @@ inline juce::String slugify(const juce::String& text, int maxLength = 48)
     return out;
 }
 
+/**
+ * A window title with the noise the application put in it taken back out.
+ *
+ * Browsers pad their titles at both ends. A real capture came back as
+ * "(413) silence - YouTube - Google Chrome", of which the useful part is two words: the
+ * leading count is unread notifications, and the trailing segment names the browser we
+ * already recorded the name of.
+ *
+ * The trailing rule is general rather than a list of browsers: a segment goes only when it
+ * names the source itself, so "silence - YouTube" keeps YouTube, and Spotify or a game does
+ * the same thing without being enumerated here.
+ */
+inline juce::String tidyWindowTitle(const juce::String& title, const juce::String& sourceName)
+{
+    auto out = title.trim();
+
+    // A leading "(413)" is a notification count, not part of what is playing.
+    if (out.startsWithChar('('))
+    {
+        const auto close = out.indexOfChar(')');
+
+        if (close > 1 && out.substring(1, close).containsOnly("0123456789"))
+            out = out.substring(close + 1).trim();
+    }
+
+    const auto sourceSlug = slugify(sourceName.upToLastOccurrenceOf(".exe", false, true), 24);
+
+    if (sourceSlug.isEmpty())
+        return out;
+
+    // Titles separate with a hyphen, sometimes an en or em dash. Peel trailing segments off
+    // for as long as they are naming the application rather than the thing being played.
+    for (;;)
+    {
+        auto cut = out.lastIndexOf(" - ");
+        auto width = 3;
+
+        for (const auto* dash : { " \xe2\x80\x93 ", " \xe2\x80\x94 " }) // en dash, em dash
+        {
+            const auto found = out.lastIndexOf(juce::String::fromUTF8(dash));
+
+            if (found > cut)
+            {
+                cut = found;
+                width = juce::String::fromUTF8(dash).length();
+            }
+        }
+
+        if (cut <= 0)
+            break;
+
+        const auto tail = out.substring(cut + width).trim();
+
+        if (! slugify(tail, 64).contains(sourceSlug))
+            break;
+
+        out = out.substring(0, cut).trim();
+    }
+
+    return out;
+}
+
 /** The folders a capture lands in, date first: "2026-08/2026-08-16". */
 inline juce::String dateFolder(juce::Time when)
 {
@@ -380,7 +442,7 @@ inline juce::String sampleStem(juce::Time when, const juce::String& sourceName, 
     if (source.isNotEmpty())
         parts.add(source);
 
-    const auto titleSlug = slugify(title, 48);
+    const auto titleSlug = slugify(tidyWindowTitle(title, sourceName), 48);
     if (titleSlug.isNotEmpty())
         parts.add(titleSlug);
 

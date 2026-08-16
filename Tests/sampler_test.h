@@ -164,6 +164,22 @@ inline bool sampler_test()
     }
 
     {
+        // Straight off a real capture: the count is Chrome's unread notifications and the
+        // last segment names the browser we already recorded the name of.
+        check(tidyWindowTitle("(413) silence - YouTube - Google Chrome", "chrome.exe") == "silence - YouTube",
+              "a browser title loses its notification count and its own name");
+        check(tidyWindowTitle("silence - YouTube", "chrome.exe") == "silence - YouTube",
+              "a title that names no browser is left alone");
+        check(tidyWindowTitle("(4) Inbox", "chrome.exe") == "Inbox", "a bare count still goes");
+        check(tidyWindowTitle("Half-Life 2", "hl2.exe") == "Half-Life 2",
+              "a hyphen inside a name is not a separator to peel at");
+        check(tidyWindowTitle("Some Track - Spotify", "Spotify.exe") == "Some Track",
+              "the rule is general, not a list of browsers");
+        check(tidyWindowTitle("(x) Not A Count", "chrome.exe") == "(x) Not A Count",
+              "only digits count as a count");
+    }
+
+    {
         const auto when = juce::Time(2026, 7, 16, 14, 30, 52); // month is zero based: August
         check(dateFolder(when) == "2026-08/2026-08-16", "date folders are year-month then full date");
 

@@ -54,5 +54,34 @@ target_compile_definitions(${PROJECT_NAME}
         USE_TEST_NOTE_FRAME_TO_TIME=1
 )
 
+# Built, not run. SampleRecorder reaches juce_audio_formats and the Windows audio stack, so
+# UnitTests cannot include it, and without this target nothing but the plugin would ever
+# compile it. Deliberately no add_test(): a runner with no audio records its own silence and
+# proves nothing. It links neither onnxruntime nor the transcription engine, so it builds in
+# seconds and is the fastest way to exercise a real capture.
+if (WIN32)
+    juce_add_console_app(SamplerSmoke PRODUCT_NAME "Sampler Smoke")
+    juce_generate_juce_header(SamplerSmoke)
+
+    target_sources(SamplerSmoke PRIVATE
+            SamplerSmoke.cpp
+            ${CMAKE_CURRENT_LIST_DIR}/../Quarry/Source/Sampler/SampleRecorder.cpp)
+
+    target_include_directories(SamplerSmoke PRIVATE
+            ${CMAKE_CURRENT_LIST_DIR}/../Quarry/Source
+            ${CMAKE_CURRENT_LIST_DIR}/../ThirdParty/okstudio/include)
+
+    target_compile_definitions(SamplerSmoke PRIVATE
+            JUCE_WEB_BROWSER=0
+            JUCE_USE_CURL=0)
+
+    target_link_libraries(SamplerSmoke PRIVATE
+            juce::juce_audio_formats
+            juce::juce_audio_basics
+            juce::juce_core
+            PUBLIC
+            juce_recommended_config_flags)
+endif ()
+
 
 
