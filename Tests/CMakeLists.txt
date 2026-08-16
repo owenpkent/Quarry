@@ -66,7 +66,8 @@ if (WIN32)
     target_sources(SamplerSmoke PRIVATE
             SamplerSmoke.cpp
             ${CMAKE_CURRENT_LIST_DIR}/../Quarry/Source/Sampler/SampleRecorder.cpp
-            ${CMAKE_CURRENT_LIST_DIR}/../Quarry/Source/Sampler/SourceIdentity.cpp)
+            ${CMAKE_CURRENT_LIST_DIR}/../Quarry/Source/Sampler/SourceIdentity.cpp
+            ${CMAKE_CURRENT_LIST_DIR}/../Quarry/Source/Sampler/SampleLibrary.cpp)
 
     target_include_directories(SamplerSmoke PRIVATE
             ${CMAKE_CURRENT_LIST_DIR}/../Quarry/Source

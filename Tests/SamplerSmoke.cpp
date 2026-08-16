@@ -10,6 +10,7 @@
 //   SamplerSmoke                       list what is playing, and exit
 //   SamplerSmoke <pid> <seconds> [dir] record that application and write the files
 //   SamplerSmoke all  <seconds> [dir]  record the whole endpoint instead, the fallback path
+//   SamplerSmoke library [query] [dir] read the library back, the way the browser does
 //
 // There is deliberately no add_test(): a runner with no audio would record its own silence
 // and prove nothing. Same reasoning as the kit's okstudio_audio_capture_smoke.
@@ -17,6 +18,7 @@
 
 #include <juce_audio_formats/juce_audio_formats.h>
 
+#include "Sampler/SampleLibrary.h"
 #include "Sampler/SampleRecorder.h"
 
 #include <cstdio>
@@ -58,6 +60,40 @@ int listSources()
 
     std::printf("\nPick a pid with a moving peak and pass it in.\n");
     return 0;
+}
+
+/** Reads the library back off its own sidecars, which is what the browser does at startup. */
+int showLibrary(const juce::File& root, const juce::String& query)
+{
+    const auto all = quarry::sampler::SampleLibrary::scan(root);
+    const auto shown = quarry::sampler::SampleLibrary::filter(all, query);
+
+    std::printf("root          : %s\n", root.getFullPathName().toRawUTF8());
+    std::printf("captured      : %d\n", (int) all.size());
+
+    if (query.isNotEmpty())
+        std::printf("matching '%s' : %d\n", query.toRawUTF8(), (int) shown.size());
+
+    std::printf("\n%-52s %-7s %-9s %s\n", "NAME", "LENGTH", "LOUDNESS", "SOURCE");
+
+    for (const auto& entry : shown)
+        std::printf("%-52s %5.1fs  %6.1f LUFS %s%s\n",
+                    entry.displayName().toRawUTF8(),
+                    entry.durationSec,
+                    entry.lufs,
+                    entry.appName.toRawUTF8(),
+                    entry.isolatedToProcess ? "" : " (guessed)");
+
+    if (! shown.empty())
+    {
+        const auto& first = shown.front();
+        std::printf("\nnewest        : %s\n", first.displayName().toRawUTF8());
+        std::printf("  title       : %s\n", first.windowTitle.toRawUTF8());
+        std::printf("  url         : %s\n", first.url.isEmpty() ? "(none)" : first.url.toRawUTF8());
+        std::printf("  screenshot  : %s\n", first.imageFile.existsAsFile() ? "present" : "(none)");
+    }
+
+    return all.empty() ? 1 : 0;
 }
 
 int record(juce::uint32 processId, double seconds, const juce::File& root, bool everything)
@@ -188,6 +224,10 @@ int main(int argc, char** argv)
                         ? juce::File(juce::String(juce::CharPointer_UTF8(argv[3])))
                         : juce::File::getSpecialLocation(juce::File::userMusicDirectory)
                               .getChildFile("Quarry Captures");
+
+    if (juce::String(argv[1]) == "library")
+        return showLibrary(argc > 3 ? juce::File(juce::String(juce::CharPointer_UTF8(argv[3]))) : root,
+                           argc > 2 ? juce::String(juce::CharPointer_UTF8(argv[2])) : juce::String());
 
     return record(processId, seconds, root, everything);
 }

@@ -8,6 +8,7 @@
 #include <JuceHeader.h>
 
 #include "PluginProcessor.h"
+#include "Sampler/SampleLibrary.h"
 #include "UIDefines.h"
 
 #if JUCE_WINDOWS
@@ -57,6 +58,21 @@ public:
     void listBoxItemClicked(int row, const MouseEvent& event) override;
 
 private:
+    /** The library list is a second ListBox on the same page, and ListBoxModel cannot be
+        implemented twice by one class. This is the second one. */
+    struct LibraryModel : public ListBoxModel
+    {
+        explicit LibraryModel(SamplePageView& inOwner) : owner(inOwner) {}
+
+        int getNumRows() override;
+        void paintListBoxItem(int row, Graphics& g, int width, int height, bool isSelected) override;
+        void listBoxItemClicked(int row, const MouseEvent& event) override;
+
+        SamplePageView& owner;
+    };
+
+    friend struct LibraryModel;
+
     /** One application with an audio session, as far as this page is concerned. */
     struct SourceRow
     {
@@ -91,7 +107,30 @@ private:
     std::unique_ptr<TextButton> mFixVolumeButton;
     std::unique_ptr<TextButton> mFolderButton;
 
+    std::unique_ptr<LibraryModel> mLibraryModel;
+    std::unique_ptr<ListBox> mLibraryList;
+    std::unique_ptr<TextEditor> mSearchBox;
+    std::unique_ptr<TextButton> mTranscribeButton;
+    std::unique_ptr<TextButton> mRevealButton;
+    std::unique_ptr<TextButton> mDeleteButton;
+
     std::unique_ptr<FileChooser> mFileChooser;
+
+    void _rescanLibrary();
+    void _applyFilter();
+    void _openSelectedInTranscribe();
+    void _revealSelected();
+    void _deleteSelected();
+    const quarry::sampler::LibraryEntry* _selectedEntry() const;
+
+    std::vector<quarry::sampler::LibraryEntry> mAllEntries;
+    std::vector<quarry::sampler::LibraryEntry> mShownEntries;
+    int mSelectedEntryRow = -1;
+
+    // The scan is disk work, so it happens off the message thread and the result is handed
+    // back through this. A page that stalls on a cold cache would be a page nobody opens.
+    std::unique_ptr<ThreadPool> mScanPool;
+    std::atomic<bool> mScanRunning { false };
 
     std::vector<SourceRow> mSources;
     uint32 mSelectedPid = 0;

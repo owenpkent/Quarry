@@ -8,6 +8,7 @@
 
 #include "NnId.h"
 #include "QuarryTooltips.h"
+#include "SourceAudioManager.h"
 #include <okstudio/Obsidian.h>
 
 // Last, deliberately: these drag in the Windows audio headers. Everything below them pays
@@ -76,12 +77,46 @@ SamplePageView::SamplePageView(QuarryAudioProcessor& inProcessor)
     mFolderButton->onClick = [this]() { _chooseFolder(); };
     addAndMakeVisible(*mFolderButton);
 
+    //==========================================================================
+    // The library: everything captured so far, read back off its own sidecars.
+    mLibraryModel = std::make_unique<LibraryModel>(*this);
+
+    mLibraryList = std::make_unique<ListBox>("Library", mLibraryModel.get());
+    mLibraryList->setRowHeight(rowHeight);
+    mLibraryList->setColour(ListBox::backgroundColourId, PANEL_BOT);
+    mLibraryList->setColour(ListBox::outlineColourId, Colours::transparentBlack);
+    addAndMakeVisible(*mLibraryList);
+
+    mSearchBox = std::make_unique<TextEditor>("Search");
+    mSearchBox->setTextToShowWhenEmpty("search captures", TEXT_DIM);
+    mSearchBox->setColour(TextEditor::backgroundColourId, PANEL_BOT);
+    mSearchBox->setColour(TextEditor::textColourId, TEXT_MAIN);
+    mSearchBox->setColour(TextEditor::outlineColourId, Colours::transparentBlack);
+    mSearchBox->onTextChange = [this]() { _applyFilter(); };
+    addAndMakeVisible(*mSearchBox);
+
+    const auto makeLibraryButton = [this](const String& inText, std::function<void()> inAction) {
+        auto button = std::make_unique<TextButton>(inText);
+        button->setColour(TextButton::buttonColourId, CONTROL_BG);
+        button->setColour(TextButton::textColourOffId, TEXT_MAIN);
+        button->onClick = std::move(inAction);
+        addAndMakeVisible(*button);
+        return button;
+    };
+
+    mTranscribeButton = makeLibraryButton("TRANSCRIBE", [this]() { _openSelectedInTranscribe(); });
+    mRevealButton = makeLibraryButton("SHOW IN FOLDER", [this]() { _revealSelected(); });
+    mDeleteButton = makeLibraryButton("DELETE", [this]() { _deleteSelected(); });
+
+    mScanPool = std::make_unique<ThreadPool>(1);
+
     if (! WasapiProcessLoopback::isSupported())
         mStatusText = "This version of Windows cannot record a single application.";
     else
         mStatusText = "Pick an application, then record.";
 
     _refreshSources();
+    _rescanLibrary();
     _updateEnablements();
 
     startTimer(refreshIntervalMs);
@@ -90,6 +125,10 @@ SamplePageView::SamplePageView(QuarryAudioProcessor& inProcessor)
 SamplePageView::~SamplePageView()
 {
     stopTimer();
+
+    // Before anything the scan job captures by reference goes away.
+    if (mScanPool != nullptr)
+        mScanPool->removeAllJobs(true, 4000);
 
     // Before the recorder is destroyed, so the capture thread is joined while the buffers it
     // writes into are still there to be written to.
@@ -104,6 +143,26 @@ void SamplePageView::resized()
 
     mHeaderBounds = area.removeFromTop(26);
     area.removeFromTop(6);
+
+    // The library takes the bottom half, laid out from the bottom up so the two halves meet
+    // in the middle rather than the lower one being whatever is left over.
+    auto library = area.removeFromBottom(area.getHeight() / 2);
+
+    {
+        auto libraryFooter = library.removeFromBottom(buttonHeight);
+        library.removeFromBottom(6);
+
+        mTranscribeButton->setBounds(libraryFooter.removeFromLeft(150));
+        libraryFooter.removeFromLeft(10);
+        mRevealButton->setBounds(libraryFooter.removeFromLeft(170));
+        mDeleteButton->setBounds(libraryFooter.removeFromRight(120));
+
+        mSearchBox->setBounds(library.removeFromTop(26));
+        library.removeFromTop(6);
+        mLibraryList->setBounds(library);
+    }
+
+    area.removeFromBottom(12);
 
     auto footer = area.removeFromBottom(buttonHeight + 12);
     footer.removeFromTop(12);
@@ -131,7 +190,14 @@ void SamplePageView::paint(Graphics& g)
 
     g.setColour(TEXT_DIM);
     g.setFont(UIDefines::LABEL_FONT());
+
+    const auto scanning = mScanRunning.load();
+    const auto captures = scanning ? String("reading ...")
+                                   : String((int) mAllEntries.size()) + " captured";
+
     g.drawText("APPLICATIONS PLAYING AUDIO", mHeaderBounds.withTrimmedLeft(6),
+               Justification::centredLeft, false);
+    g.drawText(captures, mHeaderBounds.withTrimmedRight(6).withTrimmedLeft(300),
                Justification::centredLeft, false);
 
     const auto root = _libraryRoot();
@@ -332,6 +398,11 @@ void SamplePageView::_updateEnablements()
 
     mFixVolumeButton->setEnabled(! recording && source != nullptr && source->volume < 0.999f);
     mFolderButton->setEnabled(! recording);
+
+    const auto haveEntry = _selectedEntry() != nullptr;
+    mTranscribeButton->setEnabled(haveEntry && ! recording);
+    mRevealButton->setEnabled(haveEntry);
+    mDeleteButton->setEnabled(haveEntry);
 }
 
 //==============================================================================
@@ -348,6 +419,11 @@ void SamplePageView::_toggleRecording()
                                  : written.message;
 
         mRecordLevel = 0.0f;
+
+        // A take that just landed should be in the list without being asked for.
+        if (written.ok)
+            _rescanLibrary();
+
         _updateEnablements();
         repaint();
         return;
@@ -409,6 +485,151 @@ void SamplePageView::_fixSelectedVolume()
     repaint();
 }
 
+//==============================================================================
+// The library.
+
+int SamplePageView::LibraryModel::getNumRows()
+{
+    return (int) owner.mShownEntries.size();
+}
+
+void SamplePageView::LibraryModel::paintListBoxItem(int row, Graphics& g, int width, int height, bool)
+{
+    if (! isPositiveAndBelow(row, (int) owner.mShownEntries.size()))
+        return;
+
+    const auto& entry = owner.mShownEntries[(size_t) row];
+    const auto chosen = row == owner.mSelectedEntryRow;
+
+    auto bounds = juce::Rectangle<int>(0, 0, width, height).reduced(2, 1);
+
+    if (chosen)
+    {
+        g.setColour(CONTROL_BG);
+        g.fillRoundedRectangle(bounds.toFloat(), 3.0f);
+    }
+
+    auto text = bounds.reduced(8, 0);
+
+    // Right to left, so the numbers line up down the list however long the names are.
+    g.setColour(TEXT_DIM);
+    g.setFont(UIDefines::LABEL_FONT());
+    g.drawText(String(entry.lufs, 1) + " LUFS", text.removeFromRight(90), Justification::centredRight, false);
+    g.drawText(String(entry.durationSec, 1) + " s", text.removeFromRight(60), Justification::centredRight, false);
+
+    if (! entry.isolatedToProcess)
+        g.drawText("guessed", text.removeFromRight(70), Justification::centredRight, false);
+
+    text.removeFromRight(10);
+
+    g.setColour(chosen ? TEXT_MAIN : TEXT_DIM);
+    g.drawText(entry.displayName(), text, Justification::centredLeft, true);
+}
+
+void SamplePageView::LibraryModel::listBoxItemClicked(int row, const MouseEvent&)
+{
+    if (! isPositiveAndBelow(row, (int) owner.mShownEntries.size()))
+        return;
+
+    owner.mSelectedEntryRow = row;
+
+    const auto& entry = owner.mShownEntries[(size_t) row];
+    owner.mStatusText = entry.windowTitle.isNotEmpty() ? entry.windowTitle : entry.displayName();
+
+    owner._updateEnablements();
+    owner.mLibraryList->repaint();
+    owner.repaint();
+}
+
+const quarry::sampler::LibraryEntry* SamplePageView::_selectedEntry() const
+{
+    if (! isPositiveAndBelow(mSelectedEntryRow, (int) mShownEntries.size()))
+        return nullptr;
+
+    return &mShownEntries[(size_t) mSelectedEntryRow];
+}
+
+void SamplePageView::_rescanLibrary()
+{
+    if (mScanPool == nullptr || mScanRunning.exchange(true))
+        return;
+
+    const auto root = _libraryRoot();
+
+    mScanPool->addJob([this, root]() {
+        auto found = quarry::sampler::SampleLibrary::scan(root);
+
+        // Back to the message thread to publish. The SafePointer is what makes closing the
+        // window mid-scan safe rather than a race nobody would ever reproduce on purpose.
+        Component::SafePointer<SamplePageView> safe(this);
+
+        MessageManager::callAsync([safe, found = std::move(found)]() mutable {
+            if (safe == nullptr)
+                return;
+
+            safe->mAllEntries = std::move(found);
+            safe->mScanRunning.store(false);
+            safe->_applyFilter();
+        });
+    });
+}
+
+void SamplePageView::_applyFilter()
+{
+    const auto query = mSearchBox != nullptr ? mSearchBox->getText() : String();
+
+    mShownEntries = quarry::sampler::SampleLibrary::filter(mAllEntries, query);
+    mSelectedEntryRow = -1;
+
+    mLibraryList->updateContent();
+    mLibraryList->repaint();
+
+    _updateEnablements();
+    repaint();
+}
+
+void SamplePageView::_openSelectedInTranscribe()
+{
+    const auto* entry = _selectedEntry();
+
+    if (entry == nullptr)
+        return;
+
+    // The entire reason this page lives inside Quarry rather than beside it: a captured
+    // sample is one click from the transcriber, and from the player that comes with it.
+    if (auto* audio = mProcessor.getSourceAudioManager(); audio != nullptr && audio->onFileDrop(entry->audioFile))
+        mStatusText = "Loaded " + entry->displayName() + " into Transcribe.";
+    else
+        mStatusText = "Could not load that sample into Transcribe.";
+
+    repaint();
+}
+
+void SamplePageView::_revealSelected()
+{
+    if (const auto* entry = _selectedEntry())
+        entry->audioFile.revealToUser();
+}
+
+void SamplePageView::_deleteSelected()
+{
+    const auto* entry = _selectedEntry();
+
+    if (entry == nullptr)
+        return;
+
+    const auto name = entry->displayName();
+
+    // To the recycle bin, not gone. A browser whose delete button is final is one you stop
+    // trusting with anything you care about.
+    mStatusText = quarry::sampler::SampleLibrary::remove(*entry)
+                    ? "Moved " + name + " to the recycle bin."
+                    : "Could not delete " + name + ".";
+
+    _rescanLibrary();
+    repaint();
+}
+
 void SamplePageView::_chooseFolder()
 {
     mFileChooser = std::make_unique<FileChooser>("Where captured samples go", _libraryRoot());
@@ -424,6 +645,7 @@ void SamplePageView::_chooseFolder()
                                   mProcessor.getValueTree().setProperty(NnId::CaptureFolderId,
                                                                         chosen.getFullPathName(),
                                                                         nullptr);
+                                  _rescanLibrary();
                                   repaint();
                               });
 }

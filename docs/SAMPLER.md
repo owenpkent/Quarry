@@ -291,10 +291,21 @@ exists today and is untouched. Sample is:
   warning. An "everything" row selects the endpoint fallback.
 - **Record / stop**, plus level and elapsed time. Same shape as the existing toolbar so
   there is nothing new to learn.
-- **Library browser**: every sidecar under the samples root, loaded on a background thread
-  at startup and populated progressively. Filter by app, by date, by tag. Play, rename,
-  reveal in Explorer, delete. A "Transcribe this" button hands the sample to the other
-  page, which is the entire reason for living inside Quarry.
+- **Library browser**: every sidecar under the captures root, read on a background thread
+  and published back to the message thread. One search box rather than a row of filters,
+  matched against name, application, window title, URL and tags at once, because the
+  alternative is asking someone to know which field their memory of a sample lives in.
+  Multiple words narrow. Reveal, delete to the recycle bin, and TRANSCRIBE, which hands the
+  file to the other page and is the entire reason for living inside Quarry.
+
+  **There is no database, and that is a decision.** The sidecars are the record; the index
+  is built from them and can be thrown away and rebuilt. Delete a capture in Explorer and it
+  is gone from the browser too, with nothing left pointing at a file that is not there,
+  which is the failure a database would have had.
+
+  **Auditioning came for free.** The Transcribe page already owns a player, so handing a
+  capture to it plays the capture. A browser with its own audio device would have been a
+  second device open in a standalone that already has one.
 
 Mouse-only, to the line's standard. Text search is there but never the only route to
 anything: app, date and tag filters are all click targets, so a full session can happen
@@ -344,7 +355,14 @@ them into RAM at startup, which is how search works without ever adding a databa
    session is the one left, and it is blocked rather than merely pending: SMTC needs
    C++/WinRT, and this project is on C++17 with no `/await`. Raising that is a build change
    to argue for on its own, not something to slip in beside a metadata field.
-5. Endpoint fallback path.
-6. Library browser: load, filter, play, reveal, delete, tag.
-7. Hand-off to the Transcribe page.
+5. ~~Endpoint fallback path.~~ **Done.** The loudest session at the start of a take is
+   written down as the guess, and the sidecar says `isolation: endpoint` so nothing reads a
+   guess as a fact.
+6. ~~Library browser: load, filter, reveal, delete.~~ **Done**, in `Sampler/SampleLibrary`
+   and the lower half of the Sample page. Scanned off the message thread, filtered on one
+   box against every field at once, and deletes go to the recycle bin. Tagging and renaming
+   are the parts not built.
+7. ~~Hand-off to the Transcribe page.~~ **Done**, through `SourceAudioManager::onFileDrop`,
+   which is also how a capture gets auditioned: the Transcribe page already owns a player,
+   so the browser never needed an audio device of its own.
 8. Classification, decided as above.
