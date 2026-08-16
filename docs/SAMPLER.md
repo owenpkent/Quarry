@@ -317,9 +317,9 @@ them into RAM at startup, which is how search works without ever adding a databa
    `tools/loopback_spike/`. Findings are folded into the sections above; the one that
    changes code is that process loopback clocks continuously, so the endpoint path's
    silence-padding machinery is not needed here.
-2. Source picker over audio sessions, with meters and the volume warning. **Backend done**:
-   `okstudio/WasapiProcessLoopback.h` in the kit carries both the capture stream and
-   `sessions()`, vendored into `ThirdParty/okstudio`. The JUCE panel is what remains.
+2. ~~Source picker over audio sessions, with meters and the volume warning.~~ **Done.**
+   `okstudio/WasapiProcessLoopback.h` in the kit carries the capture stream and `sessions()`;
+   `Views/SamplePageView` is the picker, and `QuarryMainView` gained the two-page toggle.
 3. Record / stop, buffer to RAM, trim and loudness, write float32 WAV plus sidecar.
    **Engine done**: `Quarry/Source/Sampler/`. `SampleMath.h` is the pure arithmetic, tested
    in `Tests/sampler_test.h`; `SampleMetadata.h` is the sidecar schema; `SampleRecorder`

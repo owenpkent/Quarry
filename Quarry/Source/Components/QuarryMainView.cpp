@@ -4,6 +4,12 @@
 
 #include "QuarryMainView.h"
 
+// Last, deliberately: this reaches the Windows audio stack, and windows.h defines a
+// Rectangle() that makes juce::Rectangle ambiguous in anything parsed after it.
+#if JUCE_WINDOWS
+    #include "Views/SamplePageView.h"
+#endif
+
 namespace
 {
 /** The toolbar SVGs were authored near-black for the old light theme, which
@@ -268,6 +274,36 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
     mAudioInputView = std::make_unique<AudioInputView>(mProcessor);
     addAndMakeVisible(*mAudioInputView);
 
+#if JUCE_WINDOWS
+    // Two pages, one window. Added after everything they cover, so the Sample page draws over
+    // the transcribe controls rather than under them.
+    const auto makeTab = [this](const String& inText, bool inLeftmost) {
+        auto tab = std::make_unique<TextButton>(inText);
+        tab->setClickingTogglesState(true);
+        tab->setRadioGroupId(0x5041); // "PA", shared so the two tabs are exclusive
+        tab->setConnectedEdges(inLeftmost ? Button::ConnectedOnRight : Button::ConnectedOnLeft);
+        tab->setColour(TextButton::buttonColourId, PANEL_BG);
+        tab->setColour(TextButton::buttonOnColourId, CONTROL_BG);
+        tab->setColour(TextButton::textColourOffId, TEXT_DIM);
+        tab->setColour(TextButton::textColourOnId, TEXT_MAIN);
+        tab->setWantsKeyboardFocus(false);
+        addAndMakeVisible(*tab);
+        return tab;
+    };
+
+    mTranscribeTab = makeTab("TRANSCRIBE", true);
+    mSampleTab = makeTab("SAMPLE", false);
+
+    mSamplePage = std::make_unique<SamplePageView>(mProcessor);
+    addChildComponent(*mSamplePage);
+
+    mTranscribeTab->onClick = [this]() { _showSamplePage(false); };
+    mSampleTab->onClick = [this]() { _showSamplePage(true); };
+
+    mTranscribeTab->setToggleState(true, dontSendNotification);
+    _showSamplePage(false);
+#endif
+
     mBackgroundImage = ImageCache::getFromMemory(BinaryData::background_png, BinaryData::background_pngSize)
                            .rescaled(1000, 755, Graphics::ResamplingQuality::highResamplingQuality);
 
@@ -319,6 +355,50 @@ void QuarryMainView::resized()
     mSampleBar->setBounds(29, 665, 941, 46);
 
     mUpdateCheck->setBounds(680, 719, 290, 20);
+
+#if JUCE_WINDOWS
+    // Between the wordmark and the transport, which is the only clear span in the toolbar
+    // and reads as a place to choose rather than a place to act.
+    mTranscribeTab->setBounds(295, 43, 110, 35);
+    mSampleTab->setBounds(405, 43, 110, 35);
+
+    // The whole content area: everything from under the toolbar to above the update line, so
+    // the Sample page covers the transcribe layout entirely rather than sitting in a hole
+    // punched out of it.
+    mSamplePage->setBounds(29, 86, 941, 625);
+#endif
+}
+
+void QuarryMainView::_showSamplePage(bool inShouldShow)
+{
+#if JUCE_WINDOWS
+    if (mSamplePage == nullptr)
+        return;
+
+    mSamplePage->setVisible(inShouldShow);
+
+    const auto transcribing = ! inShouldShow;
+
+    mVisualizationPanel.setVisible(transcribing);
+    mTranscriptionOptions.setVisible(transcribing);
+    mNoteOptions.setVisible(transcribing);
+    mQuantizePanel.setVisible(transcribing);
+    mAudioInputView->setVisible(transcribing);
+    mSampleBar->setVisible(transcribing);
+
+    // The transport goes with Transcribe. A play button over a page with nothing to play, and
+    // a record button that means something else entirely, would both be worse than absent.
+    mRecordButton->setVisible(transcribing);
+    mClearButton->setVisible(transcribing);
+    mBackButton->setVisible(transcribing);
+    mPlayPauseButton->setVisible(transcribing);
+    mCenterButton->setVisible(transcribing);
+    mMuteButton->setVisible(transcribing);
+
+    repaint();
+#else
+    ignoreUnused(inShouldShow);
+#endif
 }
 
 void QuarryMainView::paint(Graphics& g)
