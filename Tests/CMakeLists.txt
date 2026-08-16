@@ -12,6 +12,11 @@ target_sources(${PROJECT_NAME} PRIVATE Tests.cpp ${SOURCES_TESTS} ${HEADERS_TEST
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../ThirdParty/ONNXRuntime/${ONNXRUNTIME_DIRNAME}/include)
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../ThirdParty/minimp3)
 
+# The sampler's arithmetic is header-only and juce_core only precisely so it can be tested
+# here, without the recorder that uses it dragging in juce_audio_formats and the Windows
+# audio stack.
+target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../Quarry/Source)
+
 file(GLOB_RECURSE lib_sources LIST_DIRECTORIES true ${CMAKE_CURRENT_LIST_DIR}/../Lib/*)
 
 foreach (dir ${lib_sources})

@@ -8,6 +8,7 @@
 #include "perf_test.h"
 #include "notes_test.h"
 #include "key_estimate_test.h"
+#include "sampler_test.h"
 
 int main()
 {
@@ -27,6 +28,9 @@ int main()
 
     std::cout << std::endl << "KEY ESTIMATE TEST" << std::endl;
     result |= !key_estimate_test();
+
+    std::cout << std::endl << "SAMPLER TEST" << std::endl;
+    result |= !sampler_test();
 
     return result;
 }
