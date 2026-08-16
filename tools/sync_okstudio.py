@@ -31,6 +31,7 @@ from datetime import date
 # `#include <okstudio/WasapiLoopback.h>` resolves the same either way.
 VENDORED = [
     "okstudio/WasapiLoopback.h",
+    "okstudio/WasapiProcessLoopback.h",
     "okstudio/CaptureMath.h",
     "okstudio/Obsidian.h",
     "okstudio/MouseOnly.h",

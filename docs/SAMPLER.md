@@ -138,6 +138,12 @@ The source picker itself lists **apps currently making sound**, not all processe
 `IAudioMeterInformation::GetPeakValue`. You pick from a short list of things you can see
 moving.
 
+**Rank on the meter, not on the session state.** `AudioSessionStateActive` sounds like the
+right filter and is not: run the listing on this machine and Premiere, Resolve and a
+wallpaper engine all report as active at a peak of exactly zero, holding a stream open
+against the moment they need it. Of fifteen sessions, one was making sound. Sorting by peak
+is what makes the list short.
+
 ---
 
 ## Files
@@ -311,7 +317,9 @@ them into RAM at startup, which is how search works without ever adding a databa
    `tools/loopback_spike/`. Findings are folded into the sections above; the one that
    changes code is that process loopback clocks continuously, so the endpoint path's
    silence-padding machinery is not needed here.
-2. Source picker over audio sessions, with meters and the volume warning.
+2. Source picker over audio sessions, with meters and the volume warning. **Backend done**:
+   `okstudio/WasapiProcessLoopback.h` in the kit carries both the capture stream and
+   `sessions()`, vendored into `ThirdParty/okstudio`. The JUCE panel is what remains.
 3. Record / stop, buffer to RAM, trim and loudness, write float32 WAV plus sidecar.
 4. Source identification, one signal at a time, each independently skippable:
    process/window, then screenshot, then SMTC, then browser URL last since it is the
