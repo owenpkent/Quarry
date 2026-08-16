@@ -54,6 +54,17 @@ public:
         folders live; it is created if it is not there. */
     juce::Result start(const okstudio::capture::AudioSession& source, const juce::File& libraryRoot);
 
+    /**
+     * Records the whole playback endpoint instead of one application.
+     *
+     * For a Windows too old for process loopback, and for the times you actually want
+     * everything the machine is mixing. What it costs is the thing the rest of this was
+     * built for: the source can only be guessed at, so the loudest session at the moment the
+     * take starts is written down as a guess and the sidecar says `isolation: endpoint` so
+     * nothing downstream mistakes it for a fact.
+     */
+    juce::Result startEndpoint(const juce::File& libraryRoot);
+
     /** Stops, trims, measures, and writes. Safe to call when not recording: it reports that
         rather than throwing. */
     Written stop();
@@ -91,7 +102,12 @@ private:
     juce::AudioBuffer<float> flatten() const;
     void reset();
 
+    /** Stops whichever of the two streams is running. */
+    void _stopStream();
+
     okstudio::capture::WasapiProcessLoopback loopback;
+    okstudio::capture::WasapiLoopback endpointLoopback;
+    bool usingEndpoint = false;
 
     std::vector<std::unique_ptr<Chunk>> chunks;
     int framesInLastChunk = 0;

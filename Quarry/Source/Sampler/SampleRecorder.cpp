@@ -63,6 +63,8 @@ juce::Result SampleRecorder::start(const okstudio::capture::AudioSession& source
 
     sourceImage = captureWindowImage(source.processId);
 
+    usingEndpoint = false;
+
     // Armed before the stream opens, not after: the capture thread starts delivering the
     // moment Start() returns, and a flag set afterwards would throw the first blocks away.
     recording.store(true);
@@ -79,10 +81,73 @@ juce::Result SampleRecorder::start(const okstudio::capture::AudioSession& source
     return juce::Result::ok();
 }
 
+juce::Result SampleRecorder::startEndpoint(const juce::File& libraryRoot)
+{
+    if (recording.load())
+        return juce::Result::fail("Already recording");
+
+    reset();
+    root = libraryRoot;
+
+    pending = SampleMetadata();
+    pending.capturedAt = juce::Time::getCurrentTime();
+    pending.source.isolatedToProcess = false;
+    pending.source.processName = "System audio";
+
+    // The source is a guess in this mode, so it is made once, out loud, and marked as one:
+    // the loudest thing playing when the take starts. Everything written about it below is
+    // qualified by isolation being "endpoint" in the sidecar.
+    const okstudio::capture::AudioSession* loudest = nullptr;
+    const auto sessions = okstudio::capture::WasapiProcessLoopback::sessions();
+
+    for (const auto& session : sessions)
+        if (loudest == nullptr || session.peak > loudest->peak)
+            loudest = &session;
+
+    if (loudest != nullptr && loudest->peak > 0.0001f)
+    {
+        pending.source.processId = loudest->processId;
+        pending.source.processName = loudest->processName;
+        pending.source.processPath = loudest->executablePath;
+        pending.source.sessionVolume = loudest->volume;
+
+        const auto identity = identifySource(loudest->processId);
+        pending.source.windowTitle = identity.windowTitle;
+        pending.source.url = identity.url;
+
+        sourceImage = captureWindowImage(loudest->processId);
+    }
+
+    usingEndpoint = true;
+    recording.store(true);
+
+    // An empty endpoint id means the default playback device, and a channel cap of 2 keeps a
+    // 5.1 output from becoming a six channel sample nobody asked for.
+    const auto opened = endpointLoopback.start({}, *this, 2);
+
+    if (opened.failed())
+    {
+        recording.store(false);
+        usingEndpoint = false;
+        return opened;
+    }
+
+    capturedRate = endpointLoopback.sampleRate();
+    return juce::Result::ok();
+}
+
+void SampleRecorder::_stopStream()
+{
+    if (usingEndpoint)
+        endpointLoopback.stop();
+    else
+        loopback.stop();
+}
+
 void SampleRecorder::discard()
 {
     recording.store(false);
-    loopback.stop();
+    _stopStream();
     reset();
 }
 
@@ -204,9 +269,11 @@ SampleRecorder::Written SampleRecorder::stop()
     recording.store(false);
 
     // Joins the capture thread, so everything below runs with the chunk list to itself.
-    loopback.stop();
+    _stopStream();
 
-    const auto rate = capturedRate > 0.0 ? capturedRate : loopback.sampleRate();
+    const auto rate = capturedRate > 0.0
+                        ? capturedRate
+                        : (usingEndpoint ? endpointLoopback.sampleRate() : loopback.sampleRate());
 
     if (totalFrames.load() <= 0 || capturedChannels <= 0 || rate <= 0.0)
     {

@@ -9,6 +9,7 @@
 // CI only builds it. Run it by hand against a machine that is making a sound:
 //   SamplerSmoke                       list what is playing, and exit
 //   SamplerSmoke <pid> <seconds> [dir] record that application and write the files
+//   SamplerSmoke all  <seconds> [dir]  record the whole endpoint instead, the fallback path
 //
 // There is deliberately no add_test(): a runner with no audio would record its own silence
 // and prove nothing. Same reasoning as the kit's okstudio_audio_capture_smoke.
@@ -59,35 +60,44 @@ int listSources()
     return 0;
 }
 
-int record(juce::uint32 processId, double seconds, const juce::File& root)
+int record(juce::uint32 processId, double seconds, const juce::File& root, bool everything)
 {
     okstudio::capture::AudioSession chosen;
     bool found = false;
 
-    for (const auto& session : WasapiProcessLoopback::sessions())
+    if (! everything)
     {
-        if (session.processId == processId)
+        for (const auto& session : WasapiProcessLoopback::sessions())
         {
-            chosen = session;
-            found = true;
-            break;
+            if (session.processId == processId)
+            {
+                chosen = session;
+                found = true;
+                break;
+            }
+        }
+
+        if (! found)
+        {
+            std::printf("No audio session for pid %u. Run with no arguments to see what there is.\n",
+                        (unsigned) processId);
+            return 1;
         }
     }
 
-    if (! found)
-    {
-        std::printf("No audio session for pid %u. Run with no arguments to see what there is.\n",
-                    (unsigned) processId);
-        return 1;
-    }
+    if (everything)
+        std::printf("recording     : everything this computer plays (source will be a guess)\n");
+    else
+        std::printf("recording     : %s (pid %u)\n", chosen.processName.toRawUTF8(), (unsigned) processId);
 
-    std::printf("recording     : %s (pid %u)\n", chosen.processName.toRawUTF8(), (unsigned) processId);
-    std::printf("session volume: %.0f%%%s\n", chosen.volume * 100.0f,
-                chosen.volume < 0.999f ? "  <-- this loss is permanent" : "");
+    if (! everything)
+        std::printf("session volume: %.0f%%%s\n", chosen.volume * 100.0f,
+                    chosen.volume < 0.999f ? "  <-- this loss is permanent" : "");
+
     std::printf("writing to    : %s\n\n", root.getFullPathName().toRawUTF8());
 
     SampleRecorder recorder;
-    const auto started = recorder.start(chosen, root);
+    const auto started = everything ? recorder.startEndpoint(root) : recorder.start(chosen, root);
 
     if (started.failed())
     {
@@ -117,6 +127,7 @@ int record(juce::uint32 processId, double seconds, const juce::File& root)
     const auto& meta = written.metadata;
 
     std::printf("--- kept ---\n");
+    std::printf("isolation     : %s\n", meta.source.isolatedToProcess ? "process" : "endpoint (source guessed)");
     std::printf("audio         : %s (%lld bytes)\n",
                 written.audioFile.getFullPathName().toRawUTF8(),
                 (long long) written.audioFile.getSize());
@@ -169,7 +180,8 @@ int main(int argc, char** argv)
     if (argc < 2)
         return listSources();
 
-    const auto processId = (juce::uint32) std::strtoul(argv[1], nullptr, 10);
+    const auto everything = juce::String(argv[1]) == "all";
+    const auto processId = everything ? 0u : (juce::uint32) std::strtoul(argv[1], nullptr, 10);
     const auto seconds = argc > 2 ? std::atof(argv[2]) : 8.0;
 
     const auto root = argc > 3
@@ -177,7 +189,7 @@ int main(int argc, char** argv)
                         : juce::File::getSpecialLocation(juce::File::userMusicDirectory)
                               .getChildFile("Quarry Captures");
 
-    return record(processId, seconds, root);
+    return record(processId, seconds, root, everything);
 }
 
 #else

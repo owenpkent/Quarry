@@ -25,6 +25,10 @@ namespace
 constexpr int rowHeight = 34; // The line's minimum hit target. Nothing here is smaller.
 constexpr int buttonHeight = 36;
 
+/** The synthetic first row: record the whole endpoint rather than one application. Not a
+    real pid, and picked so it can never collide with one. */
+constexpr uint32 everythingPid = 0xffffffffu;
+
 /** A meter that reads as a level rather than as a bar chart, matching the SOURCE strip. */
 void drawMeter(Graphics& g, juce::Rectangle<int> bounds, float level, Colour fill)
 {
@@ -209,16 +213,19 @@ void SamplePageView::_refreshSources()
 //==============================================================================
 int SamplePageView::getNumRows()
 {
-    return (int) mSources.size();
+    // One more than there are applications: row zero is "everything", which is always
+    // offered because it is the fallback when nothing else here can work.
+    return (int) mSources.size() + 1;
 }
 
 void SamplePageView::paintListBoxItem(int row, Graphics& g, int width, int height, bool)
 {
-    if (! isPositiveAndBelow(row, (int) mSources.size()))
+    if (! isPositiveAndBelow(row, getNumRows()))
         return;
 
-    const auto& source = mSources[(size_t) row];
-    const auto chosen = source.processId == mSelectedPid;
+    const auto isEverything = row == 0;
+    const auto chosen = isEverything ? mSelectedPid == everythingPid
+                                     : mSources[(size_t) row - 1].processId == mSelectedPid;
 
     auto bounds = juce::Rectangle<int>(0, 0, width, height).reduced(2, 1);
 
@@ -230,6 +237,19 @@ void SamplePageView::paintListBoxItem(int row, Graphics& g, int width, int heigh
 
     g.setColour(chosen ? TEXT_MAIN : TEXT_DIM);
     g.setFont(UIDefines::LABEL_FONT());
+
+    if (isEverything)
+    {
+        auto text = bounds.reduced(8, 0);
+        g.drawText("Everything this computer plays", text.removeFromLeft(text.getWidth() / 2),
+                   Justification::centredLeft, true);
+
+        g.setColour(TEXT_DIM);
+        g.drawText("source can only be guessed at", text, Justification::centredRight, true);
+        return;
+    }
+
+    const auto& source = mSources[(size_t) row - 1];
 
     auto text = bounds.reduced(8, 0);
     auto meter = text.removeFromRight(120).withSizeKeepingCentre(120, 6);
@@ -253,7 +273,7 @@ void SamplePageView::paintListBoxItem(int row, Graphics& g, int width, int heigh
 
 void SamplePageView::listBoxItemClicked(int row, const MouseEvent&)
 {
-    if (! isPositiveAndBelow(row, (int) mSources.size()))
+    if (! isPositiveAndBelow(row, getNumRows()))
         return;
 
     // Changing source mid-take would splice two applications into one file, so the choice is
@@ -261,8 +281,16 @@ void SamplePageView::listBoxItemClicked(int row, const MouseEvent&)
     if (mRecorder != nullptr && mRecorder->isRecording())
         return;
 
-    mSelectedPid = mSources[(size_t) row].processId;
-    mStatusText = "Ready to record " + mSources[(size_t) row].name;
+    if (row == 0)
+    {
+        mSelectedPid = everythingPid;
+        mStatusText = "Ready to record everything. The source will be a guess.";
+    }
+    else
+    {
+        mSelectedPid = mSources[(size_t) row - 1].processId;
+        mStatusText = "Ready to record " + mSources[(size_t) row - 1].name;
+    }
 
     _updateEnablements();
     repaint();
@@ -292,9 +320,15 @@ void SamplePageView::_updateEnablements()
 {
     const auto recording = mRecorder != nullptr && mRecorder->isRecording();
     const auto* source = _selectedSource();
+    const auto everything = mSelectedPid == everythingPid;
 
     mRecordButton->setButtonText(recording ? "STOP" : "RECORD");
-    mRecordButton->setEnabled(recording || (source != nullptr && WasapiProcessLoopback::isSupported()));
+
+    // Everything is always recordable: it is the path that does not need process loopback,
+    // and so the one that still works on a Windows too old for the rest of this page.
+    mRecordButton->setEnabled(recording
+                              || everything
+                              || (source != nullptr && WasapiProcessLoopback::isSupported()));
 
     mFixVolumeButton->setEnabled(! recording && source != nullptr && source->volume < 0.999f);
     mFolderButton->setEnabled(! recording);
@@ -314,6 +348,16 @@ void SamplePageView::_toggleRecording()
                                  : written.message;
 
         mRecordLevel = 0.0f;
+        _updateEnablements();
+        repaint();
+        return;
+    }
+
+    if (mSelectedPid == everythingPid)
+    {
+        const auto begun = mRecorder->startEndpoint(_libraryRoot());
+        mStatusText = begun.wasOk() ? "Recording everything ..." : begun.getErrorMessage();
+
         _updateEnablements();
         repaint();
         return;
