@@ -321,6 +321,12 @@ them into RAM at startup, which is how search works without ever adding a databa
    `okstudio/WasapiProcessLoopback.h` in the kit carries both the capture stream and
    `sessions()`, vendored into `ThirdParty/okstudio`. The JUCE panel is what remains.
 3. Record / stop, buffer to RAM, trim and loudness, write float32 WAV plus sidecar.
+   **Engine done**: `Quarry/Source/Sampler/`. `SampleMath.h` is the pure arithmetic, tested
+   in `Tests/sampler_test.h`; `SampleMetadata.h` is the sidecar schema; `SampleRecorder`
+   ties capture, trim, loudness and writing together. Captured audio is held in fixed
+   blocks rather than one growing buffer, so a long take costs an occasional small
+   allocation instead of copying everything so far, which at a hundred megabytes would drop
+   audio on the floor.
 4. Source identification, one signal at a time, each independently skippable:
    process/window, then screenshot, then SMTC, then browser URL last since it is the
    most fragile.
