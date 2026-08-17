@@ -1,5 +1,38 @@
 # Quarry — Build Plan
 
+> ## Status, 2026-08-17 — the analysis engine, and a reordering
+>
+> The milestone list below still describes the product build. This block records four
+> decisions taken on the analysis engine that reorder the parts of it touching transcription,
+> and the finding that forced the reorder. `ANALYSIS.md` §5 carries the resulting sequence and
+> `STATS.md` covers the report layer, which is new.
+>
+> **Decided.**
+> - **The GPU sidecar leads**, not the CPU fix list. What fails on real takes is missed and
+>   invented notes, and dynamics. That is a model-quality complaint first.
+> - **Personal tool now, door open later.** CC BY-NC weights and non-commercial datasets are
+>   available for personal use and for the bench. Nothing about that is allowed to put them
+>   into Quarry's binary or its distribution, which is what §4.2's out-of-process design
+>   already buys, so this costs nothing to honour.
+> - **All three outputs are wanted**: a `.mid` to edit, a starting project in the DAW, and a
+>   readout to look at. The middle one makes tempo and sections load-bearing rather than
+>   informational; the third is what `STATS.md` is for.
+> - **Piano leads**, with the acoustic chain (`STATS.md` §6) as a second track, since it shares
+>   no code with the model path and cannot be blocked by transcription quality.
+>
+> **The finding that reordered it.** MuScriptor encodes no velocity. A better model therefore
+> fixes the first complaint and makes the second one permanent, because there is no amplitude
+> anywhere in its output. So the velocity work in `ANALYSIS.md` §2.1 is required on every path
+> and has been respecified as a tier-independent stage rather than a patch to `Notes.cpp`.
+> Two further limits are in `ANALYSIS.md` §3.0.1; the one that matters here is that its
+> tokenizer cannot represent two notes of the same pitch sounding at once, which is a pedalled
+> piano re-strike, which is the primary use case.
+>
+> **Next.** Spike the sidecar before integrating any of it. Nothing else is decidable until it
+> has run on real takes of both kinds.
+>
+> ---
+>
 > ## Status, 2026-07-31
 >
 > **The day-one spike in Milestone 0 has landed and is committed** on branch

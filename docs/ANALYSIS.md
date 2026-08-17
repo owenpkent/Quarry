@@ -4,6 +4,10 @@ Companion to `DESIGN.md` and `PLAN.md`. This document covers only the audio-to-M
 what it is today, what is measurably wrong with it, what has replaced it in the field, and
 what to build. Everything about the window, the piano roll and the sampler lives elsewhere.
 
+Getting the notes right is this document. Everything else the take can be asked about (the
+statistics, the key and chord reading, the acoustic measurements, and the material profiles
+that decide which of them run) is `STATS.md`.
+
 ---
 
 ## 1. What the engine is today
@@ -58,6 +62,13 @@ this costs a loop, and it is right in both cases.
 
 It also matters beyond export: `KeyEstimate.cpp:102` weights the pitch-class histogram by
 `amplitude`, so key detection is currently weighted by confidence too.
+
+**And this is not a Basic Pitch patch.** MuScriptor emits no velocity at all (§3), so the GPU
+tier needs exactly this computation and can inherit nothing from the model. Build it as a
+stage that takes note events plus audio and returns velocity, sitting downstream of whichever
+model produced the notes, and both tiers get their dynamics from one implementation. Written
+as a patch to `Notes.cpp` it would have to be written twice, and the second time against a
+model that offers nothing to patch.
 
 ### 2.2 Onset timing is quantised to 11.6 ms and never refined
 
@@ -157,9 +168,42 @@ failures are instrument leakage and hallucinated instruments. Nobody has solved 
 
 **MuScriptor** (Kyutai and Mirelo, July 2026) is the most practical option. Decoder-only
 transformer over mel-spectrograms, autoregressively emitting MIDI-like tokens from 5-second
-segments of 16 kHz mono. Released in three sizes: **103M (CPU-suitable), 307M (default),
-1.4B**. On its own test set it reports Multi-F1 **47.8 to 48.2 against YourMT3+'s 21.9**. It
-installs as a normal Python package with a CLI and a Python API.
+segments of **16 kHz mono**, mel at 100 fps. Released in three sizes: **103M (CPU-suitable),
+307M (default), 1.4B**.
+
+Two different F1 numbers circulate and this document previously conflated them. The released
+large reports Multi-F1 **48.2 against YourMT3+'s 21.9**. The paper's own scaling table is
+lower, Multi-F1 **35.2 at 60M rising to 40.5 at 1.3B**, because it is the pre-RL ablation.
+Quote them separately or not at all.
+
+Install is a normal Python package: `pip install muscriptor`, or on Windows with a GPU
+`uvx --torch-backend=cu128 muscriptor serve`. HuggingFace authentication and licence
+acceptance happen before the weights download, which puts the CC BY-NC acceptance on the user,
+which is precisely where §3.1 wants it. There is a `serve` mode with a local web UI, so an
+HTTP endpoint probably already exists and the line-based JSON protocol in §4.2 may not need
+writing at all.
+
+#### 3.0.1 What it does not do
+
+Verified against the paper rather than the coverage, because the coverage is wrong about the
+first of these.
+
+- **No key, chord or tempo output.** The press says it detects all three; the paper is
+  note-level only, emitting pitch, onset, offset and instrument. Everything in `STATS.md` §4
+  and §5 stays Quarry's own work on either tier.
+
+- **No velocity.** "The tokenization scheme does not encode velocity or dynamics." A larger
+  model therefore does not fix §2.1, it makes it *permanent*: there is no amplitude anywhere in
+  the output, neither to misuse as Basic Pitch does nor to correct. Dynamics have to come from
+  the audio on both tiers, which is why §2.1 is now specified as a tier-independent stage.
+
+- **No two notes of the same pitch and instrument at once.** A pedalled piano re-strike is
+  exactly this shape: strike, hold the pedal, strike the same key again while the first is
+  still ringing. The paper measures what excluding those notes is worth: Onset F1 falls
+  **60.4 to 51.8** and Offset F1 **49.0 to 41.9** once overlapping same-pitch notes are
+  counted. Solo piano is the intended use case here and it sits on the model's stated weak
+  point, so §4.2's spike has to test pedalled material specifically rather than take the
+  headline number on trust.
 
 For narrower scopes there are stronger options still: **hFT-Transformer** (Sony) for piano,
 **SwiftF0** and **CREPE-Notes** for monophonic material, and **Demucs** as a separation front
@@ -228,8 +272,15 @@ Items 3 and 6 change the golden test data, so 4.0 has to be real before they lan
 ### 4.2 GPU tier: a sidecar, not in-process inference
 
 **Run the large model in a separate process.** Quarry writes the take to a wav, talks to the
-sidecar over a line-based JSON protocol, and gets back note events that enter through the
-existing `Notes::Event` path so the piano roll, post-processing and export all work unchanged.
+sidecar, and gets back note events that enter through the existing `Notes::Event` path so the
+piano roll, post-processing and export all work unchanged. `muscriptor serve` may mean the
+protocol is already HTTP and does not need designing.
+
+**It is not a complete answer, and §3.0.1 is why.** The sidecar addresses missed and invented
+notes, which is the larger of the two complaints, and it addresses nothing else. Velocity has
+to be computed from the audio either way (§2.1), key and chords remain Quarry's (`STATS.md`),
+and the same-pitch limitation lands on pedalled piano specifically. Read this section as "the
+notes get much better", not as "the transcription problem is solved".
 
 Four independent reasons, any one of which would be sufficient:
 
@@ -253,9 +304,19 @@ and fits the 4070's 12 GB with room to spare, which makes the 4070 the design ta
 bench against Basic Pitch out of interest, but Apache-2.0 is why Basic Pitch stays the
 shipping default regardless of how that comes out.
 
-**The part that will actually be hard.** MuScriptor transcribes 5-second segments. Long takes
-need overlapping windows stitched together with note de-duplication across the seams, and
-seam handling is where transcription quality quietly degrades. It needs its own bench case.
+**The part that may already be handled.** MuScriptor transcribes 5-second segments, so long
+takes need overlapping windows stitched with de-duplication across the seams, and seam
+handling is where transcription quality quietly degrades. This document previously called that
+the hard part. It may not be ours to solve: the CLI takes a whole file, and the paper credits
+instrument conditioning with keeping transcriptions coherent across segment boundaries. So the
+package probably chunks internally. Running it on a three-minute take answers this in minutes
+and is part of the spike below, rather than a design problem to reason about in advance.
+
+**Spike it before integrating any of it.** Install the package, transcribe a piano take and an
+electronic track that already exist, and put both next to Basic Pitch on the same audio. That
+settles whether it is better *on this material*, how it handles a long file, whether the
+same-pitch limitation is audible on real pedalling, and what `serve` exposes. An afternoon,
+and every other decision in this section depends on the answer.
 
 ### 4.3 Separation, if the bench says mixes are the gap
 
@@ -267,8 +328,21 @@ because it should be justified by a measurement rather than by intuition.
 
 ## 5. Sequencing
 
-1. **The bench** (§4.0). Nothing else is measurable without it.
-2. **CPU fixes** (§4.1), in the listed order. Each one re-run against the bench.
-3. **Sidecar and MuScriptor** (§4.2), measured on the same bench as the CPU tier so the two
-   tiers are comparable in one table.
-4. **Demucs** (§4.3), if and only if step 3's numbers say mixes are where the loss is.
+Revised 2026-08-17. The original order ran bench, then CPU fixes, then sidecar. Two things
+changed it: the stated complaints about real takes are **missed and invented notes** and
+**no dynamics**, and §3.0.1 established that the sidecar answers the first and cannot answer
+the second. So the sidecar moves up and the CPU fix list moves down, but §2.1 survives both
+moves because it is the only fix that every path needs.
+
+1. **Spike the sidecar** (§4.2). An afternoon, no integration, and it decides everything
+   after it. Pedalled piano is a required case, per §3.0.1.
+2. **The velocity stage** (§2.1), built tier-independent: note events plus audio in, velocity
+   out. Required whichever tier wins, fixes the second complaint, and takes `KeyEstimate` off
+   confidence-weighting on the way past.
+3. **The bench** (§4.0), scoped to comparing the two tiers and keeping step 2 honest, rather
+   than to policing seven CPU fixes.
+4. **The sidecar proper** (§4.2), if step 1 says yes.
+5. **CPU fixes** (§4.1). Lower priority than when this document was written, not gone: the NaN
+   guard and the sort removal are worth an hour regardless, and if step 1 says no, this list
+   becomes the plan again.
+6. **Demucs** (§4.3), if and only if the numbers say mixes are where the loss is.
