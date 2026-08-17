@@ -51,8 +51,13 @@ public:
     ~SampleRecorder() override;
 
     /** Opens `source` and begins recording into memory. `libraryRoot` is where the dated
-        folders live; it is created if it is not there. */
-    juce::Result start(const okstudio::capture::AudioSession& source, const juce::File& libraryRoot);
+        folders live; it is created if it is not there.
+
+        `windowHandle` is which of the application's windows this take is of, from
+        windowsOfSource(). Zero leaves it to be guessed, which is what it was before there was
+        anything to pass. */
+    juce::Result start(const okstudio::capture::AudioSession& source, const juce::File& libraryRoot,
+                       juce::uint64 windowHandle = 0);
 
     /**
      * Records the whole playback endpoint instead of one application.
@@ -77,8 +82,23 @@ public:
     /** How much has been captured, for a clock on screen. */
     double recordedSeconds() const noexcept;
 
-    /** Loudest sample since the last call, for a meter. Reading it resets it, so exactly one
-        caller may use it. */
+    /** The loudest sample on each side since the last read. */
+    struct Peaks
+    {
+        float left = 0.0f;
+        float right = 0.0f;
+    };
+
+    /** Loudest sample per side since the last call, for a meter. Reading resets, so exactly
+        one caller may use it.
+
+        A mono source reports the same level on both sides rather than silence on the right,
+        because what a meter means by an empty channel is "nothing came in on it", and that
+        would be a lie about a source that has only one. */
+    Peaks readPeaks() noexcept;
+
+    /** Both sides at once, for callers that only want to know how loud it got. Reads, and so
+        resets, exactly as readPeaks() does. */
     float readPeak() noexcept;
 
     /** Non-empty when the stream died under us mid-take. */
@@ -116,7 +136,7 @@ private:
 
     std::atomic<bool> recording { false };
     std::atomic<juce::int64> totalFrames { 0 };
-    std::atomic<float> peakSinceRead { 0.0f };
+    std::atomic<float> peakSinceRead[2] { { 0.0f }, { 0.0f } };
 
     juce::CriticalSection failureLock;
     juce::String failure;

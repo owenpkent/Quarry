@@ -32,14 +32,16 @@ void SampleRecorder::reset()
     capturedChannels = 0;
     capturedRate = 0.0;
     totalFrames.store(0);
-    peakSinceRead.store(0.0f);
+    peakSinceRead[0].store(0.0f);
+    peakSinceRead[1].store(0.0f);
     sourceImage = juce::Image();
 
     const juce::ScopedLock lock(failureLock);
     failure.clear();
 }
 
-juce::Result SampleRecorder::start(const okstudio::capture::AudioSession& source, const juce::File& libraryRoot)
+juce::Result SampleRecorder::start(const okstudio::capture::AudioSession& source, const juce::File& libraryRoot,
+                                   juce::uint64 windowHandle)
 {
     if (recording.load())
         return juce::Result::fail("Already recording");
@@ -57,11 +59,11 @@ juce::Result SampleRecorder::start(const okstudio::capture::AudioSession& source
 
     // Asked once, at the start. The window may be showing something else by the time this
     // take ends, and what a sample records is what was playing.
-    const auto identity = identifySource(source.processId);
+    const auto identity = identifySource(source.processId, windowHandle);
     pending.source.windowTitle = identity.windowTitle;
     pending.source.url = identity.url;
 
-    sourceImage = captureWindowImage(source.processId);
+    sourceImage = captureWindowImage(source.processId, windowHandle);
 
     usingEndpoint = false;
 
@@ -169,15 +171,34 @@ void SampleRecorder::loopbackBlock(const float* const* channels, int numChannels
 
     const auto usable = juce::jmin(numChannels, capturedChannels);
 
-    float blockPeak = 0.0f;
-    for (int ch = 0; ch < usable; ++ch)
-        for (int i = 0; i < numSamples; ++i)
-            blockPeak = juce::jmax(blockPeak, std::fabs(channels[ch][i]));
+    float blockPeak[2] = { 0.0f, 0.0f };
 
-    auto previous = peakSinceRead.load();
-    while (blockPeak > previous && ! peakSinceRead.compare_exchange_weak(previous, blockPeak))
+    for (int ch = 0; ch < usable; ++ch)
     {
+        // Anything past the second channel folds onto the nearer side, so a source with more
+        // than two still meters all of what arrived rather than the first two channels of it.
+        auto& into = blockPeak[ch & 1];
+
+        for (int i = 0; i < numSamples; ++i)
+            into = juce::jmax(into, std::fabs(channels[ch][i]));
     }
+
+    if (usable == 1)
+        blockPeak[1] = blockPeak[0];
+
+    // Raised, never lowered: the reader is what clears these, so a quiet block between two
+    // loud ones cannot erase the peak that has not been shown yet.
+    const auto raise = [](std::atomic<float>& held, float value) noexcept
+    {
+        auto previous = held.load();
+
+        while (value > previous && ! held.compare_exchange_weak(previous, value))
+        {
+        }
+    };
+
+    raise(peakSinceRead[0], blockPeak[0]);
+    raise(peakSinceRead[1], blockPeak[1]);
 
     int done = 0;
 
@@ -218,9 +239,15 @@ double SampleRecorder::recordedSeconds() const noexcept
     return capturedRate > 0.0 ? (double) totalFrames.load() / capturedRate : 0.0;
 }
 
+SampleRecorder::Peaks SampleRecorder::readPeaks() noexcept
+{
+    return { peakSinceRead[0].exchange(0.0f), peakSinceRead[1].exchange(0.0f) };
+}
+
 float SampleRecorder::readPeak() noexcept
 {
-    return peakSinceRead.exchange(0.0f);
+    const auto peaks = readPeaks();
+    return juce::jmax(peaks.left, peaks.right);
 }
 
 juce::String SampleRecorder::streamFailure() const

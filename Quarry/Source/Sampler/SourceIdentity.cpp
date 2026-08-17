@@ -20,6 +20,8 @@
 #include <tlhelp32.h>
 #include <uiautomation.h>
 
+#include <vector>
+
 #if defined(_MSC_VER)
  #pragma comment(lib, "gdi32.lib")
  #pragma comment(lib, "user32.lib")
@@ -75,11 +77,12 @@ private:
 struct WindowSearch
 {
     DWORD processId = 0;
-    HWND best = nullptr;
-    long long bestArea = 0;
+
+    /** In z-order, topmost first, because that is the order EnumWindows walks in. */
+    std::vector<HWND> candidates;
 };
 
-BOOL CALLBACK pickLargestWindow(HWND window, LPARAM userData)
+BOOL CALLBACK collectWindows(HWND window, LPARAM userData)
 {
     auto* search = reinterpret_cast<WindowSearch*>(userData);
 
@@ -93,30 +96,51 @@ BOOL CALLBACK pickLargestWindow(HWND window, LPARAM userData)
     if (GetWindow(window, GW_OWNER) != nullptr || GetWindowTextLengthW(window) == 0)
         return TRUE;
 
-    RECT bounds {};
-    if (! GetWindowRect(window, &bounds))
-        return TRUE;
-
-    const auto area = (long long) (bounds.right - bounds.left) * (long long) (bounds.bottom - bounds.top);
-
-    if (area > search->bestArea)
-    {
-        search->bestArea = area;
-        search->best = window;
-    }
-
+    search->candidates.push_back(window);
     return TRUE;
 }
 
-HWND largestWindowOwnedBy(DWORD processId)
+struct WindowChoice
+{
+    HWND window = nullptr;
+
+    /** The process owned more than one window that could have been the source. */
+    bool ambiguous = false;
+};
+
+/**
+ * The window to speak for a process, and whether that choice was really a choice.
+ *
+ * This used to take the largest window, which is not a signal: a browser with two windows
+ * open decided it on a few percent of area, so the capture got named after whichever one
+ * happened to be dragged wider. Z-order is a real signal, weak but real, because activating
+ * a window raises it: among one application's windows the topmost is the one most recently
+ * used, and that is the likeliest one to have been playing.
+ *
+ * The foreground window would be a better answer still, and is deliberately not used: this
+ * runs when a take starts, moments after the record button was clicked, so the window in
+ * front is always Quarry's own.
+ *
+ * When there is more than one candidate none of this rises above a guess, which is what
+ * `ambiguous` is for. Saying "possibly this" is worth much more than confidently saying the
+ * wrong thing.
+ */
+WindowChoice chooseWindowOwnedBy(DWORD processId)
 {
     if (processId == 0)
-        return nullptr;
+        return {};
 
     WindowSearch search;
     search.processId = processId;
-    EnumWindows(pickLargestWindow, reinterpret_cast<LPARAM>(&search));
-    return search.best;
+    EnumWindows(collectWindows, reinterpret_cast<LPARAM>(&search));
+
+    if (search.candidates.empty())
+        return {};
+
+    WindowChoice choice;
+    choice.window = search.candidates.front();
+    choice.ambiguous = search.candidates.size() > 1;
+    return choice;
 }
 
 DWORD parentOf(DWORD processId)
@@ -150,20 +174,32 @@ DWORD parentOf(DWORD processId)
     return parent;
 }
 
-/** The window to describe a capture by: the process's own, or the nearest ancestor's. */
-HWND windowFor(juce::uint32 processId)
+/** An HWND back out of the integer it travels as, or null if it has since closed. */
+HWND asWindow(juce::uint64 handle)
 {
+    auto* window = reinterpret_cast<HWND>((juce::pointer_sized_uint) handle);
+    return (window != nullptr && IsWindow(window)) ? window : nullptr;
+}
+
+/** The window to describe a capture by: the one chosen, or the best guess at one. */
+WindowChoice windowFor(juce::uint32 processId, juce::uint64 chosen)
+{
+    // A window somebody actually picked is not a guess, and stands as long as it is still
+    // open. Only when it has closed under us does this fall back to guessing.
+    if (auto* window = asWindow(chosen))
+        return { window, false };
+
     auto current = (DWORD) processId;
 
     for (int generation = 0; generation < 4 && current != 0; ++generation)
     {
-        if (auto* window = largestWindowOwnedBy(current))
-            return window;
+        if (const auto choice = chooseWindowOwnedBy(current); choice.window != nullptr)
+            return choice;
 
         current = parentOf(current);
     }
 
-    return nullptr;
+    return {};
 }
 
 juce::String titleOf(HWND window)
@@ -276,24 +312,53 @@ juce::String addressBarOf(HWND window)
 } // namespace
 
 //==============================================================================
-SourceIdentity identifySource(juce::uint32 processId)
+std::vector<SourceWindow> windowsOfSource(juce::uint32 processId)
+{
+    auto current = (DWORD) processId;
+
+    for (int generation = 0; generation < 4 && current != 0; ++generation)
+    {
+        WindowSearch search;
+        search.processId = current;
+        EnumWindows(collectWindows, reinterpret_cast<LPARAM>(&search));
+
+        if (! search.candidates.empty())
+        {
+            std::vector<SourceWindow> found;
+            found.reserve(search.candidates.size());
+
+            for (auto* window : search.candidates)
+                found.push_back({ (juce::uint64) reinterpret_cast<juce::pointer_sized_uint>(window),
+                                  titleOf(window) });
+
+            return found;
+        }
+
+        current = parentOf(current);
+    }
+
+    return {};
+}
+
+SourceIdentity identifySource(juce::uint32 processId, juce::uint64 windowHandle)
 {
     SourceIdentity identity;
 
-    auto* window = windowFor(processId);
+    const auto choice = windowFor(processId, windowHandle);
 
-    if (window == nullptr)
+    if (choice.window == nullptr)
         return identity;
 
-    identity.windowTitle = titleOf(window);
-    identity.url = addressBarOf(window);
+    identity.windowTitle = titleOf(choice.window);
+    identity.windowTitleIsAmbiguous = choice.ambiguous;
+    identity.url = addressBarOf(choice.window);
 
     return identity;
 }
 
-juce::Image captureWindowImage(juce::uint32 processId)
+juce::Image captureWindowImage(juce::uint32 processId, juce::uint64 windowHandle)
 {
-    auto* window = windowFor(processId);
+    auto* window = windowFor(processId, windowHandle).window;
 
     if (window == nullptr)
         return {};

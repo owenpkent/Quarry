@@ -3,6 +3,8 @@
 #include <juce_core/juce_core.h>
 #include <juce_graphics/juce_graphics.h>
 
+#include <vector>
+
 //
 // What Windows will tell us about the application behind a pid.
 //
@@ -23,13 +25,39 @@ namespace quarry::sampler
 
 struct SourceIdentity
 {
-    /** The biggest visible top-level window belonging to the process, or to whichever
+    /** The frontmost visible top-level window belonging to the process, or to whichever
         ancestor of it has one. Empty if nothing owns a window. */
     juce::String windowTitle;
+
+    /** True when that process owned more than one window it could have been, so the title is
+        one of several. A browser with two windows open is one process, and nothing about the
+        pid says which of them made the sound. */
+    bool windowTitleIsAmbiguous = false;
 
     /** The address bar, for a browser that will say. Empty for everything else. */
     juce::String url;
 };
+
+/** One window an application is showing, as offered to whoever is picking a source. */
+struct SourceWindow
+{
+    /** The HWND, carried as an integer so this header stays clear of windows.h. */
+    juce::uint64 handle = 0;
+
+    juce::String title;
+};
+
+/**
+ * Every visible top-level window behind a pid, frontmost first.
+ *
+ * The same walk up the process tree that identifySource does, but returning all of what it
+ * finds rather than one of it. Two browser windows are two entries here and one process
+ * underneath, which is the whole reason this exists: the pid cannot say which of them is
+ * making the sound, so the choice belongs to the person who can see them.
+ *
+ * Empty when nothing in that line owns a window.
+ */
+std::vector<SourceWindow> windowsOfSource(juce::uint32 processId);
 
 /**
  * Title and, where there is one, the URL.
@@ -38,11 +66,15 @@ struct SourceIdentity
  * renders audio from a child that has none, so this walks up the process tree until a
  * window turns up, which is exactly the case the sampler exists to serve.
  *
+ * `windowHandle` names which of the application's windows the take is of, as chosen from
+ * windowsOfSource(). Pass 0 to let this pick, which is only ever a guess when the application
+ * is showing more than one; `windowTitleIsAmbiguous` says when it was.
+ *
  * Reading the URL uses UI Automation, and Chrome turns on renderer accessibility when a UIA
  * client appears. That is a real cost paid by the browser, not by us, and it is the reason
  * this is a deliberate call at the start of a take rather than something polled.
  */
-SourceIdentity identifySource(juce::uint32 processId);
+SourceIdentity identifySource(juce::uint32 processId, juce::uint64 windowHandle = 0);
 
 /**
  * A picture of the source's window, downscaled, or a null image.
@@ -51,7 +83,7 @@ SourceIdentity identifySource(juce::uint32 processId);
  * show something else entirely and the sample is a record of what was playing, not of what
  * happened to be on screen afterwards.
  */
-juce::Image captureWindowImage(juce::uint32 processId);
+juce::Image captureWindowImage(juce::uint32 processId, juce::uint64 windowHandle = 0);
 
 } // namespace quarry::sampler
 
