@@ -44,7 +44,7 @@ private:
     static constexpr double mTimeIncrementOnMouseOverSeconds = 3.0f;
 
     // Single source of truth for the repository the update check and the button point at.
-    static constexpr const char* mGitHubRepo = "owenpkent/NeuralNoteVideo";
+    static constexpr const char* mGitHubRepo = "owenpkent/Quarry";
 
     const URL mLatestReleaseUrl {String("https://github.com/") + mGitHubRepo + "/releases/latest"};
 };

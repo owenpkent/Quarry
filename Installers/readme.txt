@@ -7,7 +7,7 @@ Transcription in Quarry runs locally on your computer. No audio data is sent to 
 On Windows, the standalone app can record whatever this computer is playing, so you can transcribe a video or a browser tab without a "Stereo Mix" input or a virtual audio cable.
 
 For more information about Quarry, to report issues, request features, contribute, or download the source code, visit:
-- https://github.com/owenpkent/NeuralNoteVideo
+- https://github.com/owenpkent/Quarry
 
 Quarry is a derivative of NeuralNote by Damien Ronssin and Tibor Vass:
 - https://github.com/DamRsn/NeuralNote

@@ -14,10 +14,6 @@
     - Notarization credentials come from a `notarytool` keychain profile (named `Quarry` by default,
       override with the `NOTARY_PROFILE` environment variable). The first run creates it, prompting for your
       Apple ID and app-specific password; later runs reuse the stored profile and prompt for nothing.
-    - The profile name changed with the rename: the existing profile in the login keychain is still called
-      `NeuralNoteVideo`, and nothing looks for that name any more. Either let the first run create a `Quarry`
-      profile (it will prompt for the Apple ID and app-specific password again), or set
-      `NOTARY_PROFILE=NeuralNoteVideo` to keep using the old one.
     - The installer will be located in `Installers/Mac/build`
 
 # Package Quarry for Windows

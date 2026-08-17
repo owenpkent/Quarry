@@ -280,18 +280,6 @@ If you have any request/suggestion concerning the plugin or encounter a bug, ple
 Contributions are most welcome! If you want to add some features to the plugin or simply improve the documentation,
 please open a PR!
 
-**Pin the default repo before your first PR.** This repo is a fork of
-[DamRsn/NeuralNote](https://github.com/DamRsn/NeuralNote), so `gh` resolves to the parent by
-default and `gh pr create` will aim at upstream rather than here. Quarry's changes do not belong
-there. Run this once per clone:
-
-```sh
-gh repo set-default owenpkent/NeuralNoteVideo
-```
-
-It writes `remote.origin.gh-resolved` into `.git/config`, which is local and not shared, so a
-fresh clone needs it again.
-
 ## License
 
 Quarry software and code is published under the Apache-2.0 license. See the [license file](LICENSE).

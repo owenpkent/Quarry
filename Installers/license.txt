@@ -1,5 +1,5 @@
 Quarry is licensed under the Apache-2.0 License.
-Source code is available at: https://github.com/owenpkent/NeuralNoteVideo
+Source code is available at: https://github.com/owenpkent/Quarry
 Copyright 2026 Owen Kent
 
 Quarry is a derivative work of NeuralNote (https://github.com/DamRsn/NeuralNote),
