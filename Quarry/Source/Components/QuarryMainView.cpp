@@ -4,6 +4,12 @@
 
 #include "QuarryMainView.h"
 
+// Last, deliberately: this reaches the Windows audio stack, and windows.h defines a
+// Rectangle() that makes juce::Rectangle ambiguous in anything parsed after it.
+#if JUCE_WINDOWS
+    #include "Views/SamplePageView.h"
+#endif
+
 namespace
 {
 /** The toolbar SVGs were authored near-black for the old light theme, which
@@ -21,6 +27,19 @@ void recolourIcon(Drawable* inDrawable, Colour inColour)
     inDrawable->replaceColour(Colour(0xff0e0e0e), inColour);
     inDrawable->replaceColour(Colours::black, inColour);
 }
+
+/** The margin either side of the content, and the width that content has always been. Both
+    were spelled out at every use before the window had a second size to be. */
+constexpr int contentMargin = 29;
+constexpr int wideContentWidth = 941;
+constexpr int windowHeight = 755;
+
+/** Where the content starts, under the wordmark and the toolbar. */
+constexpr int contentTop = 86;
+
+/** How tall the content is at full height: not the whole window under contentTop, because the
+    update line sits below it. */
+constexpr int wideContentHeight = 625;
 } // namespace
 
 
@@ -268,6 +287,30 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
     mAudioInputView = std::make_unique<AudioInputView>(mProcessor);
     addAndMakeVisible(*mAudioInputView);
 
+#if JUCE_WINDOWS
+    // Two pages, one window, but no longer two peers: the window opens on Sample, and
+    // Transcribe is where a capture takes you. Added after everything it covers, so the Sample
+    // page draws over the transcribe controls rather than under them.
+    mSamplePage = std::make_unique<SamplePageView>(mProcessor);
+    addChildComponent(*mSamplePage);
+
+    mBackToSamplesButton = std::make_unique<TextButton>("< SAMPLES");
+    mBackToSamplesButton->setColour(TextButton::buttonColourId, PANEL_BG);
+    mBackToSamplesButton->setColour(TextButton::textColourOffId, TEXT_MAIN);
+    mBackToSamplesButton->setWantsKeyboardFocus(false);
+    mBackToSamplesButton->onClick = [this]() { _showSamplePage(true); };
+    addAndMakeVisible(*mBackToSamplesButton);
+
+    // Loading a capture into the transcriber is the one thing that moves the window off the
+    // Sample page. The page itself has no business knowing which view sits where, so it only
+    // reports that it happened and this decides what that means.
+    mSamplePage->onTranscribeRequested = [this]() { _showSamplePage(false); };
+
+    mSamplePage->onPreferredWidthChanged = [this]() { _applyWindowSize(); };
+
+    _showSamplePage(true);
+#endif
+
     mBackgroundImage = ImageCache::getFromMemory(BinaryData::background_png, BinaryData::background_pngSize)
                            .rescaled(1000, 755, Graphics::ResamplingQuality::highResamplingQuality);
 
@@ -318,7 +361,103 @@ void QuarryMainView::resized()
     // The window grew by 60 px to seat this; nothing above it moved.
     mSampleBar->setBounds(29, 665, 941, 46);
 
-    mUpdateCheck->setBounds(680, 719, 290, 20);
+#if JUCE_WINDOWS
+    const auto narrow = getWidth() < wideContentWidth + 2 * contentMargin;
+#else
+    const auto narrow = false;
+#endif
+
+    // There is no room for it in the narrow window, and an empty rectangle keeps it off screen
+    // without touching a visibility this does not own.
+    mUpdateCheck->setBounds(narrow ? juce::Rectangle<int>()
+                                   : juce::Rectangle<int>(getWidth() - 320, 719, 290, 20));
+
+#if JUCE_WINDOWS
+    // Between the wordmark and the transport, which is the only clear span in the toolbar.
+    // Where the two page tabs used to sit, now that there is one way to go rather than two.
+    mBackToSamplesButton->setBounds(295, 43, 130, 35);
+
+    const auto content = getWidth() - 2 * contentMargin;
+
+    // The whole content area: everything from under the toolbar to above the update line, so
+    // the Sample page covers the transcribe layout entirely rather than sitting in a hole
+    // punched out of it. Narrow, the window was sized to the page, so the page takes what is
+    // under the toolbar and the margin is what is left.
+    mSamplePage->setBounds(contentMargin, contentTop, content,
+                           narrow ? getHeight() - contentTop - contentMargin : wideContentHeight);
+
+    // The settings gear is the other thing that survives into a narrow window, and its place
+    // in the wide one was chosen to sit left of a transport that is not there.
+    if (narrow)
+        mSettingsButton->setBounds(getWidth() - 65, 43, 35, 35);
+#endif
+}
+
+void QuarryMainView::parentHierarchyChanged()
+{
+    _applyWindowSize();
+}
+
+void QuarryMainView::_applyWindowSize()
+{
+#if JUCE_WINDOWS
+    if (mSamplePage == nullptr)
+        return;
+
+    // Only the Sample page can be narrow. Transcribe is laid out in absolute coordinates that
+    // assume the full width, so anything putting it back on screen puts the width back too.
+    const auto narrow = mSamplePage->isVisible() && mSamplePage->wantsNarrowWindow();
+
+    const auto width = (narrow ? mSamplePage->narrowContentWidth() : wideContentWidth)
+                     + 2 * contentMargin;
+
+    // The toolbar above the page, the page, and the margin under it. Full height otherwise,
+    // where the number covers a transcribe layout laid out against it.
+    const auto height = narrow ? contentTop + mSamplePage->narrowContentHeight() + contentMargin
+                               : windowHeight;
+
+    if (auto* editor = findParentComponentOfClass<AudioProcessorEditor>())
+        if (editor->getWidth() != width || editor->getHeight() != height)
+            editor->setSize(width, height);
+#endif
+}
+
+void QuarryMainView::_showSamplePage(bool inShouldShow)
+{
+#if JUCE_WINDOWS
+    if (mSamplePage == nullptr)
+        return;
+
+    mSamplePage->setVisible(inShouldShow);
+
+    const auto transcribing = ! inShouldShow;
+
+    mVisualizationPanel.setVisible(transcribing);
+    mTranscriptionOptions.setVisible(transcribing);
+    mNoteOptions.setVisible(transcribing);
+    mQuantizePanel.setVisible(transcribing);
+    mAudioInputView->setVisible(transcribing);
+    mSampleBar->setVisible(transcribing);
+
+    // Only meaningful on the page it leaves.
+    mBackToSamplesButton->setVisible(transcribing);
+
+    // The transport goes with Transcribe. A play button over a page with nothing to play, and
+    // a record button that means something else entirely, would both be worse than absent.
+    mRecordButton->setVisible(transcribing);
+    mClearButton->setVisible(transcribing);
+    mBackButton->setVisible(transcribing);
+    mPlayPauseButton->setVisible(transcribing);
+    mCenterButton->setVisible(transcribing);
+    mMuteButton->setVisible(transcribing);
+
+    // Leaving Sample can mean leaving a narrow window, and Transcribe cannot be drawn in one.
+    _applyWindowSize();
+
+    repaint();
+#else
+    ignoreUnused(inShouldShow);
+#endif
 }
 
 void QuarryMainView::paint(Graphics& g)

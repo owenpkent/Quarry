@@ -13,6 +13,11 @@ On a fresh clone this also fetches what the build needs: the JUCE and RTNeural
 submodules, and the prebuilt onnxruntime library plus the feature model that
 build.bat would otherwise download.
 
+If the build tree was generated somewhere else, because this repo was renamed or moved, it is
+deleted and rebuilt. CMake bakes absolute paths into the cache and into every project file, so
+such a tree cannot be reconfigured in place, and the failure otherwise surfaces from inside
+MSBuild rather than anywhere that suggests the cause.
+
 Note it configures with -DLTO=OFF. The checked-in onnxruntime.lib is compiled with
 /GL by a specific MSVC version, so with link-time optimisation on, linking fails
 outright (C1047) unless your compiler happens to match that one. build.bat still asks
@@ -312,6 +317,33 @@ def lto_is_on(cache_path: str) -> bool:
         return False
 
 
+def foreign_source_dir(cache_path: str) -> str:
+    """The source directory a build tree was generated for, when that is not this one.
+
+    Empty when the tree belongs to this checkout, or when there is no readable cache.
+
+    CMake bakes absolute paths into the cache and into every project file it generates, so
+    renaming or moving this repo leaves a tree that is still on disk but points entirely at
+    a directory that is not. Such a tree cannot be reconfigured in place - cmake will not
+    reuse a cache belonging to another directory - and because a generated solution is
+    still sitting there, build_system_exists() above says the tree is ready and the build
+    proceeds. The failure then surfaces from inside MSBuild's regenerate step, far from
+    anything that suggests the real cause. The caller deletes the tree instead.
+    """
+    try:
+        with open(cache_path, "r", encoding="utf-8", errors="replace") as cache:
+            for line in cache:
+                if line.startswith("CMAKE_HOME_DIRECTORY:"):
+                    home = line.partition("=")[2].strip()
+                    if os.path.normcase(os.path.normpath(home)) == \
+                       os.path.normcase(os.path.normpath(ROOT)):
+                        return ""
+                    return home
+    except OSError:
+        pass
+    return ""
+
+
 # --------------------------------------------------------------------------------------
 # Win32: find the running app and ask it to close politely
 # --------------------------------------------------------------------------------------
@@ -460,6 +492,20 @@ def main() -> int:
         # dead time.
         build_dir = os.path.join(ROOT, "build")
         cache = os.path.join(build_dir, "CMakeCache.txt")
+
+        # Everything under build/ is derived, and a tree built for the old path is stale
+        # whole, so start it over rather than trying to salvage any of it.
+        stale_root = foreign_source_dir(cache)
+        if stale_root:
+            print(f"{GREY}The build tree was generated for {stale_root}, which is not this "
+                  f"directory; rebuilding it from scratch...{RESET}")
+            shutil.rmtree(build_dir, ignore_errors=True)
+            if os.path.exists(cache):
+                print(f"{YELLOW}Could not delete {build_dir}; something is holding a file "
+                      f"open there (Visual Studio?).{RESET}")
+                print(f"{YELLOW}  Close it, delete that folder, and run this again.{RESET}")
+                return 1
+
         if not build_system_exists(build_dir) or lto_is_on(cache):
             if run_cmake(["-S", ".", "-B", "build", "-DLTO=OFF"]) != 0:
                 print(f"{YELLOW}Configuring the build tree failed, so nothing was built.{RESET}")

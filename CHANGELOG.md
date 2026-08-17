@@ -9,6 +9,41 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- feat: pick the window, not just the application. Two browser windows are one process, and
+  nothing about a process id says which of them made the sound, so the old guess took whichever
+  window happened to be a few pixels wider and named the capture after the wrong tab. Each
+  window is its own row now, told apart by what it is showing. This gets the name right; the two
+  still share one audio stream, and no per-window capture exists to be had.
+- feat: the captures can be turned off. The window shrinks to the source picker, which becomes a
+  dropdown, and Quarry folds down to a small capture tool. It reopens the way you left it.
+- feat: a stereo record meter that moves. It runs on its own 60 Hz tick instead of the 250 ms
+  the source list is enumerated on, and falls on a time constant rather than a step per frame,
+  so a busy moment no longer makes it stall and lurch. Two lanes, because one bar cannot tell a
+  centred signal from one that has quietly lost a channel.
+
+- feat: sample one application, not the whole computer. The standalone gains a second page,
+  **SAMPLE**, switched from the toolbar. It lists what is making a sound right now with a
+  meter each, and records the one you pick in isolation: a browser tab and nothing else, no
+  notification, no Discord ping. Because it follows that application rather than the speakers,
+  you can start the take, switch to the source, play it, and switch back without any of that
+  landing in the file. Windows 10 build 20348 and later; **Everything this computer plays** is
+  there as a fallback, and says outright that its source is a guess.
+- feat: a captured sample says where it came from. The application, the window title, the
+  browser tab's URL and a picture of the window, written into the wav where the format allows
+  and in full to a `.json` beside it. The sidecar is the record: there is no database, so
+  deleting a sample in Explorer leaves nothing behind pointing at it.
+- feat: the captures you have made, in one list. Search matches the name, the application, the
+  window title, the URL and the tags at once, because knowing which field a memory lives in is
+  not something anyone should have to do. **TRANSCRIBE** hands a capture to the other page,
+  which is also how you listen to one.
+- feat: an application at half volume is called out before you record it, in orange, with a
+  button that sets it back. Loopback captures after an app's own volume slider, so 50% is 6 dB
+  of loss baked into the file that no format can undo. It is the one thing about a capture that
+  cannot be fixed afterwards.
+- feat: captures are 32-bit float wav, exactly as the audio arrived, with no conversion, no
+  dither and no decision about peaks above 0 dBFS. Silence is trimmed from both ends and the
+  crop recorded, and peak, true peak and integrated loudness are measured and written down
+  without anything being applied to the audio.
 - feat: keep a take without opening a dialog. A **SAVE TO** bar along the bottom writes the
   recorded audio and the transcription to a folder picked once, with a toggle for each format.
   The name of the next take is shown before you commit to it, and nothing is ever overwritten.
@@ -35,6 +70,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- ui: Quarry opens on **SAMPLE**. Capturing is the first thing the app does; transcribing is
+  something you then do to a capture, reached by handing one over, with **< SAMPLES** as the way
+  back. The two page tabs are gone.
+- ui: the captures are browsed the way they are stored, walking the dated folders rather than
+  flattening every take into one list. Searching still looks everywhere, because not knowing
+  which folder a thing is in is the reason anyone searches.
+- ui: a capture's row says when it was taken, what the window was showing, and how long it runs.
+  The application column said the same thing on every row, and loudness is something you want
+  when using a sample rather than when finding one. Both are still in the sidecar.
+- ui: the button that sets an application back to full volume appears only when there is an
+  application below full volume. A permanent button for a rare problem teaches you to stop
+  looking at that corner of the window.
 - ui: the whole window moves to Obsidian, the look and feel shared across the OK Studio line,
   so Quarry matches Keys rather than the plugin it was forked from. New wordmark drawn as text
   instead of baked into the background image, new app icon, and a toolbar icon set drawn for
@@ -62,6 +109,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- fix: `run.py` recovers from a build tree generated for a different directory. Renaming or
+  moving the repo left CMake pointing at a path that no longer existed, and the build failed
+  inside MSBuild's regenerate step, nowhere near anything that suggested the cause.
+- fix: the Sample page no longer opens with a source selected that nobody picked. The "nothing
+  chosen" sentinel was zero, which is also a real process id, so an untouched page showed a row
+  as chosen and lit the record button.
+- fix: the captures list no longer slices its last row through the middle of the text. Its
+  height was whatever the layout had left over rather than a whole number of rows.
 - fix: the standalone no longer shows a yellow "audio input is muted to avoid feedback loop"
   banner above the window. It declared a stereo input bus it never read, since recording goes
   through the device picked in the source strip, and JUCE inferred a feedback loop from it.

@@ -49,6 +49,15 @@ inline static Identifier SampleWriteWavId = "SAMPLE_WRITE_WAV";
 
 inline static Identifier SampleWriteMidiId = "SAMPLE_WRITE_MIDI";
 
+// Where the Sample page writes its captures. Deliberately not SampleFolderId: that one
+// holds finished takes you chose to keep, this one holds raw captures off other
+// applications, and a folder carrying both is harder to browse than either alone.
+inline static Identifier CaptureFolderId = "CAPTURE_FOLDER";
+
+// Whether the Sample page shows what has been captured at all. Turned off, the page is for
+// recording and nothing else, and the source rail takes the whole window.
+inline static Identifier CaptureBrowserVisibleId = "CAPTURE_BROWSER_VISIBLE";
+
 // --------------- Time quantization ----------------
 inline static Identifier TempoId = "TEMPO";
 
@@ -79,7 +88,9 @@ const std::vector<std::pair<Identifier, var>> OrderedStatePropertiesWithDefault 
     {TooltipVisibleId, true},
     {SampleFolderId, String()},
     {SampleWriteWavId, true},
-    {SampleWriteMidiId, true}};
+    {SampleWriteMidiId, true},
+    {CaptureFolderId, String()},
+    {CaptureBrowserVisibleId, true}};
 
 } // namespace NnId
 

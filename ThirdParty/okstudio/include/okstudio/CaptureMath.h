@@ -163,6 +163,20 @@ inline int chooseChannelCount(int availableOnDevice, int requested) noexcept
     return juce::jlimit(1, availableOnDevice, wanted);
 }
 
+/** The channel cap to hand a loopback backend. There is no device count to clamp against
+    here: the endpoint's mix width is not known until it opens, so the backend applies its
+    own jmin once it is.
+
+    Its own function because 0 must never reach that backend, which reads 0 as "every
+    channel the endpoint mixes". Passing an unspecified count straight through meant a 5.1
+    or 7.1 endpoint (HDMI, a receiver, spatial audio) recorded 6 or 8 channel takes by
+    default: three or four times the byte rate, in a file most things will not play as
+    expected, and invisible on a stereo development machine. */
+constexpr int chooseLoopbackChannelCap(int requested) noexcept
+{
+    return requested > 0 ? requested : defaultChannelCount;
+}
+
 //==============================================================================
 // Metering
 

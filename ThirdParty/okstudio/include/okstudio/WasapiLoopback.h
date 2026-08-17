@@ -25,6 +25,7 @@
 #include <audioclient.h>
 
 #include <atomic>
+#include <memory>
 #include <vector>
 
 #if defined(_MSC_VER)
@@ -77,6 +78,24 @@ public:
 private:
     ComClass* ptr = nullptr;
 };
+
+/** CoInitializeEx that only uninitializes when it was the one that initialized.
+    The message thread is already STA thanks to JUCE, and stamping on that would
+    break every other COM user in the process.
+
+    The interfaces are created on the calling thread and then used from the poll
+    thread without marshalling, which is only legal because MMDevice objects carry
+    the free-threaded marshaler. That is load-bearing, not incidental.
+
+    Lives in detail rather than inside one capture class because both the endpoint
+    and the process-loopback backends need exactly this and neither should own it. */
+struct ComScope
+{
+    ComScope() : owned(SUCCEEDED(CoInitializeEx(nullptr, COINIT_MULTITHREADED))) {}
+    ~ComScope() { if (owned) CoUninitialize(); }
+    const bool owned;
+    JUCE_DECLARE_NON_COPYABLE(ComScope)
+};
 } // namespace detail
 
 /** Where loopback audio goes. Called from the capture thread, never the message thread. */
@@ -126,7 +145,7 @@ public:
     static std::vector<LoopbackEndpoint> endpoints()
     {
         std::vector<LoopbackEndpoint> found;
-        ComScope com;
+        detail::ComScope com;
 
         detail::ComPtr<IMMDeviceEnumerator> enumerator;
         if (! createEnumerator(enumerator))
@@ -189,11 +208,20 @@ public:
     {
         stop();
 
-        ComScope com;
+        // Held for the lifetime of the stream, not just this call. The interfaces below
+        // are created inside it and outlive it by design; a scope-local ComScope would
+        // CoUninitialize on return, and on any caller thread that was not already COM
+        // initialised that tears the apartment down under a live IAudioClient. The JUCE
+        // message thread is already OLE-initialised so it never owns the init in practice,
+        // which is exactly the kind of "works until it doesn't" this avoids.
+        com = std::make_unique<detail::ComScope>();
 
         detail::ComPtr<IMMDeviceEnumerator> enumerator;
         if (! createEnumerator(enumerator))
+        {
+            releaseCom();
             return juce::Result::fail("Could not reach the Windows audio service");
+        }
 
         detail::ComPtr<IMMDevice> device;
         if (endpointIdToOpen.isNotEmpty())
@@ -204,16 +232,22 @@ public:
 
         if (! device
             && FAILED(enumerator->GetDefaultAudioEndpoint(eRender, eConsole, device.resetAndGetPointerAddress())))
+        {
+            releaseCom();
             return juce::Result::fail("No playback device to record from");
+        }
 
         if (FAILED(device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr,
                                     (void**) client.resetAndGetPointerAddress())))
+        {
+            releaseCom();
             return juce::Result::fail("Could not open that output for recording");
+        }
 
         WAVEFORMATEX* mix = nullptr;
         if (FAILED(client->GetMixFormat(&mix)) || mix == nullptr)
         {
-            client.reset();
+            releaseCom();
             return juce::Result::fail("Could not read the output's audio format");
         }
 
@@ -231,19 +265,19 @@ public:
 
         if (FAILED(hr))
         {
-            client.reset();
+            releaseCom();
             return juce::Result::fail("Windows refused a loopback stream on that output");
         }
 
         if (format == SampleFormat::unsupported || mixChannels <= 0 || mixRate <= 0.0)
         {
-            client.reset();
+            releaseCom();
             return juce::Result::fail("That output mixes in a format we cannot record");
         }
 
         if (FAILED(client->GetService(__uuidof(IAudioCaptureClient), (void**) capture.resetAndGetPointerAddress())))
         {
-            client.reset();
+            releaseCom();
             return juce::Result::fail("Could not start capturing that output");
         }
 
@@ -255,7 +289,6 @@ public:
         mixChannelCount = mixChannels;
         channels = channelCap > 0 ? juce::jmin(channelCap, mixChannels) : mixChannels;
         rate     = mixRate;
-        sink     = &sinkToUse;
 
         pollMs = juce::jlimit(1, 50, (int) ((double) ringFrames * 1000.0 / rate / 4.0));
         resize((int) juce::jmax((UINT32) 1024, ringFrames));
@@ -270,6 +303,9 @@ public:
             return juce::Result::fail("Windows would not start the loopback stream");
         }
 
+        // Last, and only once nothing else can fail: a sink recorded on a path that then
+        // returns a failure is a pointer to something the caller is free to destroy.
+        sink = &sinkToUse;
         startThread(juce::Thread::Priority::high);
         return juce::Result::ok();
     }
@@ -295,17 +331,6 @@ public:
 
 private:
     //==========================================================================
-    /** CoInitializeEx that only uninitializes when it was the one that initialized.
-        The message thread is already STA thanks to JUCE, and stamping on that would
-        break every other COM user in the process. */
-    struct ComScope
-    {
-        ComScope() : owned(SUCCEEDED(CoInitializeEx(nullptr, COINIT_MULTITHREADED))) {}
-        ~ComScope() { if (owned) CoUninitialize(); }
-        const bool owned;
-        JUCE_DECLARE_NON_COPYABLE(ComScope)
-    };
-
     enum class SampleFormat { float32, int16, int32, unsupported };
 
     /** The shared-mode mix format is IEEE float in practice; the integer paths are here
@@ -387,6 +412,7 @@ private:
     {
         capture.reset();
         client.reset();
+        com.reset(); // after the interfaces, never before
     }
 
     void resize(int frames)
@@ -466,7 +492,7 @@ private:
     //==========================================================================
     void run() override
     {
-        ComScope com;
+        detail::ComScope com;
 
         while (! threadShouldExit())
         {
@@ -525,6 +551,10 @@ private:
 
     //==========================================================================
     static constexpr double maxSilencePadSeconds = 30.0;
+
+    // Declared first so it is destroyed last: the interfaces have to be released before
+    // the CoUninitialize that matches their CoInitializeEx.
+    std::unique_ptr<detail::ComScope> com;
 
     detail::ComPtr<IAudioClient> client;
     detail::ComPtr<IAudioCaptureClient> capture;
