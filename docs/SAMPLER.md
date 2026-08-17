@@ -2,8 +2,16 @@
 
 *Capture what this computer is playing, know exactly where it came from, keep it.*
 
-Status: design settled 2026-08-16. Nothing built yet. This is a second page inside the
-Quarry **standalone** app, not a separate product and not available in the plugin.
+Status: built and in use as of 2026-08-16, bar the items still marked open under *Build
+order*. This is the page Quarry opens on, with Transcribe reached from a capture rather than
+from a tab beside it.
+
+**It was designed as standalone-only and is not actually gated to the standalone.** Nothing
+checks the wrapper type; the only guard is `#if JUCE_WINDOWS`, so the page is in the VST3 too
+on Windows. That was harmless while it was a second tab. It is less harmless now that it is
+the page the editor opens on and resizes its own window to fit, which in a host is a
+negotiation rather than a decision. Either gate it or accept it on purpose; it should not stay
+this way by omission.
 
 Quarry's existing capture exists to feed a transcriber: it holds a take, converts it to
 MIDI, and the audio is a by-product. The Sampler inverts that. The audio is the point, the
@@ -15,7 +23,7 @@ source is the metadata, and transcription is something you may never run.
 
 | Question | Decision |
 |---|---|
-| Where it lives | Second page in the Quarry standalone, toggled from the toolbar |
+| Where it lives | The page Quarry opens on. Transcribe is downstream, reached from a capture |
 | Capture isolation | Per-process WASAPI loopback by default, whole-endpoint as fallback |
 | Trigger | Explicit record / stop. No rolling buffer, nothing runs until you press record |
 | Concurrency | One source at a time |
@@ -27,7 +35,7 @@ source is the metadata, and transcription is something you may never run.
 | Post-capture | Trim edge silence, measure loudness. No fades, no loop detection |
 | Quarry analysis | Nothing automatic. Key, tempo and MIDI are one click, never a default |
 | Semantic tagging | Deferred, with a schema slot reserved. See *Open: classification* |
-| Library | Full browser with search, over the sidecars, no index file |
+| Library | Folder browser over the sidecars, with search, no index file. Can be turned off |
 
 ---
 
@@ -284,19 +292,46 @@ analysis ever becomes automatic, worth nothing for Ableton.
 
 ## The page
 
-A second mode in the standalone's window, switched from the toolbar. Transcribe is what
-exists today and is untouched. Sample is:
+The page the window opens on. Transcribe is what existed before, untouched, and is now
+somewhere a capture takes you rather than a peer: loading one hands it to the transcriber and
+follows it there, and `< SAMPLES` in the toolbar is the way back. Sample is:
 
 - **Source picker**: apps currently making sound, each with a live meter and a volume
   warning. An "everything" row selects the endpoint fallback.
-- **Record / stop**, plus level and elapsed time. Same shape as the existing toolbar so
-  there is nothing new to learn.
-- **Library browser**: every sidecar under the captures root, read on a background thread
+
+  **One row per window, not per application.** Two browser windows are one process, and
+  nothing about a pid says which of them made the sound. Asking the process and guessing
+  backwards to a window picked whichever happened to be a few pixels wider, so the capture
+  got named after the wrong tab. The rows are windows now and the choice travels into
+  `SampleRecorder::start`, which is the same shape OBS uses and for the same reason. Note this
+  fixes the *label*, not the audio: two windows of one process share one stream, and no
+  per-window capture exists to be had.
+
+  The application's name is printed once against the first of its windows rather than down
+  every row, where it was a column of identical cells.
+- **Record / stop**, plus a stereo level and elapsed time. The meter runs on its own 60 Hz
+  tick rather than the source enumeration's 250 ms, because a level that updates four times a
+  second reads as a run of jumps; it rises at once and falls on a 320 ms time constant, in
+  real elapsed time so a late frame does not make it lurch. Two lanes, because one bar cannot
+  tell a centred signal from one that has quietly lost a channel.
+- **The captures**, which can be turned off. Hidden, the window shrinks to the source picker,
+  the picker becomes a dropdown, and Quarry is a small capture tool; the choice is remembered.
+  Shown, it is a browser over every sidecar under the captures root, read on a background thread
   and published back to the message thread. One search box rather than a row of filters,
   matched against name, application, window title, URL and tags at once, because the
   alternative is asking someone to know which field their memory of a sample lives in.
   Multiple words narrow. Reveal, delete to the recycle bin, and TRANSCRIBE, which hands the
   file to the other page and is the entire reason for living inside Quarry.
+
+  **It browses the folders rather than flattening them.** Captures are written into dated
+  folders, so the browser walks them: a month, then a day, then the takes, with a `..` row
+  back up. The folders are derived from the scan rather than from a second walk of the disk,
+  so one appears exactly when there is a capture inside it. Searching flattens the tree,
+  because not knowing which folder a thing is in is the whole reason anyone types in that box.
+
+  Rows carry what identifies a capture and nothing else: when it was taken, what the window
+  said, and how long it runs. The application was on every row saying the same thing, and
+  loudness belongs to using a sample rather than finding one; both are still in the sidecar.
 
   **There is no database, and that is a decision.** The sidecars are the record; the index
   is built from them and can be thrown away and rebuilt. Delete a capture in Explorer and it
@@ -310,6 +345,23 @@ exists today and is untouched. Sample is:
 Mouse-only, to the line's standard. Text search is there but never the only route to
 anything: app, date and tag filters are all click targets, so a full session can happen
 without the keyboard.
+
+**The reverse is not true, and an audit on 2026-08-16 said so.** A full session cannot yet
+happen without the mouse, and the page is largely closed to a screen reader:
+
+- Neither list implements `ListBoxModel::getNameForRow`, so every row announces as "Row 1",
+  "Row 2". JUCE's default is exactly that string. All of the content above, including the
+  window titles that are the entire point of the per-window rows, is invisible to assistive
+  technology.
+- `< SAMPLES` is `setWantsKeyboardFocus(false)` and has no shortcut, while the TRANSCRIBE
+  button that sends you there is focusable. That is a one-way door for a keyboard user.
+- `r`, `m` and `c` in `QuarryMainView::keyPressed` trigger transport buttons unguarded, and
+  `triggerClick()` works on a hidden one. From the Sample page they reach into Transcribe.
+- The selection block, the status line, the column headings and the meter are `drawText`
+  calls rather than components, so none of the state they carry reaches a screen reader.
+
+The dropdown in the narrow window is the exception and is the most accessible control on the
+page, because JUCE's `ComboBox` carries its own name, value and expanded state.
 
 ---
 
@@ -373,7 +425,10 @@ them into RAM at startup, which is how search works without ever adding a databa
    silence-padding machinery is not needed here.
 2. ~~Source picker over audio sessions, with meters and the volume warning.~~ **Done.**
    `okstudio/WasapiProcessLoopback.h` in the kit carries the capture stream and `sessions()`;
-   `Views/SamplePageView` is the picker, and `QuarryMainView` gained the two-page toggle.
+   `Views/SamplePageView` is the picker. `QuarryMainView` first gained a two-page toggle and
+   then lost it again: Sample is the page the window opens on, and the toggle became one
+   `< SAMPLES` button that only exists on the page it returns from. The picker lists windows
+   rather than processes, via `windowsOfSource()`.
 3. Record / stop, buffer to RAM, trim and loudness, write float32 WAV plus sidecar.
    **Engine done**: `Quarry/Source/Sampler/`. `SampleMath.h` is the pure arithmetic, tested
    in `Tests/sampler_test.h`; `SampleMetadata.h` is the sidecar schema; `SampleRecorder`
@@ -391,10 +446,15 @@ them into RAM at startup, which is how search works without ever adding a databa
    written down as the guess, and the sidecar says `isolation: endpoint` so nothing reads a
    guess as a fact.
 6. ~~Library browser: load, filter, reveal, delete.~~ **Done**, in `Sampler/SampleLibrary`
-   and the lower half of the Sample page. Scanned off the message thread, filtered on one
-   box against every field at once, and deletes go to the recycle bin. Tagging and renaming
-   are the parts not built.
+   and the right-hand half of the Sample page. Scanned off the message thread, filtered on one
+   box against every field at once, and deletes go to the recycle bin. It browses the dated
+   folders rather than flattening them, and can be turned off, which shrinks the window to the
+   source picker. Tagging and renaming are the parts not built.
 7. ~~Hand-off to the Transcribe page.~~ **Done**, through `SourceAudioManager::onFileDrop`,
    which is also how a capture gets auditioned: the Transcribe page already owns a player,
    so the browser never needed an audio device of its own.
 8. Classification, decided as above.
+9. **Accessibility**, listed under *The page*. The row names and the `< SAMPLES` focus are
+   small and worth doing first; making painted state reachable is a design question.
+10. **Decide whether this page belongs in the plugin**, per the note at the top. It is in the
+    VST3 today because nothing stops it, which is not the same as intending it.

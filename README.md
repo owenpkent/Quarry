@@ -115,9 +115,9 @@ As part of the original NeuralNote project, its authors
 
 ## Sampling one application
 
-The standalone has a second page. **SAMPLE**, next to **TRANSCRIBE** in the toolbar, captures
-audio in the first place rather than converting it; Transcribe is unchanged and is still where
-a take becomes MIDI.
+Quarry opens on **SAMPLE**, which captures audio in the first place rather than converting it.
+Transcribe is unchanged and is still where a take becomes MIDI; it is now somewhere a capture
+takes you, and **< SAMPLES** in the toolbar is the way back.
 
 It lists what is making a sound right now, one row each with a live meter, and records the one
 you pick **in isolation**. Not the speakers, the application: a browser tab and nothing else, no
@@ -125,6 +125,10 @@ notification arriving halfway through, no second app bleeding in. Because the ca
 that process rather than the output, focus does not matter. Arm the tab, hit record, switch to
 the browser, play it, switch back, stop. Nothing you did in between is in the file, and the
 silence at the end is trimmed off anyway.
+
+**Two browser windows are two rows**, told apart by what each is showing. They are one process
+underneath, so this is about naming the capture correctly rather than separating the sound:
+picking the window is the only way anything can know which of them you meant.
 
 This is Windows 10 build 20348 and later; the page hides itself elsewhere. **Everything this
 computer plays** sits at the top of the list as the fallback, and says plainly that its source
@@ -149,7 +153,8 @@ the application's name and stops.
 
 Loopback captures **after** an application's own volume slider, so a tab at 50% is 6 dB of loss
 baked permanently into the file. No format recovers it. The list says so in orange next to any
-app below 100%, with a button that sets it back before you record.
+app below 100%, and a button to set it back appears when there is something to set back, which
+is the only time it means anything.
 
 ### What lands on disk
 
@@ -162,11 +167,20 @@ application and what it was playing: `2026-08/2026-08-16/141901-chrome-silence-y
 
 ### Finding one again
 
-The lower half of the page is everything captured so far. One search box, matched against the
-name, the application, the window title, the URL and the tags at once, because knowing which of
-those your memory of a sample lives in is not a reasonable thing to ask. Several words narrow.
-**TRANSCRIBE** hands a capture to the other page, which is also how you listen to one, and
-deleting moves a file to the recycle bin rather than destroying it.
+The right-hand half of the page is everything captured so far, browsed the way it is stored: a
+month, then a day, then the takes, with a row back up. Each says when it was taken, what the
+window was showing, and how long it runs.
+
+One search box, matched against the name, the application, the window title, the URL and the
+tags at once, because knowing which of those your memory of a sample lives in is not a
+reasonable thing to ask. Several words narrow, and searching looks through every folder rather
+than the one you are standing in. **TRANSCRIBE** hands a capture to the other page, which is
+also how you listen to one, and deleting moves a file to the recycle bin rather than destroying
+it.
+
+**Turn it off** and the window shrinks to the source picker, which becomes a dropdown: Quarry
+folds down to a small capture tool that records and gets out of the way. It reopens the way you
+left it.
 
 ## Build from source
 
