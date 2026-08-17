@@ -26,9 +26,79 @@ namespace
 constexpr int rowHeight = 34; // The line's minimum hit target. Nothing here is smaller.
 constexpr int buttonHeight = 36;
 
+/** The record button, which is the one thing this page is for and is sized to say so. */
+constexpr int primaryButtonHeight = 46;
+
+/** Wide enough for an application name and its meter, and no wider: everything past that
+    belongs to the library, which is the half that actually grows. */
+constexpr int railWidth = 340;
+constexpr int columnGap = 14;
+constexpr int headerHeight = 34;
+
+/** The narrow window, which is the whole page when the captures are away: a dropdown, what is
+    arriving, what is happening, and the one button. Sized to that and nothing more. */
+constexpr int chooserHeight = 32;
+constexpr int meterHeight = 14;
+constexpr int capturesButtonHeight = 24;
+constexpr int narrowWidth = 300;
+
+/** The library's fixed columns. What is left over is what the capture was.
+
+    Three, deliberately. The application was on every row and said the same thing on each,
+    which is a column that costs a scan and returns nothing. Loudness and whether the source
+    was guessed are both real, and both belong to using a sample rather than finding one; they
+    stay in the sidecar. */
+constexpr int whenWidth = 52;
+constexpr int lengthWidth = 56;
+
+/** Two lines of it, because the one about an unsupported Windows is a sentence. */
+constexpr int statusHeight = 34;
+
 /** The synthetic first row: record the whole endpoint rather than one application. Not a
     real pid, and picked so it can never collide with one. */
 constexpr uint32 everythingPid = 0xffffffffu;
+
+/** Nothing picked yet.
+
+    Zero cannot mean this. Zero is the System Idle Process, it is what the endpoint's own
+    session reports, and it is what an uninitialised pid holds - so a page nobody had touched
+    came up with the System row drawn as chosen and the record button lit. */
+constexpr uint32 nothingPid = 0xfffffffeu;
+
+/** The immediate child of `under` that `file` sits somewhere inside.
+
+    An invalid File when `file` is directly in `under`, or not inside it at all. This is what
+    turns a flat list of capture paths back into the one level of folders above them. */
+File branchOf(const File& under, const File& file)
+{
+    if (! file.isAChildOf(under))
+        return {};
+
+    auto candidate = file.getParentDirectory();
+
+    if (candidate == under)
+        return {};
+
+    while (candidate.getParentDirectory() != under)
+    {
+        const auto up = candidate.getParentDirectory();
+
+        if (up == candidate) // the filesystem root, which `under` was not
+            return {};
+
+        candidate = up;
+    }
+
+    return candidate;
+}
+
+/** The application's name as it is read, rather than as the process table spells it. The
+    extension is not something anyone picking a source is choosing between. */
+String appLabel(const String& processName)
+{
+    return processName.endsWithIgnoreCase(".exe") ? processName.dropLastCharacters(4)
+                                                  : processName;
+}
 
 /** A meter that reads as a level rather than as a bar chart, matching the SOURCE strip. */
 void drawMeter(Graphics& g, juce::Rectangle<int> bounds, float level, Colour fill)
@@ -45,6 +115,23 @@ void drawMeter(Graphics& g, juce::Rectangle<int> bounds, float level, Colour fil
         g.fillRoundedRectangle(lit, 2.0f);
     }
 }
+
+/** The record meter: one lane per side.
+
+    Two lanes rather than one, because a single bar cannot tell a centred signal from one
+    that has quietly lost a channel, and losing a channel is exactly the failure worth seeing
+    before a take rather than after it. */
+void drawStereoMeter(Graphics& g, juce::Rectangle<int> bounds, const float* levels, Colour fill)
+{
+    const auto lane = (bounds.getHeight() - 2) / 2;
+
+    if (lane < 1)
+        return;
+
+    for (int side = 0; side < 2; ++side)
+        drawMeter(g, bounds.withHeight(lane).withY(bounds.getY() + side * (lane + 2)),
+                  levels[side], fill);
+}
 } // namespace
 
 //==============================================================================
@@ -59,6 +146,31 @@ SamplePageView::SamplePageView(QuarryAudioProcessor& inProcessor)
     mSourceList->setColour(ListBox::outlineColourId, Colours::transparentBlack);
     addAndMakeVisible(*mSourceList);
 
+    // The same choice the list offers, for the window that has no room for a list. Added as a
+    // child component rather than made visible: only one of the two is ever on screen.
+    mSourceChooser = std::make_unique<ComboBox>("Source");
+    mSourceChooser->setTextWhenNothingSelected("Pick what to record");
+    mSourceChooser->setTextWhenNoChoicesAvailable("Nothing is playing");
+    mSourceChooser->onChange = [this]() {
+        const auto id = mSourceChooser->getSelectedId();
+
+        if (id == 1)
+        {
+            mSelectedPid = everythingPid;
+            mSelectedWindow = 0;
+        }
+        else if (id >= 2 && (size_t) (id - 2) < mSources.size())
+        {
+            const auto& picked = mSources[(size_t) (id - 2)];
+            mSelectedPid = picked.processId;
+            mSelectedWindow = picked.windowHandle;
+        }
+
+        _updateEnablements();
+        repaint();
+    };
+    addChildComponent(*mSourceChooser);
+
     mRecordButton = std::make_unique<TextButton>("RECORD");
     mRecordButton->setColour(TextButton::buttonColourId, CONTROL_BG);
     mRecordButton->setColour(TextButton::textColourOffId, TEXT_MAIN);
@@ -71,9 +183,12 @@ SamplePageView::SamplePageView(QuarryAudioProcessor& inProcessor)
     mFixVolumeButton->onClick = [this]() { _fixSelectedVolume(); };
     addAndMakeVisible(*mFixVolumeButton);
 
-    mFolderButton = std::make_unique<TextButton>("FOLDER");
-    mFolderButton->setColour(TextButton::buttonColourId, CONTROL_BG);
-    mFolderButton->setColour(TextButton::textColourOffId, TEXT_MAIN);
+    // Text, not a filled button: where captures are kept is a setting, and it was sitting at
+    // the same visual weight as the list it describes. The path is on the tooltip, which is
+    // where a fact you need once belongs.
+    mFolderButton = std::make_unique<TextButton>("change folder");
+    mFolderButton->setColour(TextButton::buttonColourId, Colours::transparentBlack);
+    mFolderButton->setColour(TextButton::textColourOffId, TEXT_DIM);
     mFolderButton->onClick = [this]() { _chooseFolder(); };
     addAndMakeVisible(*mFolderButton);
 
@@ -92,7 +207,7 @@ SamplePageView::SamplePageView(QuarryAudioProcessor& inProcessor)
     mSearchBox->setColour(TextEditor::backgroundColourId, PANEL_BOT);
     mSearchBox->setColour(TextEditor::textColourId, TEXT_MAIN);
     mSearchBox->setColour(TextEditor::outlineColourId, Colours::transparentBlack);
-    mSearchBox->onTextChange = [this]() { _applyFilter(); };
+    mSearchBox->onTextChange = [this]() { _rebuildBrowse(); };
     addAndMakeVisible(*mSearchBox);
 
     const auto makeLibraryButton = [this](const String& inText, std::function<void()> inAction) {
@@ -108,6 +223,14 @@ SamplePageView::SamplePageView(QuarryAudioProcessor& inProcessor)
     mRevealButton = makeLibraryButton("SHOW IN FOLDER", [this]() { _revealSelected(); });
     mDeleteButton = makeLibraryButton("DELETE", [this]() { _deleteSelected(); });
 
+    // Quiet, like the folder control beside it: showing the captures at all is a preference,
+    // not part of the job the page is doing.
+    mCapturesButton = std::make_unique<TextButton>("hide captures");
+    mCapturesButton->setColour(TextButton::buttonColourId, Colours::transparentBlack);
+    mCapturesButton->setColour(TextButton::textColourOffId, TEXT_DIM);
+    mCapturesButton->onClick = [this]() { _setCapturesVisible(! mShowCaptures); };
+    addAndMakeVisible(*mCapturesButton);
+
     mScanPool = std::make_unique<ThreadPool>(1);
 
     if (! WasapiProcessLoopback::isSupported())
@@ -115,11 +238,18 @@ SamplePageView::SamplePageView(QuarryAudioProcessor& inProcessor)
     else
         mStatusText = "Pick an application, then record.";
 
+    mBrowseFolder = _libraryRoot();
+
     _refreshSources();
     _rescanLibrary();
+
+    // Last, because it lays the page out for whichever way it was left.
+    _setCapturesVisible((bool) mProcessor.getValueTree()
+                            .getProperty(NnId::CaptureBrowserVisibleId, true));
+
     _updateEnablements();
 
-    startTimer(refreshIntervalMs);
+    startTimer(tickIntervalMs);
 }
 
 SamplePageView::~SamplePageView()
@@ -141,46 +271,114 @@ void SamplePageView::resized()
 {
     auto area = getLocalBounds().reduced(2);
 
-    mHeaderBounds = area.removeFromTop(26);
-    area.removeFromTop(6);
-
-    // The library takes the bottom half, laid out from the bottom up so the two halves meet
-    // in the middle rather than the lower one being whatever is left over.
-    auto library = area.removeFromBottom(area.getHeight() / 2);
-
+    // Side by side rather than stacked halves. The sources are however many applications
+    // happen to be making a sound, which is a handful; the library only ever grows. Splitting
+    // the height evenly gave the short list the same room as the long one and got worse with
+    // every capture, so the sources take a fixed rail and the library takes the rest.
+    // With the captures turned off this is the whole page: a dropdown instead of the list,
+    // and nothing that is not the act of recording. The window is sized to exactly this.
+    if (! mShowCaptures)
     {
-        auto libraryFooter = library.removeFromBottom(buttonHeight);
-        library.removeFromBottom(6);
+        auto column = area.reduced(4, 0);
 
-        mTranscribeButton->setBounds(libraryFooter.removeFromLeft(150));
-        libraryFooter.removeFromLeft(10);
-        mRevealButton->setBounds(libraryFooter.removeFromLeft(170));
-        mDeleteButton->setBounds(libraryFooter.removeFromRight(120));
+        mHeaderBounds = {};
+        mLibraryHeaderBounds = {};
+        mLibraryColumnsBounds = {};
+        mSelectionBounds = {};
 
-        mSearchBox->setBounds(library.removeFromTop(26));
-        library.removeFromTop(6);
-        mLibraryList->setBounds(library);
+        mSourceChooser->setBounds(column.removeFromTop(chooserHeight));
+        column.removeFromTop(12);
+
+        mCapturesButton->setBounds(column.removeFromBottom(capturesButtonHeight)
+                                       .removeFromRight(130));
+        column.removeFromBottom(8);
+
+        mRecordButton->setBounds(column.removeFromBottom(primaryButtonHeight));
+        column.removeFromBottom(10);
+
+        mStatusBounds = column.removeFromBottom(statusHeight);
+        column.removeFromBottom(4);
+
+        mMeterBounds = column.removeFromBottom(meterHeight);
+        return;
     }
 
-    area.removeFromBottom(12);
+    auto rail = area.removeFromLeft(railWidth);
+    area.removeFromLeft(columnGap);
 
-    auto footer = area.removeFromBottom(buttonHeight + 12);
-    footer.removeFromTop(12);
+    auto library = area;
 
-    mStatusBounds = area.removeFromBottom(24);
-    area.removeFromBottom(4);
+    //==========================================================================
+    // The rail: pick something making a sound, then record it.
+    mHeaderBounds = rail.removeFromTop(headerHeight);
+    rail.removeFromTop(4);
+
+    // From the foot upwards, so the record button keeps one place on the page however many
+    // applications are listed above it. It is the only button down here: the page has one
+    // action, and anything else standing beside it was competing with it for nothing.
+    mRecordButton->setBounds(rail.removeFromBottom(primaryButtonHeight));
+    rail.removeFromBottom(14);
+
+    mStatusBounds = rail.removeFromBottom(statusHeight);
+    rail.removeFromBottom(4);
 
     // The record meter sits directly above the status line, so what is arriving and what is
-    // being said about it are read in one glance.
-    mMeterBounds = area.removeFromBottom(8);
-    area.removeFromBottom(6);
+    // being said about it are read in one glance. Tall enough for two lanes and the gap that
+    // keeps them apart.
+    mMeterBounds = rail.removeFromBottom(14).reduced(6, 0);
+    rail.removeFromBottom(12);
 
-    mSourceList->setBounds(area);
+    // Only ever on screen when the selected application is playing below full volume, which
+    // is the only time it means anything. Laid out either way so its arrival never moves the
+    // name above it.
+    mFixVolumeButton->setBounds(rail.removeFromBottom(buttonHeight));
+    rail.removeFromBottom(10);
 
-    mRecordButton->setBounds(footer.removeFromLeft(150));
-    footer.removeFromLeft(10);
-    mFixVolumeButton->setBounds(footer.removeFromLeft(140));
-    mFolderButton->setBounds(footer.removeFromRight(220));
+    // What is about to be recorded, named in full. The row above elides it, and on two
+    // windows of one application the elided tail is the part that says which.
+    mSelectionBounds = rail.removeFromBottom(66);
+    rail.removeFromBottom(12);
+
+    // Everything left over, the way the library list takes everything left over. A list with
+    // room to grow reads as a list; it was only a hole when nothing else was in the column.
+    mSourceList->setBounds(rail);
+
+    //==========================================================================
+    // The library: everything captured so far.
+    if (! mShowCaptures)
+        return;
+
+    mLibraryHeaderBounds = library.removeFromTop(headerHeight);
+
+    mCapturesButton->setBounds(mLibraryHeaderBounds.removeFromRight(130));
+    mLibraryHeaderBounds.removeFromRight(6);
+
+    // Where the captures are kept is a setting, not content, so it stops looking like a
+    // control of the same weight as the list. The path it changes is its tooltip.
+    mFolderButton->setBounds(mLibraryHeaderBounds.removeFromRight(130));
+    mLibraryHeaderBounds.removeFromRight(12);
+
+    library.removeFromTop(4);
+
+    auto libraryFooter = library.removeFromBottom(buttonHeight);
+    library.removeFromBottom(8);
+
+    mTranscribeButton->setBounds(libraryFooter.removeFromLeft(150));
+    libraryFooter.removeFromLeft(10);
+    mRevealButton->setBounds(libraryFooter.removeFromLeft(170));
+    mDeleteButton->setBounds(libraryFooter.removeFromRight(120));
+
+    mSearchBox->setBounds(library.removeFromTop(26));
+    library.removeFromTop(8);
+
+    mLibraryColumnsBounds = library.removeFromTop(18);
+    library.removeFromTop(2);
+
+    // A list box whose height is not a whole number of rows slices the last one through the
+    // middle of its text, which reads as a rendering fault rather than as "there is more
+    // below". Give back the remainder instead.
+    library.removeFromBottom(library.getHeight() % rowHeight);
+    mLibraryList->setBounds(library);
 }
 
 void SamplePageView::paint(Graphics& g)
@@ -191,33 +389,181 @@ void SamplePageView::paint(Graphics& g)
     g.setColour(TEXT_DIM);
     g.setFont(UIDefines::LABEL_FONT());
 
-    const auto scanning = mScanRunning.load();
-    const auto captures = scanning ? String("reading ...")
-                                   : String((int) mAllEntries.size()) + " captured";
+    if (mShowCaptures)
+        g.drawText("PLAYING AUDIO", mHeaderBounds.withTrimmedLeft(6),
+                   Justification::centredLeft, false);
 
-    g.drawText("APPLICATIONS PLAYING AUDIO", mHeaderBounds.withTrimmedLeft(6),
-               Justification::centredLeft, false);
-    g.drawText(captures, mHeaderBounds.withTrimmedRight(6).withTrimmedLeft(300),
-               Justification::centredLeft, false);
+    if (mShowCaptures)
+    {
+        // The count belongs to the library, so it is drawn over the library rather than over
+        // the list on the other side of the page. The folder path used to be here too, and was
+        // a setting sitting at the same weight as the content.
+        auto libraryHeader = mLibraryHeaderBounds.withTrimmedLeft(10);
 
-    const auto root = _libraryRoot();
-    g.drawText(root.getFullPathName(), mHeaderBounds.withTrimmedRight(6),
-               Justification::centredRight, true);
+        const auto root = _libraryRoot();
+        const auto scanning = mScanRunning.load();
+
+        // Where you are, once you are anywhere but the top. A count of everything is the right
+        // thing to say about the whole folder and the wrong thing to say about one day inside
+        // it, which is what the browser is standing in.
+        const auto where = scanning                  ? String("reading ...")
+                         : mBrowseFolder != root     ? mBrowseFolder.getRelativePathFrom(root)
+                                                     : String((int) mAllEntries.size()) + " captured";
+
+        g.drawText("CAPTURES", libraryHeader.removeFromLeft(88), Justification::centredLeft, false);
+        g.drawText(where, libraryHeader, Justification::centredLeft, true);
+    }
+
+    if (mShowCaptures)
+    {
+        _paintLibraryColumns(g);
+        _paintSelection(g);
+    }
 
     if (mRecorder != nullptr && mRecorder->isRecording())
-        drawMeter(g, mMeterBounds, mRecordLevel, okstudio::obsidian::accentOf(*this).base);
+        drawStereoMeter(g, mMeterBounds, mRecordLevel, okstudio::obsidian::accentOf(*this).base);
 
     g.setColour(TEXT_MAIN);
     g.setFont(UIDefines::LABEL_FONT());
-    g.drawText(mStatusText, mStatusBounds.withTrimmedLeft(6), Justification::centredLeft, true);
+
+    // Two lines: "this version of Windows cannot record a single application" is a sentence,
+    // and neither the rail nor the narrow window is wide enough to say it on one. Inset both
+    // sides, because with the captures away there is nothing to the right to stop it.
+    g.drawFittedText(mStatusText, mStatusBounds.reduced(6, 0), Justification::bottomLeft, 2);
+}
+
+void SamplePageView::_paintLibraryColumns(Graphics& g)
+{
+    auto columns = mLibraryColumnsBounds.reduced(10, 0);
+
+    if (columns.getWidth() < 200)
+        return;
+
+    g.setColour(TEXT_DIM);
+    g.setFont(UIDefines::LABEL_FONT().withHeight(11.0f));
+
+    // Right to left, matching the row beneath, so a heading cannot drift off its column.
+    g.drawText("LENGTH", columns.removeFromRight(lengthWidth), Justification::centredRight, false);
+    columns.removeFromRight(10);
+
+    g.drawText("WHEN", columns.removeFromLeft(whenWidth), Justification::centredLeft, false);
+    columns.removeFromLeft(10);
+    g.drawText("CAPTURE", columns, Justification::centredLeft, false);
+}
+
+void SamplePageView::_paintSelection(Graphics& g)
+{
+    auto area = mSelectionBounds.reduced(6, 0);
+
+    if (area.getHeight() < 40)
+        return;
+
+    const auto recording = mRecorder != nullptr && mRecorder->isRecording();
+
+    g.setColour(TEXT_DIM);
+    g.setFont(UIDefines::LABEL_FONT().withHeight(11.0f));
+    g.drawText(recording ? "RECORDING" : "SELECTED", area.removeFromTop(16),
+               Justification::centredLeft, false);
+    area.removeFromTop(8);
+
+    if (recording)
+    {
+        // A clock rather than a sentence about seconds. The status line already says the
+        // words; what a take needs at a glance is the number.
+        const auto seconds = mRecorder->recordedSeconds();
+        const auto minutes = (int) (seconds / 60.0);
+        const auto clock = String(minutes).paddedLeft('0', 2) + ":"
+                         + String(seconds - 60.0 * minutes, 1).paddedLeft('0', 4);
+
+        g.setColour(TEXT_MAIN);
+        g.setFont(Font(FontOptions(UIDefines::MONTSERRAT_SEMIBOLD())).withPointHeight(26.0f));
+        g.drawText(clock, area.removeFromTop(38), Justification::centredLeft, false);
+        return;
+    }
+
+    const auto everything = mSelectedPid == everythingPid;
+    const auto* source = _selectedSource();
+
+    if (! everything && source == nullptr)
+    {
+        g.setColour(TEXT_DIM);
+        g.drawFittedText("Nothing picked yet.", area, Justification::topLeft, 1);
+        return;
+    }
+
+    // The full window title, wrapped. The row above elides it, and with two windows of one
+    // application the elided tail is exactly the part that says which of them this is.
+    const auto title = everything ? String("Everything this computer plays")
+                     : source->windowTitle.isNotEmpty() ? source->windowTitle
+                                                        : appLabel(source->name);
+
+    g.setColour(TEXT_MAIN);
+    g.setFont(Font(FontOptions(UIDefines::MONTSERRAT_SEMIBOLD())).withPointHeight(12.0f));
+    g.drawFittedText(title, area.removeFromTop(jmin(area.getHeight(), 54)), Justification::topLeft, 3);
+
+    if (area.getHeight() < 20)
+        return;
+
+    area.removeFromTop(6);
+
+    g.setFont(UIDefines::LABEL_FONT());
+    g.setColour(TEXT_DIM);
+
+    // Only when it adds something. On an application showing one window the title above is
+    // already the process name, and saying it twice reads as a bug.
+    const auto beneath = everything ? String("every application at once")
+                       : appLabel(source->name) != title ? appLabel(source->name)
+                                                         : String();
+
+    if (beneath.isNotEmpty())
+        g.drawText(beneath, area.removeFromTop(18), Justification::topLeft, true);
+
+    if (! everything && source->volume < 0.999f && area.getHeight() >= 18)
+    {
+        g.setColour(Colours::orange);
+        g.drawText("playing at " + String(roundToInt(source->volume * 100.0f)) + "%, which is baked in",
+                   area.removeFromTop(18), Justification::topLeft, true);
+    }
+}
+
+void SamplePageView::lookAndFeelChanged()
+{
+    // The accent belongs to the editor's look and feel and the user can change it, so it is
+    // read here rather than frozen in the constructor, and re-read whenever it moves.
+    const auto accent = okstudio::obsidian::accentOf(*this).base;
+
+    mRecordButton->setColour(TextButton::buttonColourId, accent);
+    mRecordButton->setColour(TextButton::textColourOffId, accent.contrasting(0.9f));
 }
 
 //==============================================================================
 void SamplePageView::timerCallback()
 {
-    if (mRecorder != nullptr && mRecorder->isRecording())
+    const auto recording = mRecorder != nullptr && mRecorder->isRecording();
+
+    // Real elapsed time, not the interval the timer was asked for. A message thread that has
+    // just been busy delivers a late tick, and a meter that moved a fixed step per tick would
+    // stall and then lurch; this one covers the ground the missed frames would have.
+    const auto now = Time::getMillisecondCounterHiRes();
+    const auto elapsed = mLastTickMs > 0.0 ? jlimit(0.001, 0.25, (now - mLastTickMs) * 0.001)
+                                           : tickIntervalMs * 0.001;
+    mLastTickMs = now;
+
+    // One pole towards whatever arrived, fast up and slow down. Snapping straight to the
+    // peak and multiplying it down each tick is the same idea done coarsely: it steps
+    // rather than slides, and it steps differently whenever the frame rate wobbles.
+    const auto follow = [elapsed](float& shown, float target)
     {
-        mRecordLevel = mRecorder->readPeak();
+        const auto tau = target > shown ? meterAttackSeconds : meterReleaseSeconds;
+        shown += (target - shown) * (1.0f - std::exp(-(float) elapsed / tau));
+    };
+
+    if (recording)
+    {
+        const auto peaks = mRecorder->readPeaks();
+
+        follow(mRecordLevel[0], peaks.left);
+        follow(mRecordLevel[1], peaks.right);
 
         const auto failure = mRecorder->streamFailure();
 
@@ -233,9 +579,43 @@ void SamplePageView::timerCallback()
 
         mStatusText = "Recording " + String(mRecorder->recordedSeconds(), 1) + " s";
     }
+    else
+    {
+        mRecordLevel[0] = 0.0f;
+        mRecordLevel[1] = 0.0f;
+    }
 
-    _refreshSources();
-    repaint();
+    // The row meters run on the same ballistics as the record meter. What is behind them only
+    // arrives with each COM enumeration, four times a second, so without this they step; with
+    // it they slide between the readings and read as levels rather than as samples of one.
+    auto anySourceMoving = false;
+
+    for (auto& row : mSources)
+    {
+        follow(row.shownPeak, row.peak);
+        anySourceMoving |= row.shownPeak > 0.001f;
+    }
+
+    if (++mTicksSinceSources >= ticksPerSourceRefresh)
+    {
+        mTicksSinceSources = 0;
+        _refreshSources();
+        repaint();
+        return;
+    }
+
+    // Between enumerations only the parts that moved are redrawn. Repainting the library
+    // sixty times a second to slide a meter would be a core spent on pixels that did not
+    // change; a silent machine repaints nothing at all.
+    if (recording)
+    {
+        repaint(mMeterBounds);
+        repaint(mSelectionBounds);
+        repaint(mStatusBounds);
+    }
+
+    if (anySourceMoving)
+        mSourceList->repaint();
 }
 
 void SamplePageView::_refreshSources()
@@ -262,16 +642,65 @@ void SamplePageView::_refreshSources()
         row.volume    = session.volume;
         row.peak      = session.peak;
         row.isPlaying = session.isPlaying;
-        found.push_back(row);
+
+        // An application showing several windows gets a row for each of them. Which one made
+        // the sound is not a question the pid can answer - a browser is one process behind all
+        // of its windows - so the choice is offered here instead of guessed at later.
+        //
+        // This is on the refresh timer, so it is paid four times a second. An EnumWindows pass
+        // is cheap; the process snapshot behind parentOf() is not, and is only reached for a
+        // session whose own pid owns no window. If it ever shows up in a profile, the fix is
+        // one snapshot per refresh shared across every session rather than one per session.
+        const auto windows = quarry::sampler::windowsOfSource(session.processId);
+
+        if (windows.size() < 2)
+        {
+            if (! windows.empty())
+            {
+                row.windowHandle = windows.front().handle;
+                row.windowTitle  = windows.front().title;
+            }
+
+            found.push_back(row);
+            continue;
+        }
+
+        for (const auto& window : windows)
+        {
+            auto perWindow = row;
+            perWindow.windowHandle = window.handle;
+            perWindow.windowTitle  = window.title;
+            perWindow.oneOfSeveral = true;
+            found.push_back(perWindow);
+        }
     }
+
+    // Carry each row's meter position over from the last enumeration. Without this every
+    // refresh would restart the level from zero and the bar would tick rather than move.
+    for (auto& row : found)
+        for (const auto& previous : mSources)
+            if (previous.processId == row.processId && previous.windowHandle == row.windowHandle)
+            {
+                row.shownPeak = previous.shownPeak;
+                break;
+            }
 
     const auto changedShape = found.size() != mSources.size();
     mSources = std::move(found);
 
     if (changedShape)
+    {
+        _rebuildChooser();
         mSourceList->updateContent();
+
+        // The list is as tall as its contents, so a row arriving or leaving moves everything
+        // under it. Without this the detail block below would keep the old list's height.
+        resized();
+    }
     else
+    {
         mSourceList->repaint(); // Same rows, new meters: no need to rebuild the list.
+    }
 
     _updateEnablements();
 }
@@ -290,8 +719,10 @@ void SamplePageView::paintListBoxItem(int row, Graphics& g, int width, int heigh
         return;
 
     const auto isEverything = row == 0;
-    const auto chosen = isEverything ? mSelectedPid == everythingPid
-                                     : mSources[(size_t) row - 1].processId == mSelectedPid;
+    const auto chosen = isEverything
+                          ? mSelectedPid == everythingPid
+                          : mSources[(size_t) row - 1].processId == mSelectedPid
+                                && mSources[(size_t) row - 1].windowHandle == mSelectedWindow;
 
     auto bounds = juce::Rectangle<int>(0, 0, width, height).reduced(2, 1);
 
@@ -306,35 +737,66 @@ void SamplePageView::paintListBoxItem(int row, Graphics& g, int width, int heigh
 
     if (isEverything)
     {
+        // The caveat trails the choice it applies to. Right-aligned in its own column it sat
+        // level with the header above and read as a label for the whole list.
         auto text = bounds.reduced(8, 0);
-        g.drawText("Everything this computer plays", text.removeFromLeft(text.getWidth() / 2),
-                   Justification::centredLeft, true);
+        const auto label = String("Everything this computer plays");
 
+        const auto labelWidth = GlyphArrangement::getStringWidthInt(g.getCurrentFont(), label);
+        g.drawText(label, text.removeFromLeft(labelWidth + 12), Justification::centredLeft, true);
+
+        // "guessed", not a sentence about it: the rail is narrow, and this is the same word
+        // the library puts on the captures that come out of this choice.
         g.setColour(TEXT_DIM);
-        g.drawText("source can only be guessed at", text, Justification::centredRight, true);
+        g.drawText("source guessed", text, Justification::centredLeft, true);
         return;
     }
 
     const auto& source = mSources[(size_t) row - 1];
 
     auto text = bounds.reduced(8, 0);
-    auto meter = text.removeFromRight(120).withSizeKeepingCentre(120, 6);
+    auto meter = text.removeFromRight(80).withSizeKeepingCentre(80, 6);
     text.removeFromRight(10);
 
     // The volume the app is set to is baked into anything captured from it, so it is said
     // here rather than discovered afterwards in a file that came back quiet.
     if (source.volume < 0.999f)
     {
-        auto warning = text.removeFromRight(90);
+        auto warning = text.removeFromRight(70);
         g.setColour(Colours::orange);
-        g.drawText(String(roundToInt(source.volume * 100.0f)) + "% VOLUME", warning,
+        g.drawText(String(roundToInt(source.volume * 100.0f)) + "%", warning,
                    Justification::centredRight, false);
         g.setColour(chosen ? TEXT_MAIN : TEXT_DIM);
     }
 
-    g.drawText(source.name, text, Justification::centredLeft, true);
+    const auto accent = chosen ? okstudio::obsidian::accentOf(*this).base : TEXT_DIM;
 
-    drawMeter(g, meter, source.peak, chosen ? okstudio::obsidian::accentOf(*this).base : TEXT_DIM);
+    if (! source.oneOfSeveral)
+    {
+        g.drawText(appLabel(source.name), text, Justification::centredLeft, true);
+        drawMeter(g, meter, source.shownPeak, accent);
+        return;
+    }
+
+    // Several rows, one application. The title is the only thing that says which is which, so
+    // it gets the room; the name is printed once, against the first of its windows, and left
+    // off the rest. Repeated down every row it was a column of identical cells, which costs a
+    // read and settles nothing.
+    const auto index = (size_t) row - 1;
+    const auto firstOfGroup = index == 0 || mSources[index - 1].processId != source.processId;
+
+    auto label = text.removeFromLeft(64);
+
+    if (firstOfGroup)
+    {
+        g.setColour(TEXT_DIM);
+        g.drawText(appLabel(source.name), label, Justification::centredLeft, true);
+    }
+
+    g.setColour(chosen ? TEXT_MAIN : TEXT_DIM);
+    g.drawText(source.windowTitle, text, Justification::centredLeft, true);
+
+    drawMeter(g, meter, source.shownPeak, accent);
 }
 
 void SamplePageView::listBoxItemClicked(int row, const MouseEvent&)
@@ -350,12 +812,21 @@ void SamplePageView::listBoxItemClicked(int row, const MouseEvent&)
     if (row == 0)
     {
         mSelectedPid = everythingPid;
+        mSelectedWindow = 0;
         mStatusText = "Ready to record everything. The source will be a guess.";
     }
     else
     {
-        mSelectedPid = mSources[(size_t) row - 1].processId;
-        mStatusText = "Ready to record " + mSources[(size_t) row - 1].name;
+        const auto& picked = mSources[(size_t) row - 1];
+
+        mSelectedPid = picked.processId;
+        mSelectedWindow = picked.windowHandle;
+
+        // Say the window back, because on a row that is one of several it is the only part
+        // that identifies what was picked.
+        mStatusText = "Ready to record "
+                    + (picked.oneOfSeveral && picked.windowTitle.isNotEmpty() ? picked.windowTitle
+                                                                             : picked.name);
     }
 
     _updateEnablements();
@@ -365,6 +836,12 @@ void SamplePageView::listBoxItemClicked(int row, const MouseEvent&)
 //==============================================================================
 const SamplePageView::SourceRow* SamplePageView::_selectedSource() const
 {
+    for (const auto& source : mSources)
+        if (source.processId == mSelectedPid && source.windowHandle == mSelectedWindow)
+            return &source;
+
+    // The window closed while it was the selection. The application is still making a sound,
+    // so fall back to it rather than dropping the choice out from under the record button.
     for (const auto& source : mSources)
         if (source.processId == mSelectedPid)
             return &source;
@@ -390,14 +867,28 @@ void SamplePageView::_updateEnablements()
 
     mRecordButton->setButtonText(recording ? "STOP" : "RECORD");
 
+    // Only on screen when it has something to fix. A permanent button for a rare problem is
+    // a control that is dead almost always, which teaches you to stop looking at that corner
+    // of the page; and when it did appear it had to explain itself, because nothing about a
+    // standing "SET TO 100%" says what it acts on or why you would want it.
+    // Not in the narrow window, which has room for the act of recording and nothing else.
+    const auto quiet = mShowCaptures && ! recording && source != nullptr && source->volume < 0.999f;
+
+    mFixVolumeButton->setVisible(quiet);
+    mFixVolumeButton->setEnabled(quiet);
+
+    if (quiet)
+        mFixVolumeButton->setButtonText("TURN " + appLabel(source->name).toUpperCase() + " UP TO 100%");
+
     // Everything is always recordable: it is the path that does not need process loopback,
     // and so the one that still works on a Windows too old for the rest of this page.
     mRecordButton->setEnabled(recording
                               || everything
                               || (source != nullptr && WasapiProcessLoopback::isSupported()));
 
-    mFixVolumeButton->setEnabled(! recording && source != nullptr && source->volume < 0.999f);
     mFolderButton->setEnabled(! recording);
+
+    mFolderButton->setTooltip("Captures are kept in " + _libraryRoot().getFullPathName());
 
     const auto haveEntry = _selectedEntry() != nullptr;
     mTranscribeButton->setEnabled(haveEntry && ! recording);
@@ -418,7 +909,8 @@ void SamplePageView::_toggleRecording()
         mStatusText = written.ok ? written.message + "  ->  " + written.audioFile.getFileName()
                                  : written.message;
 
-        mRecordLevel = 0.0f;
+        mRecordLevel[0] = 0.0f;
+        mRecordLevel[1] = 0.0f;
 
         // A take that just landed should be in the list without being asked for.
         if (written.ok)
@@ -461,9 +953,14 @@ void SamplePageView::_toggleRecording()
         if (live.processId == source->processId)
             session.executablePath = live.executablePath;
 
-    const auto started = mRecorder->start(session, _libraryRoot());
+    // The window that was picked, so the sidecar records the one chosen rather than whichever
+    // of the application's windows a guess would have landed on.
+    const auto started = mRecorder->start(session, _libraryRoot(), source->windowHandle);
 
-    mStatusText = started.wasOk() ? "Recording " + source->name + " ..." : started.getErrorMessage();
+    const auto what = source->oneOfSeveral && source->windowTitle.isNotEmpty() ? source->windowTitle
+                                                                              : source->name;
+
+    mStatusText = started.wasOk() ? "Recording " + what + " ..." : started.getErrorMessage();
 
     _updateEnablements();
     repaint();
@@ -490,18 +987,56 @@ void SamplePageView::_fixSelectedVolume()
 
 int SamplePageView::LibraryModel::getNumRows()
 {
-    return (int) owner.mShownEntries.size();
+    return owner._upRowCount() + (int) owner.mBrowseFolders.size() + (int) owner.mShownEntries.size();
 }
 
 void SamplePageView::LibraryModel::paintListBoxItem(int row, Graphics& g, int width, int height, bool)
 {
-    if (! isPositiveAndBelow(row, (int) owner.mShownEntries.size()))
+    const auto ups = owner._upRowCount();
+    const auto folders = (int) owner.mBrowseFolders.size();
+
+    if (! isPositiveAndBelow(row, getNumRows()))
         return;
 
-    const auto& entry = owner.mShownEntries[(size_t) row];
-    const auto chosen = row == owner.mSelectedEntryRow;
-
     auto bounds = juce::Rectangle<int>(0, 0, width, height).reduced(2, 1);
+
+    g.setFont(UIDefines::LABEL_FONT());
+
+    // The way back up, and the folders inside this one, both read as somewhere to go. Only the
+    // takes below them are something to play, so only they can be the selection.
+    if (row < ups + folders)
+    {
+        auto text = bounds.reduced(8, 0);
+
+        g.setColour(TEXT_DIM);
+
+        if (row < ups)
+        {
+            g.drawText("..", text.removeFromLeft(whenWidth), Justification::centredLeft, false);
+            text.removeFromLeft(10);
+            g.drawText("back to " + owner.mBrowseFolder.getParentDirectory().getFileName(), text,
+                       Justification::centredLeft, true);
+            return;
+        }
+
+        const auto index = (size_t) (row - ups);
+        const auto held = owner.mBrowseCounts[index];
+
+        g.drawText(String(held) + (held == 1 ? " take" : " takes"),
+                   text.removeFromRight(lengthWidth + 30), Justification::centredRight, false);
+        text.removeFromRight(10);
+
+        g.drawText(">", text.removeFromLeft(whenWidth), Justification::centredLeft, false);
+        text.removeFromLeft(10);
+
+        g.setColour(TEXT_MAIN);
+        g.drawText(owner.mBrowseFolders[index].getFileName(), text, Justification::centredLeft, true);
+        return;
+    }
+
+    const auto entryRow = row - ups - folders;
+    const auto& entry = owner.mShownEntries[(size_t) entryRow];
+    const auto chosen = entryRow == owner.mSelectedEntryRow;
 
     if (chosen)
     {
@@ -513,27 +1048,48 @@ void SamplePageView::LibraryModel::paintListBoxItem(int row, Graphics& g, int wi
 
     // Right to left, so the numbers line up down the list however long the names are.
     g.setColour(TEXT_DIM);
-    g.setFont(UIDefines::LABEL_FONT());
-    g.drawText(String(entry.lufs, 1) + " LUFS", text.removeFromRight(90), Justification::centredRight, false);
-    g.drawText(String(entry.durationSec, 1) + " s", text.removeFromRight(60), Justification::centredRight, false);
-
-    if (! entry.isolatedToProcess)
-        g.drawText("guessed", text.removeFromRight(70), Justification::centredRight, false);
-
+    g.drawText(String(entry.durationSec, 1) + " s", text.removeFromRight(lengthWidth),
+               Justification::centredRight, false);
     text.removeFromRight(10);
 
+    // The time it was taken, rather than the digits the file name starts with. Same fact,
+    // read without decoding it.
+    g.drawText(entry.capturedAt.toString(false, true, false, true), text.removeFromLeft(whenWidth),
+               Justification::centredLeft, false);
+    text.removeFromLeft(10);
+
+    // What the window said, which is what the capture is of. The file name is a slug built
+    // from it and reads like one; it stays the name on disk and in search, not on the row.
+    const auto name = entry.windowTitle.isNotEmpty() ? entry.windowTitle : entry.displayName();
+
     g.setColour(chosen ? TEXT_MAIN : TEXT_DIM);
-    g.drawText(entry.displayName(), text, Justification::centredLeft, true);
+    g.drawText(name, text, Justification::centredLeft, true);
 }
 
 void SamplePageView::LibraryModel::listBoxItemClicked(int row, const MouseEvent&)
 {
-    if (! isPositiveAndBelow(row, (int) owner.mShownEntries.size()))
+    const auto ups = owner._upRowCount();
+    const auto folders = (int) owner.mBrowseFolders.size();
+
+    if (! isPositiveAndBelow(row, getNumRows()))
         return;
 
-    owner.mSelectedEntryRow = row;
+    if (row < ups)
+    {
+        owner._enterFolder(owner.mBrowseFolder.getParentDirectory());
+        return;
+    }
 
-    const auto& entry = owner.mShownEntries[(size_t) row];
+    if (row < ups + folders)
+    {
+        owner._enterFolder(owner.mBrowseFolders[(size_t) (row - ups)]);
+        return;
+    }
+
+    const auto entryRow = row - ups - folders;
+    owner.mSelectedEntryRow = entryRow;
+
+    const auto& entry = owner.mShownEntries[(size_t) entryRow];
     owner.mStatusText = entry.windowTitle.isNotEmpty() ? entry.windowTitle : entry.displayName();
 
     owner._updateEnablements();
@@ -569,20 +1125,177 @@ void SamplePageView::_rescanLibrary()
 
             safe->mAllEntries = std::move(found);
             safe->mScanRunning.store(false);
-            safe->_applyFilter();
+            safe->_rebuildBrowse();
         });
     });
 }
 
-void SamplePageView::_applyFilter()
+int SamplePageView::narrowContentWidth() const
 {
-    const auto query = mSearchBox != nullptr ? mSearchBox->getText() : String();
+    return narrowWidth;
+}
 
-    mShownEntries = quarry::sampler::SampleLibrary::filter(mAllEntries, query);
+int SamplePageView::narrowContentHeight() const
+{
+    // Everything the narrow page lays out, plus the page's own inset. Spelled out rather than
+    // measured so the window is sized before the layout runs rather than after it.
+    return 4 + chooserHeight + 12 + meterHeight + 4 + statusHeight + 10 + primaryButtonHeight
+         + 8 + capturesButtonHeight;
+}
+
+void SamplePageView::_rebuildChooser()
+{
+    if (mSourceChooser == nullptr)
+        return;
+
+    mSourceChooser->clear(dontSendNotification);
+    mSourceChooser->addItem("Everything this computer plays", 1);
+
+    for (size_t i = 0; i < mSources.size(); ++i)
+    {
+        const auto& source = mSources[i];
+
+        // The window title is what tells two of one application apart, so it is what the item
+        // leads with; the name follows it for the ones showing a single window.
+        auto label = source.oneOfSeveral && source.windowTitle.isNotEmpty()
+                       ? appLabel(source.name) + "  " + source.windowTitle
+                       : appLabel(source.name);
+
+        // addItem refuses an empty string, and a process can come back without a name.
+        if (label.trim().isEmpty())
+            label = "pid " + String((int) source.processId);
+
+        mSourceChooser->addItem(label, (int) i + 2);
+    }
+
+    // Follows the selection rather than carrying its own: the list and the dropdown are two
+    // ways of saying the same thing and must not be able to disagree.
+    int wanted = 0;
+
+    if (mSelectedPid == everythingPid)
+        wanted = 1;
+    else
+        for (size_t i = 0; i < mSources.size(); ++i)
+            if (mSources[i].processId == mSelectedPid && mSources[i].windowHandle == mSelectedWindow)
+                wanted = (int) i + 2;
+
+    mSourceChooser->setSelectedId(wanted, dontSendNotification);
+}
+
+void SamplePageView::_setCapturesVisible(bool shouldShow)
+{
+    const auto was = mShowCaptures;
+
+    mShowCaptures = shouldShow;
+    mProcessor.getValueTree().setProperty(NnId::CaptureBrowserVisibleId, shouldShow, nullptr);
+
+    mCapturesButton->setButtonText(shouldShow ? "hide captures" : "captures");
+
+    for (auto* part : { static_cast<Component*>(mLibraryList.get()),
+                        static_cast<Component*>(mSearchBox.get()),
+                        static_cast<Component*>(mTranscribeButton.get()),
+                        static_cast<Component*>(mRevealButton.get()),
+                        static_cast<Component*>(mDeleteButton.get()),
+                        static_cast<Component*>(mFolderButton.get()),
+                        static_cast<Component*>(mSourceList.get()) })
+        if (part != nullptr)
+            part->setVisible(shouldShow);
+
+    // The dropdown stands in for the list, so exactly one of them is up at a time.
+    if (mSourceChooser != nullptr)
+    {
+        mSourceChooser->setVisible(! shouldShow);
+        _rebuildChooser();
+    }
+
+    // Before laying out, because the window is about to change width and resized() should run
+    // against the size the page is going to have rather than the one it is leaving.
+    if (was != shouldShow && onPreferredWidthChanged)
+        onPreferredWidthChanged();
+
+    resized();
+    repaint();
+}
+
+int SamplePageView::_upRowCount() const
+{
+    if (mSearchBox != nullptr && mSearchBox->getText().trim().isNotEmpty())
+        return 0;
+
+    return mBrowseFolder != _libraryRoot() && mBrowseFolder != File() ? 1 : 0;
+}
+
+void SamplePageView::_enterFolder(const File& folder)
+{
+    const auto root = _libraryRoot();
+
+    // Never above the capture folder. A browser that can wander out into the rest of the disk
+    // is a different and much larger promise than the one this makes.
+    if (folder != root && ! folder.isAChildOf(root))
+        return;
+
+    mBrowseFolder = folder;
+    _rebuildBrowse();
+}
+
+void SamplePageView::_rebuildBrowse()
+{
+    const auto root = _libraryRoot();
+
+    if (mBrowseFolder == File() || (mBrowseFolder != root && ! mBrowseFolder.isAChildOf(root)))
+        mBrowseFolder = root;
+
+    mBrowseFolders.clear();
+    mBrowseCounts.clear();
+    mShownEntries.clear();
     mSelectedEntryRow = -1;
 
-    mLibraryList->updateContent();
-    mLibraryList->repaint();
+    const auto query = mSearchBox != nullptr ? mSearchBox->getText().trim() : String();
+
+    // A search looks everywhere. Not knowing which folder a thing is in is the whole reason
+    // anyone types in that box, so a query flattens the tree rather than filtering one level
+    // of it; the folders come back when the box is emptied.
+    if (query.isNotEmpty())
+    {
+        mShownEntries = quarry::sampler::SampleLibrary::filter(mAllEntries, query);
+    }
+    else
+    {
+        for (const auto& entry : mAllEntries)
+        {
+            if (entry.audioFile.getParentDirectory() == mBrowseFolder)
+            {
+                mShownEntries.push_back(entry);
+                continue;
+            }
+
+            // Folders come out of what the scan already found, not out of another walk of the
+            // disk, so one appears exactly when there is a capture somewhere inside it and
+            // never when it is empty.
+            const auto branch = branchOf(mBrowseFolder, entry.audioFile);
+
+            if (branch == File())
+                continue;
+
+            const auto at = std::find(mBrowseFolders.begin(), mBrowseFolders.end(), branch);
+
+            if (at == mBrowseFolders.end())
+            {
+                mBrowseFolders.push_back(branch);
+                mBrowseCounts.push_back(1);
+            }
+            else
+            {
+                ++mBrowseCounts[(size_t) std::distance(mBrowseFolders.begin(), at)];
+            }
+        }
+    }
+
+    if (mLibraryList != nullptr)
+    {
+        mLibraryList->updateContent();
+        mLibraryList->repaint();
+    }
 
     _updateEnablements();
     repaint();
@@ -598,10 +1311,20 @@ void SamplePageView::_openSelectedInTranscribe()
     // The entire reason this page lives inside Quarry rather than beside it: a captured
     // sample is one click from the transcriber, and from the player that comes with it.
     if (auto* audio = mProcessor.getSourceAudioManager(); audio != nullptr && audio->onFileDrop(entry->audioFile))
+    {
+        // Left in place for the return trip, which lands back on this page with the status
+        // line still saying what happened.
         mStatusText = "Loaded " + entry->displayName() + " into Transcribe.";
-    else
-        mStatusText = "Could not load that sample into Transcribe.";
+        repaint();
 
+        // Last, because it takes this page off screen.
+        if (onTranscribeRequested)
+            onTranscribeRequested();
+
+        return;
+    }
+
+    mStatusText = "Could not load that sample into Transcribe.";
     repaint();
 }
 

@@ -38,6 +38,10 @@ public:
 
     void resized() override;
 
+    /** The editor is not a parent yet when this is constructed, so the window cannot be sized
+        to the page until it is. */
+    void parentHierarchyChanged() override;
+
     void paint(Graphics& g) override;
 
     void timerCallback() override;
@@ -55,10 +59,15 @@ private:
 
     void _updateTooltipVisibility();
 
-    /** Swaps the whole content area between the two pages. Transcribe is everything that was
-        here before; Sample is the capture page. The toolbar's transport belongs to
-        Transcribe and goes with it, because none of it means anything on the other page. */
+    /** Swaps the whole content area between the two pages. Sample is where the window opens:
+        the app captures audio first, and transcribing is something you then do to a capture.
+        The toolbar's transport belongs to Transcribe and goes with it, because none of it
+        means anything on the other page. */
     void _showSamplePage(bool inShouldShow);
+
+    /** Sizes the window to whatever is on screen. Only the Sample page with its captures hidden
+        asks for anything but the full width; Transcribe's layout is absolute and assumes it. */
+    void _applyWindowSize();
 
     QuarryAudioProcessor& mProcessor;
 
@@ -85,8 +94,9 @@ private:
     std::unique_ptr<SampleBar> mSampleBar;
 
 #if JUCE_WINDOWS
-    std::unique_ptr<TextButton> mTranscribeTab;
-    std::unique_ptr<TextButton> mSampleTab;
+    /** The way back out of Transcribe, and the only navigation the toolbar needs now that the
+        two pages are not peers. Shown on Transcribe, absent on the page it returns to. */
+    std::unique_ptr<TextButton> mBackToSamplesButton;
     std::unique_ptr<SamplePageView> mSamplePage;
 #endif
 
