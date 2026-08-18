@@ -13,6 +13,28 @@ bool Notes::Event::operator==(const Notes::Event& other) const
            && this->bends == other.bends;
 }
 
+namespace
+{
+/**
+ * Zero a neighbouring pitch bin, conditionally.
+ *
+ * Spectral leakage into the bins either side of a note is real, and upstream suppresses it by
+ * zeroing both of them across the note's whole duration. The cost is that a genuine minor second
+ * cannot survive decoding at all: clusters, close voicings and any two-part writing that touches
+ * a semitone lose a voice, structurally, every time. Two strong adjacent bins are two notes; one
+ * strong and one weak is leakage, and only the second case wants zeroing.
+ *
+ * @param inRatio Fraction of the centre bin below which a neighbour counts as leakage. Negative
+ *  restores the unconditional behaviour.
+ */
+inline void suppressNeighbour(float& ioNeighbour, float inCentre, float inRatio)
+{
+    if (inRatio < 0.0f || ioNeighbour < inRatio * inCentre) {
+        ioNeighbour = 0.0f;
+    }
+}
+} // namespace
+
 std::vector<Notes::Event> Notes::convert(const std::vector<std::vector<float>>& inNotesPG,
                                          const std::vector<std::vector<float>>& inOnsetsPG,
                                          const std::vector<std::vector<float>>& inContoursPG,
@@ -55,7 +77,10 @@ std::vector<Notes::Event> Notes::convert(const std::vector<std::vector<float>>& 
     }
 
     if (inParams.melodiaTrick) {
-        if (inNewAudio) {
+        // Rebuild when the audio is new (mRemainingEnergy was reassigned above, so every pointer
+        // held here dangles), and also when the index is simply absent, which happens if the
+        // first convert() on this audio ran with the melodia trick off.
+        if (inNewAudio || mRemainingEnergyIndex.empty()) {
             // Fill mRemainingEnergyIndex
             mRemainingEnergyIndex.clear();
             mRemainingEnergyIndex.reserve(static_cast<size_t>(n_frames) * static_cast<size_t>(NUM_FREQ_OUT));
@@ -70,6 +95,18 @@ std::vector<Notes::Event> Notes::convert(const std::vector<std::vector<float>>& 
             }
 
             mRemainingEnergyIndex.shrink_to_fit();
+
+            // Sort here, once per take, rather than on every parameter change as upstream does.
+            // The order is provably stable across tweaks: the only writes to mRemainingEnergy
+            // during decoding assign zero, and every re-run restores it from inNotesPG, so the
+            // descending order of the non-zero entries is always the descending order of the raw
+            // posteriorgram, which does not change. The melodia walk below already skips zeros.
+            // This matters because the index holds one record per (frame, pitch): five minutes of
+            // audio is 2.27 million of them, about 36 MB, and re-sorting that on every knob turn
+            // is the whole reason the sensitivity controls stall on long takes.
+            std::sort(mRemainingEnergyIndex.begin(),
+                      mRemainingEnergyIndex.end(),
+                      [](const _pg_index& a, const _pg_index& b) { return *a.value > *b.value; });
         }
     }
 
@@ -117,11 +154,21 @@ std::vector<Notes::Event> Notes::convert(const std::vector<std::vector<float>>& 
                 continue;
             }
 
-            // find time index at this frequency band where the frames drop below an energy threshold
+            // Stage one: the note's core, found exactly as upstream finds it, against the one
+            // global threshold. This is what decides whether the note exists, and it is left
+            // alone on purpose. An earlier attempt folded the release below into this search and
+            // the bench was unambiguous about it: letting a note ring down to a low floor lets a
+            // short blip grow long enough to pass the minimum-length test, which cost 84 spurious
+            // notes on a 60-note corpus and dropped precision from 0.59 to 0.30.
             int i = frame_idx + 1;
             int k = 0; // number of frames since energy dropped below threshold
+            auto peak = mRemainingEnergy[frame_idx][note_idx];
+
             while (i < last_frame && k < inParams.energyThreshold) {
-                if (mRemainingEnergy[i][note_idx] < frame_threshold) {
+                const auto energy = mRemainingEnergy[i][note_idx];
+                peak = std::max(peak, energy);
+
+                if (energy < frame_threshold) {
                     k++;
                 } else {
                     k = 0;
@@ -129,46 +176,110 @@ std::vector<Notes::Event> Notes::convert(const std::vector<std::vector<float>>& 
                 i++;
             }
 
-            i -= k; // go back to frame above threshold
+            const auto core_end = i - k; // go back to frame above threshold
 
             // if the note is too short, skip it
-            if (i - frame_idx <= inParams.minNoteLength) {
+            if (core_end - frame_idx <= inParams.minNoteLength) {
                 continue;
             }
 
+            // Stage two: follow the decay past the core, down to a fraction of the note's own
+            // peak. Upstream has no decay model, no release and no pedal, so a piano note under
+            // the sustain pedal is cut at an absolute floor long before the damper falls. Only
+            // the reported offset moves here; existence was settled above. Clamped up to
+            // frame_threshold so this can only extend a note, and floored at the take's measured
+            // noise floor so a quiet note cannot chase noise to the end of the file.
+            auto note_end = core_end;
+
+            if (inParams.releaseRatio >= 0.0f) {
+                const auto release =
+                    std::min(frame_threshold, std::max(inParams.releaseFloor, inParams.releaseRatio * peak));
+
+                int j = core_end;
+                int below = 0;
+
+                while (j < last_frame && below < inParams.energyThreshold) {
+                    if (mRemainingEnergy[j][note_idx] < release) {
+                        below++;
+                    } else {
+                        below = 0;
+                    }
+                    j++;
+                }
+
+                note_end = j - below;
+            }
+
             double amplitude = 0.0;
-            for (int f = frame_idx; f < i; f++) {
-                amplitude += mRemainingEnergy[f][note_idx];
+            for (int f = frame_idx; f < note_end; f++) {
+                const auto centre = mRemainingEnergy[f][note_idx];
+
+                // Confidence is the mean over the core. The release tail is low energy by
+                // definition, and averaging it in would report a note as less certain the longer
+                // it was allowed to ring.
+                if (f < core_end) {
+                    amplitude += centre;
+                }
+
                 mRemainingEnergy[f][note_idx] = 0;
 
                 if (note_idx < MAX_NOTE_IDX) {
-                    mRemainingEnergy[f][note_idx + 1] = 0;
+                    suppressNeighbour(mRemainingEnergy[f][note_idx + 1], centre, inParams.neighbourSuppressionRatio);
                 }
                 if (note_idx > 0) {
-                    mRemainingEnergy[f][note_idx - 1] = 0;
+                    suppressNeighbour(mRemainingEnergy[f][note_idx - 1], centre, inParams.neighbourSuppressionRatio);
                 }
             }
 
-            amplitude /= (i - frame_idx);
+            amplitude /= (core_end - frame_idx);
 
-            events.push_back(Event {
-                _modelFrameToTime(frame_idx) /* startTime */,
-                _modelFrameToTime(i) /* endTime */,
+            // The onset peak sits between frames, and the grid is 11.6 ms, which is inside what a
+            // listener hears as timing. prev and next are the neighbouring onset values the local
+            // maximum test above already read, so the vertex costs nothing more to compute.
+            const auto start_time = inParams.refineOnsetTiming
+                                        ? _refinedFrameToTime(frame_idx + _subFrameOffset(prev, onset, next))
+                                        : _modelFrameToTime(frame_idx);
+
+            Event event {
+                start_time /* startTime */,
+                _modelFrameToTime(note_end) /* endTime */,
                 frame_idx /* startFrame */,
-                i /* endFrame */,
+                note_end /* endFrame */,
                 note_idx + MIDI_OFFSET /* pitch */,
                 amplitude /* amplitude */,
-            });
+            };
+            event.onsetConfidence = onset;
+
+            events.push_back(std::move(event));
         }
     }
 
     if (inParams.melodiaTrick) {
-        std::sort(mRemainingEnergyIndex.begin(),
-                  mRemainingEnergyIndex.end(),
-                  [](const _pg_index& a, const _pg_index& b) { return *a.value > *b.value; });
+        // this inhibit function zeroes out neighbor notes and keeps track (with k)
+        // on how many consecutive frames were below frame_threshold.
+        const auto suppression = inParams.neighbourSuppressionRatio;
+        auto inhibit = [frame_threshold, suppression](
+                           std::vector<std::vector<float>>& pg, int frame_i, int note_i, int k) {
+            if (pg[frame_i][note_i] < frame_threshold) {
+                k++;
+            } else {
+                k = 0;
+            }
+
+            const auto centre = pg[frame_i][note_i];
+            pg[frame_i][note_i] = 0;
+            if (note_i < MAX_NOTE_IDX) {
+                suppressNeighbour(pg[frame_i][note_i + 1], centre, suppression);
+            }
+            if (note_i > 0) {
+                suppressNeighbour(pg[frame_i][note_i - 1], centre, suppression);
+            }
+            return k;
+        };
 
         // loop through each remaining note probability in descending order
-        // until reaching frame_threshold.
+        // until reaching frame_threshold. The order was established once, when the index was
+        // built, and cannot have changed since: see the note there.
         for (auto& [energy_ptr, frame_idx, note_idx]: mRemainingEnergyIndex) {
             auto& energy = *energy_ptr;
 
@@ -181,25 +292,6 @@ std::vector<Notes::Event> Notes::convert(const std::vector<std::vector<float>>& 
                 break;
             }
             energy = 0;
-
-            // this inhibit function zeroes out neighbor notes and keeps track (with k)
-            // on how many consecutive frames were below frame_threshold.
-            auto inhibit = [frame_threshold](std::vector<std::vector<float>>& pg, int frame_i, int note_i, int k) {
-                if (pg[frame_i][note_i] < frame_threshold) {
-                    k++;
-                } else {
-                    k = 0;
-                }
-
-                pg[frame_i][note_i] = 0;
-                if (note_i < MAX_NOTE_IDX) {
-                    pg[frame_i][note_i + 1] = 0;
-                }
-                if (note_i > 0) {
-                    pg[frame_i][note_i - 1] = 0;
-                }
-                return k;
-            };
 
             // forward pass
             int i = frame_idx + 1;
@@ -232,14 +324,22 @@ std::vector<Notes::Event> Notes::convert(const std::vector<std::vector<float>>& 
             }
             amplitude /= (i_end - i_start);
 
-            events.push_back(Event {
+            Event event {
                 _modelFrameToTime(i_start /* startTime */),
                 _modelFrameToTime(i_end) /* endTime */,
                 i_start /* startFrame */,
                 i_end /* endFrame */,
                 note_idx + MIDI_OFFSET /* pitch */,
                 amplitude /* amplitude */,
-            });
+            };
+
+            // No sub-frame refinement here, and deliberately so: these notes were recovered from
+            // leftover energy rather than from an onset peak, so there is no local maximum to fit
+            // a parabola through. Record what the onset posteriorgram had to say about the start
+            // frame anyway, since a caller ranking notes by reliability wants to know.
+            event.onsetConfidence = onsets[i_start][note_idx];
+
+            events.push_back(std::move(event));
         }
     }
 

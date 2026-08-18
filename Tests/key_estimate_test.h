@@ -21,8 +21,8 @@ struct ToneWeight {
     double weight;
 };
 
-/** One note of the given weight, since estimateKey weighs duration times amplitude. */
-static Notes::Event makeEvent(int inPitch, double inDuration, double inAmplitude)
+/** One note of the given weight, since estimateKey weighs duration times velocity. */
+static Notes::Event makeEvent(int inPitch, double inDuration, double inVelocity)
 {
     Notes::Event event {};
 
@@ -31,7 +31,7 @@ static Notes::Event makeEvent(int inPitch, double inDuration, double inAmplitude
     event.startFrame = 0;
     event.endFrame = 1;
     event.pitch = inPitch;
-    event.amplitude = inAmplitude;
+    event.velocity = inVelocity;
 
     return event;
 }
@@ -190,10 +190,10 @@ bool key_estimate_test()
     succeeded &= expectNoKey("notes with no duration", no_duration);
 
     std::cout << "  Silent notes: ";
-    const auto no_amplitude =
+    const auto no_velocity =
         estimateKey({makeEvent(60, 1.0, 0.0), makeEvent(62, 1.0, 0.0), makeEvent(64, 1.0, 0.0), makeEvent(67, 1.0, 0.0)});
-    std::cout << (no_amplitude.isValid() ? no_amplitude.toString().toStdString() : std::string("no key")) << std::endl;
-    succeeded &= expectNoKey("notes with no amplitude", no_amplitude);
+    std::cout << (no_velocity.isValid() ? no_velocity.toString().toStdString() : std::string("no key")) << std::endl;
+    succeeded &= expectNoKey("notes with no velocity", no_velocity);
 
     std::cout << "  Default estimate: ";
     const KeyEstimate untouched {};

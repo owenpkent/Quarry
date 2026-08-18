@@ -80,7 +80,7 @@ void PianoRoll::paint(Graphics& g)
                 continue;
 
             g.setColour(accent.deep.interpolatedWith(accent.hot,
-                                                    jlimit(0.0f, 1.0f, static_cast<float>(note_event.amplitude))));
+                                                    jlimit(0.0f, 1.0f, static_cast<float>(note_event.velocity))));
             g.fillRect(_timeToPixel(start), note_y_start, _timeToPixel(end) - _timeToPixel(start), note_height);
 
             g.setColour(VOID_BG);

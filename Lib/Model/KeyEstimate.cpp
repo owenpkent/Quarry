@@ -97,9 +97,10 @@ KeyEstimate estimateKey(const std::vector<Notes::Event>& inNoteEvents)
         if (duration <= 0.0 || event.pitch < 0)
             continue;
 
-        // Amplitude as well as duration: a loud held note is more tonally
-        // telling than a quiet one of the same length.
-        const auto weight = duration * jmax(0.0, event.amplitude);
+        // Loudness as well as duration: a loud held note is more tonally
+        // telling than a quiet one of the same length. Measured loudness, not
+        // the model's confidence, which says nothing about how the note was played.
+        const auto weight = duration * jmax(0.0, event.velocity);
 
         histogram[static_cast<size_t>(event.pitch % 12)] += weight;
         total_weight += weight;

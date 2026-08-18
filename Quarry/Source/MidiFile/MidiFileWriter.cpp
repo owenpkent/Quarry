@@ -32,7 +32,7 @@ bool MidiFileWriter::writeMidiFile(const std::vector<Notes::Event>& inNoteEvents
 
     // Add note events
     for (auto& note: inNoteEvents) {
-        auto note_on = MidiMessage::noteOn(1, note.pitch, static_cast<float>(note.amplitude));
+        auto note_on = MidiMessage::noteOn(1, note.pitch, static_cast<float>(note.velocity));
         note_on.setTimeStamp((note.startTime + start_offset) * inExportBpm / 60.0 * mTicksPerQuarterNote);
 
         auto note_off = MidiMessage::noteOff(1, note.pitch);

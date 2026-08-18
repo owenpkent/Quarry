@@ -113,15 +113,27 @@ inline std::unique_ptr<RangedAudioParameter> getRangedAudioParamForID(ParamIdEnu
     switch (id) {
         case MuteId:
             return std::make_unique<AudioParameterBool>(toJuceParameterID(id), toName(id), false);
+        // Both sensitivities default to the centre because BasicPitch treats them as offsets from
+        // a threshold it derives from the take, and the centre means "no offset". They used to map
+        // straight onto the threshold as 1 - value, which asked the user to find the right number
+        // by ear, on material the control knew nothing about, with no feedback.
         case NoteSensitivityId:
             return std::make_unique<AudioParameterFloat>(
-                toJuceParameterID(id), toName(id), NormalisableRange<float>(0.05f, 0.95f, 0.01f), 0.7f);
+                toJuceParameterID(id), toName(id), NormalisableRange<float>(0.05f, 0.95f, 0.01f), 0.5f);
         case SplitSensitivityId:
             return std::make_unique<AudioParameterFloat>(
                 toJuceParameterID(id), toName(id), NormalisableRange<float>(0.05f, 0.95f, 0.01f), 0.5f);
+        // 125 ms was inherited from basic-pitch and it is a musical filter masquerading as a noise
+        // gate: the decoder rejects anything not strictly longer, so at 125 ms a trill loses a
+        // third of its notes and a semiquaver run most of its own.
+        //
+        // 75 ms is swept, not guessed. On tools/bench it is the highest note-level F1 that still
+        // holds recall at 1.000: 50 ms admits false positives for nothing (F1 0.880), 100 ms edges
+        // F1 up to 0.927 but starts dropping trill notes, and 125 ms costs a third of them. A
+        // missing note is harder for someone to fix than a spurious one, so the tie goes to recall.
         case MinimumNoteDurationId:
             return std::make_unique<AudioParameterFloat>(
-                toJuceParameterID(id), toName(id), NormalisableRange<float>(35.0f, 580.0f, 1.0f), 125.0f);
+                toJuceParameterID(id), toName(id), NormalisableRange<float>(35.0f, 580.0f, 1.0f), 75.0f);
         case PitchBendModeId:
             return std::make_unique<AudioParameterChoice>(
                 toJuceParameterID(id), toName(id), StringArray {"No Pitch Bend", "Single Pitch Bend"}, 0);

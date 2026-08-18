@@ -39,7 +39,7 @@ std::vector<MidiMessage> SynthController::buildMidiEventsVector(const std::vecto
 
         // TODO: Use different channels if there's a pitch bend
         out[i++] =
-            MidiMessage::noteOn(1, note_event.pitch, (float) note_event.amplitude).withTimeStamp(note_event.startTime);
+            MidiMessage::noteOn(1, note_event.pitch, (float) note_event.velocity).withTimeStamp(note_event.startTime);
 
         if (include_bends) {
             for (size_t j = 0; j < note_event.bends.size(); j++) {
