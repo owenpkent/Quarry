@@ -2,6 +2,8 @@
 // Created by Tibor Vass on 04.03.23.
 //
 
+#include <algorithm>
+
 #include "Notes.h"
 
 bool Notes::Event::operator==(const Notes::Event& other) const
@@ -78,6 +80,25 @@ std::vector<Notes::Event> Notes::convert(const std::vector<std::vector<float>>& 
     const auto max_note_idx =
         inParams.maxFrequency < 0 ? n_notes - 1 : NoteUtils::hzToMidi(inParams.maxFrequency) - MIDI_OFFSET;
     const auto min_note_idx = inParams.minFrequency < 0 ? 0 : NoteUtils::hzToMidi(inParams.minFrequency) - MIDI_OFFSET;
+
+    // basic-pitch zeroes the posteriorgrams outside the requested range; bounding the loop below
+    // is not the same thing. The melodia trick walks every band of mRemainingEnergy, so with the
+    // range enforced only as a loop bound it happily emits notes the caller asked to exclude:
+    // case 5 of the notes test (melodiaTrick on, 330-1567 Hz) returned 16 events against a golden
+    // 9, the seven extras all sitting below the 330 Hz floor. Zeroing here is enough on its own,
+    // because that walk skips any band whose energy is already zero. The onset posteriorgram
+    // needs no matching pass: nothing reads it outside these bounds, and with inferOnsets off it
+    // is the caller's array, not ours.
+    const auto first_kept = std::max(0, min_note_idx);
+    const auto last_kept = std::min(n_notes - 1, max_note_idx);
+    for (size_t f = 0; f < static_cast<size_t>(n_frames); f++) {
+        for (int note_idx = 0; note_idx < first_kept; note_idx++) {
+            mRemainingEnergy[f][static_cast<size_t>(note_idx)] = 0.0f;
+        }
+        for (int note_idx = last_kept + 1; note_idx < n_notes; note_idx++) {
+            mRemainingEnergy[f][static_cast<size_t>(note_idx)] = 0.0f;
+        }
+    }
 
     // stop 1 frame early to prevent edge case
     // as per https://github.com/spotify/basic-pitch/blob/f85a8e9ade1f297b8adb39b155c483e2312e1aca/basic_pitch/note_creation.py#L399
