@@ -300,8 +300,8 @@ so uniqueness is load-bearing rather than cosmetic.
   Quarry would hear Live's master bus, which contains its own audition voice and whatever
   MIDI it is driving. The plugin build hard-disables the loopback source and shows a 34 px
   plate explaining why. The VST3 exists to *emit* MIDI, Strata's shape. *(Landed in the fork
-  first, and with a second reason this section did not have: an ASIO driver serves one client
-  at a time, so a driver the plugin took would be a driver the host could lose. A hosted
+  first, and with a second reason this section did not have: an exclusive-mode driver serves one
+  client at a time, so a device the plugin took would be a device the host could lose. A hosted
   Quarry never constructs an `AudioDeviceManager` at all, hides the driver, input and channel
   pickers, and records the audio the host sends it.)*
 - **Three threads, and the third one is new to the line.** Audio thread plays back and
@@ -385,7 +385,6 @@ right-click path has a left-click twin.
 | 10 | Chords *(gated)* | **analysis thread** | < 0.1 s | `ChordEstimator.h`: beat-synchronous chroma folded from **Quarry's own notes**, 25 templates (12 maj, 12 min, N.C.), small Viterbi smoothing |
 | 11 | Sections *(gated)* | **analysis thread** | < 0.2 s | `SectionEstimator.h`: self-similarity matrix over beat chroma, checkerboard-kernel novelty peaks. **Boundaries only** |
 | 12 | Describe (local) | **analysis thread** | < 1 ms | `Describe::local()` composes the paragraph from `AnalysisReport` by string formatting. **Always runs** |
-| 13 | Describe (online) *(opt-in, blocked)* | **its own `juce::Thread`** | ~2 s | ~1.5 KB JSON fact sheet → `claude-haiku-4-5`, `output_config` json_schema → `{headline, paragraph, notable[]}`, ~$0.003. Any failure silently keeps the local paragraph |
 | 14 | Publish | **message thread** via `callAsync` | — | Each stage publishes as it finishes, so key and tempo chips populate while chords still run |
 | 15 | Audition | **audio thread** | — | Reads an immutable POD note window through a `NoteFeed` (Strata's `ScoreFeed` shape: three fixed slots, two atomics, memcpy then release-store). Strata's `processBlock` order exactly, including that the outgoing MIDI copy is **last** |
 
@@ -493,8 +492,8 @@ struct AnalysisReport {
 };
 ```
 
-One truth, two renderings: `Describe::local()` formats it into English with string
-formatting; the (opt-in) Claude call posts the same struct as JSON.
+One rendering: `Describe::local()` formats it into English with string formatting. There was to
+have been a second, an opt-in Claude call posting the same struct as JSON, and it is cut.
 
 ### On disk
 
@@ -522,7 +521,7 @@ Renamed **once**, now, `versionHint 1`, then append-only forever. `src/QuarryPar
 `PITCH_BEND_MODE` (No / Single / **MPE** — the engine already computes multi-bend and the UI
 currently bins it), `KEY_ROOT`, `KEY_TYPE`, `KEY_SNAP`, `TIME_DIVISION`, `QUANTIZE_FORCE`,
 `AUDITION_MIX`, `SOURCE_GAIN`, `MUTE`, `CONFIDENCE_FLOOR`, `FOCUS_MODE`, `TEMPO_MULTIPLIER`,
-`MIDI_CHANNEL_MODE`, `KEEP_SECONDS`, `DESCRIBE_ONLINE`. Non-automatable ValueTree keys move
+`MIDI_CHANNEL_MODE`, `KEEP_SECONDS`. Non-automatable ValueTree keys move
 from `NnId.h` to `src/QuarryId.h`. This is the last free chance.
 
 ---
@@ -559,12 +558,13 @@ its upstream repo and its training data — cheap at two models, archaeology at 
   editable artefact is MIDI, which is both the safer position and the better product, and
   Quarry should not be described in terms that invite the comparison.
 
-**Must be resolved before anything is sold** (see `docs/PLAN.md` → *Licence decisions
-required*): the vendored **ASIO SDK** (Steinberg requires a signed agreement to redistribute
-a binary containing it — and the kit's `AudioCapture` keeps ASIO deliberately, so this
-affects the kit too); a **paid JUCE licence** for a closed-source product with
-`JUCE_DISPLAY_SPLASH_SCREEN=0`; whether `spotify/basic-pitch` ships a NOTICE whose contents
-must be reproduced.
+**Resolved 2026-08-17** (see `docs/PLAN.md` → *Licence decisions required*): the vendored
+**ASIO SDK** is dropped rather than licensed, so Steinberg's agreement is not needed here, though
+the kit's `AudioCapture` keeps ASIO and keeps the question. **JUCE** needs no purchase yet: this
+tree is on JUCE 8, which has no splash screen to disable and licenses by revenue instead, free
+under Starter to $20k/yr. `spotify/basic-pitch` does ship a NOTICE, and its contents are now
+reproduced in `NOTICE`. What remains before anything is sold is the basic-pitch **weights**
+question, which needs counsel, not a decision.
 
 **Apache-2.0 §4(b) is now partly satisfied in the fork** and must be satisfied in the new repo
 on day one. A root `NOTICE` landed on 2026-07-30 naming Ronssin, Tibor Vass and Spotify's
@@ -611,9 +611,9 @@ union op config, or a sidecar process. **Plan for sidecar.**
   at 60M–1.3B parameters with autoregressive decoding. Wrong shape, wrong size, wrong bet.
 - **Not a sheet-music reader.** Audiveris is AGPL; oemer is Python plus deep models. Closed.
 - **Not always-on disk recording.** RAM ring only, and the cost is stated in the UI.
-- **Not a network product.** The optional description call sends extracted *facts* — never
-  audio, which the Claude API does not accept anyway. Off by default, local paragraph is the
-  default, and the feature degrades to full function offline rather than to nothing.
+- **Not a network product.** Nothing leaves the machine. The optional description call was the
+  one exception and it is **cut**, so the local paragraph is not the fallback, it is the whole
+  feature. Quarry opens no socket.
 
 ---
 
@@ -676,7 +676,7 @@ expensive thing you can ask for. Everything docks; the roll gets ≥ 12 rows at 
 window size; detach exists and is never required.
 
 **Capture inside the VST3.** It would hear Live's master bus, including Quarry's own audition
-voice, and an ASIO driver the plugin opened for itself is a driver the host can lose. Loopback
+voice, and a device the plugin opened for itself is a device the host can lose. Loopback
 is hard-disabled in the plugin build. *(Already true in the fork.)*
 
 **An extended chord vocabulary, a single confident key label, asserted section names.**
@@ -692,15 +692,18 @@ the relative sibling. Sections assert boundaries and *offer* functional labels.
    ~2 weeks. Cut all three, keep chords only, or build all four? *(Recommend: chords only,
    gated on a 20-capture accuracy measurement; sections as boundaries with neutral labels;
    local paragraph only.)* Decides parameter IDs, which are append-only forever.
-2. **The Claude description, and whose key pays.** A user-supplied key file via a file
-   chooser (no typing), a key baked into the binary (extractable, unbounded cost), or local
-   template only? Neither proposal noticed this decides whether the feature can exist.
-   *(Recommend: local only for now; revisit as a file chooser.)*
-3. **ASIO.** Drop it — WASAPI + DirectSound cover both sources Owen actually picked — or sign
-   the Steinberg agreement? Affects the kit, not just Quarry. *(Recommend: drop.)*
-4. **JUCE licence.** Buy now and set `JUCE_DISPLAY_SPLASH_SCREEN=0`, ship with the splash, or
-   keep Quarry open-source under Apache-2.0? Decides CMake flags at repo creation and is
-   awkward to reverse after a release.
+2. ~~**The Claude description, and whose key pays.**~~ ✅ **Decided 2026-08-17: local only, and
+   the online read is cut outright.** A baked-in key is extractable and unbounded, a key file is
+   a chooser almost nobody completes, and a proxy is a service with a standing bill. `M9` is
+   0 days now. `DESCRIBE_ONLINE` is struck from the parameter list before the ids freeze.
+3. ~~**ASIO.**~~ ✅ **Decided 2026-08-17: dropped.** `JUCE_ASIO=1` and `ThirdParty/ASIO/` are
+   gone. WASAPI and DirectSound cover both sources Owen actually picked, and Quarry records
+   loopback, so ASIO's round-trip latency was never being spent. The kit keeps its own copy of
+   this question.
+4. ~~**JUCE licence.**~~ ✅ **Answered 2026-08-17: the question was built on JUCE 7.** JUCE 8
+   has no splash screen at all, so there is no flag to set and no splash to ship. It licenses by
+   revenue: Starter is free and allows closed-source commercial distribution to $20k/yr, Indie
+   is $800 perpetual to $300k. Nothing to buy or decide at repo creation.
 5. **The 20 Synthesia URLs.** The C++ scanline port cannot be scoped without them. If 3D
    renderers or heavy particle effects dominate Owen's sample, the spec changes materially.
 6. **Unverified, must be settled by measurement, not by argument:** does WASAPI loopback gap

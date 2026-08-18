@@ -84,23 +84,24 @@ written-paragraph summary are about two extra weeks and they're often wrong.
 own captures), keep section *boundaries* without naming them, keep a simple written summary.
 **C)** Build all four properly.
 
-**2. Should Quarry ever talk to the internet?**
-The written summary is much better if it goes through Claude. No audio would ever leave the
-machine — just a small list of facts like "F# minor, 92 BPM, four sections".
-**A)** Never. Offline only.  **B) ← recommended for now.** Offline only to start; add it later
-behind an off-by-default switch, with your own key file.  **C)** Build it now.
+**2. Should Quarry ever talk to the internet?** ✅ **ANSWERED 2026-08-17: A. Never.**
+The online read is cut, not deferred: `DESCRIBE_ONLINE` is struck from the parameter list before
+the ids freeze, and M9 goes from 3 days to 0. Quarry opens no socket. The written summary is
+composed locally and that is the whole feature, not a fallback.
 
-**3. ASIO audio drivers — keep or drop?**
-Steinberg needs a signed agreement before you can sell anything containing their ASIO code.
-You don't need ASIO for either source you picked.
-**A) ← recommended.** Drop it. Windows' own drivers cover everything.  **B)** Keep it, sign the
-agreement.
+**3. ASIO audio drivers — keep or drop?** ✅ **ANSWERED 2026-08-17: A. Dropped.**
+`JUCE_ASIO=1` and the 12 vendored SDK files are gone; Windows Audio and DirectSound remain. This
+was more urgent than the question implied: those files were committed to a **public** repo, which
+is redistribution regardless of whether anything had shipped. They are out of the tree now, but
+still in the git history, and purging that means a force-push. The kit keeps ASIO and keeps the
+question.
 
-**4. Are you going to sell Quarry?**
-A closed-source product needs a paid JUCE licence. This changes the build settings on day one
-and is annoying to reverse later.
-**A) ← recommended.** Yes — buy the JUCE licence now.  **B)** Yes, but ship with the JUCE
-splash screen first.  **C)** Keep it open-source and free.
+**4. Are you going to sell Quarry?** ⚠️ **The licence half of this dissolved 2026-08-17.**
+The question assumed JUCE 7 rules. This tree is on JUCE 8, which has **no splash screen at all**,
+so option B does not exist and there is no flag to set on day one. JUCE 8 licenses by revenue:
+Starter is free and permits closed-source commercial distribution up to $20k/yr, Indie is $800
+perpetual to $300k. Nothing to buy, nothing annoying to reverse. Whether to sell it is still
+yours, but it no longer changes the build.
 
 **5. Record-and-stop, or always-listening? — this is the big one.**
 The design above commits to KEEP: Quarry listens constantly and one click keeps the last

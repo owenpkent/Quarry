@@ -177,9 +177,9 @@ ideas:
   that is wrong a third of the time is worse than no chord chip.
 - **Capture is standalone-only.** `[landed in the fork]` Loaded as a VST3 in Live with System
   Audio selected, Quarry would hear Live's master bus, including its own audition voice and
-  whatever MIDI it is driving. There is a second reason found while building it: an ASIO
-  driver serves one client at a time, so a driver the plugin opened for itself is a driver the
-  host can lose. A hosted plugin therefore never constructs an `AudioDeviceManager`, never
+  whatever MIDI it is driving. There is a second reason found while building it: an
+  exclusive-mode driver serves one client at a time, so a device the plugin opened for itself is
+  a device the host can lose. A hosted plugin therefore never constructs an `AudioDeviceManager`, never
   lists drivers or devices, hides those pickers, and records the audio the host sends it. The
   plugin build hard-disables the loopback source and explains why on a 34 px plate. The VST3
   exists to *emit* MIDI, Strata's shape.

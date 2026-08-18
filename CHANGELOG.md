@@ -107,8 +107,33 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   application-data folder instead of `NeuralNote`. The old folder and its contents are left where
   they are; pick an input again once, and delete the old folder by hand if you want the disk back.
 
+### Removed
+
+- remove: ASIO. Quarry no longer builds with `JUCE_ASIO`, and Steinberg's SDK is out of the tree.
+  Windows Audio and DirectSound remain, and neither source anyone actually records from went
+  through ASIO: the loopback path is WASAPI, and a transcription tool never spends the round-trip
+  latency ASIO exists to cut. Shipping the SDK needs a signed agreement from Steinberg, which is
+  a price worth paying for a live instrument and not for this.
+- remove: the online description. Quarry opens no socket. A written summary was to have had a
+  second rendering through a hosted model, off by default, sending extracted facts and never
+  audio. It is cut rather than deferred: nothing could pay for it without either shipping an
+  extractable key or standing up a proxy service, the design already treated it as an upgrade
+  that every failure path fell back from, and the local paragraph was always the real feature.
+  `DESCRIBE_ONLINE` is struck before the parameter ids freeze.
+
 ### Fixed
 
+- fix: `Notes::convert` honours the note range it is given. `minFrequency` and `maxFrequency`
+  were applied as the bounds of one loop, while the melodia pass that follows walks every band
+  there is, so asking for 330-1567 Hz still came back with notes an octave and more below the
+  floor. basic-pitch clears the posteriorgrams outside the range instead, and now so does Quarry.
+  Latent in the app as shipped, which sets neither bound, but it is why the notes test had been
+  red: ten of ten cases pass now, where the run used to stop at case five with sixteen events
+  against a golden nine. Nothing inside a range moves, so no existing transcription changes.
+- fix: the onnxruntime tarball is fetched once per machine rather than once per checkout.
+  `OKSTUDIO_ONNXRUNTIME_CACHE` names a directory to keep it in, `OKSTUDIO_ONNXRUNTIME_URL` points
+  the fetch at a mirror, and either way the 600 MB download is checked against a pinned SHA-256
+  before it is unpacked, and dropped rather than cached if it does not unpack.
 - fix: `run.py` recovers from a build tree generated for a different directory. Renaming or
   moving the repo left CMake pointing at a path that no longer existed, and the build failed
   inside MSBuild's regenerate step, nowhere near anything that suggested the cause.

@@ -131,8 +131,8 @@ blocks. Budget 2.
   *Repos* above.
 - Transcribe-on-stop needed no work, as the status block at the top says.
 - Beyond the four bullets, and not planned here: picking a device is standalone-only (a hosted
-  plugin never constructs an `AudioDeviceManager`, because an ASIO driver serves one client at
-  a time), loopback endpoints are remembered by their stable Windows endpoint id rather than by
+  plugin never constructs an `AudioDeviceManager`, because an exclusive-mode driver serves one
+  client at a time), loopback endpoints are remembered by their stable Windows endpoint id rather than by
   name, a capture that dies mid-take reports an error and ends the take instead of silently
   truncating it, and `UpdateCheck` was pointed at this fork's own origin.
 - Superseded: the audio input panel had a 180 × 72 Record button of its own. The panel is now
@@ -141,22 +141,63 @@ blocks. Budget 2.
 
 ### 0B. Retire the two existential risks (1 day)
 
-1. **Mirror the ONNX Runtime tarball.** It is a **~100 MB** download (`ONNX_URL` in `run.py`), not
-   2.9 GB — the inflated number has been getting this deferred. It comes from one individual's
-   personal GitHub release published once in March 2023
-   (`tiborvass/libonnxruntime-neuralnote v1.14.1-neuralnote.1`) and is gitignored. Copy it to
-   storage Owen controls; point `OKSTUDIO_ONNXRUNTIME_CACHE` at a stable directory outside
-   every build tree; document it in the kit.
-2. **Triage the red notes test.** `UnitTests.exe` emits **16** note events against a 9-event
-   golden file (feature and CNN stages pass, max error 8.3e-04 / 6.9e-07). The got-list
-   contains the expected events plus extras, so the note stage emits a superset. Check out
-   `6c7699e^`, rebuild the test target only, rerun. Either the golden file drifted from the
-   current defaults or the underflow-guard commit changed behaviour.
-   **Every confidence number Quarry will display comes out of that stage. Nothing downstream
-   ships until it is green or the drift is explained in writing.**
+1. **Mirror the ONNX Runtime tarball.** ⚠️ **Half done. The remaining half is Owen's.**
+
+   Measured 2026-08-17, and the figure that stood here was wrong in the other direction: the
+   Windows tarball is **600 MB** (628,941,249 bytes), not ~100 MB and not 2.9 GB. 2.9 GB is the
+   static library it unpacks to. It comes from one individual's personal GitHub release
+   published once in March 2023 (`tiborvass/libonnxruntime-neuralnote v1.14.1-neuralnote.1`,
+   5,429 downloads) and is gitignored. The later `v1.14.1-neuralnote.2` carries a **macOS asset
+   only**, so `.1` is the only Windows source that has ever existed. The release still resolved
+   on the date above.
+
+   Done, in `run.py`: `OKSTUDIO_ONNXRUNTIME_CACHE` names a directory outside every build tree
+   where the tarball is kept and reused, so a clean checkout unpacks with no network at all, and
+   `OKSTUDIO_ONNXRUNTIME_URL` points the fetch at a mirror instead. A download lands on a
+   `.part` file and is renamed only once its SHA-256 matches `ONNX_SHA256`, so a mirror is
+   trusted no further than the bytes it serves. An archive that will not unpack is deleted
+   rather than cached forever. A first cache entry sits at
+   `~/.okstudio/onnxruntime-cache/`, verified against the pin:
+
+   ```
+   sha256  0fe0568469956181fafffdfb416916c10919114b0c8ce2badddd0a9a313ebab8
+   ```
+
+   **Left for Owen:** a cache on one machine is not a mirror. Put the same 600 MB in storage he
+   controls (an R2 or S3 bucket, or a release in his own org), set `OKSTUDIO_ONNXRUNTIME_URL` to
+   it, and document both variables in the kit. This repo can only document its own side, since
+   the kit lives in `owenpkent/okstudio-juce-kit` and only its headers are vendored here.
+2. **Triage the red notes test.** ✅ **Closed 2026-08-17. It was neither of the two suspects.**
+
+   The golden file had not drifted and the underflow-guard commit was innocent. `Notes::convert`
+   applied `minFrequency` / `maxFrequency` only as the bounds of its first pass loop, while
+   basic-pitch zeroes the posteriorgrams outside that range. The melodia trick then walks *every*
+   band of `mRemainingEnergy`, so notes the caller had excluded came back in through it.
+
+   The failing case was **case 5 of ten**, not the suite: `melodiaTrick` on with a 330-1567 Hz
+   range. Cases 1 and 3 carry the same range and passed, because `melodiaTrick` is off in them;
+   case 4 has the trick on and no range, and passed too. Only the combination leaked. 16 events
+   against a golden 9, and the seven extras were pitches 46 to 63, every one of them below the
+   330 Hz floor (MIDI 64). The nine expected events appeared in the got-list verbatim, which is
+   what made this look like a superset rather than a filter that was not running. Cases 7 and 9
+   would have failed identically had the loop not stopped at the first failure.
+
+   Fixed in `Lib/Model/Notes.cpp` by zeroing `mRemainingEnergy` outside the range before either
+   pass, which is what the Python does. In-range results are untouched: the first pass never read
+   those bands, and the melodia walk already skips a band whose energy is zero. **All ten cases
+   pass, and so does the rest of the suite** (features, CNN, perf, key estimate, sampler).
+
+   Scope, stated plainly: this was **latent in the app as shipped**. `BasicPitch::setParameters`
+   sets `melodiaTrick` and `inferOnsets` and leaves both frequency bounds at their unset -1, and
+   the note-range slider in the UI is a post-processing filter in `NoteOptions`, not this one. No
+   transcription anyone has run was affected, and none will move because of the fix. What it
+   buys is that **every confidence number Quarry will display comes out of this stage**, the
+   stage is now green rather than red for reasons nobody had chased down, and M7's focus filters
+   are exactly the feature that would have set a range and walked into this.
 
 **Done when:** the tarball resolves from Owen's mirror on a clean tree, and the notes test is
-green or a written explanation of the delta exists in `docs/`.
+green or a written explanation of the delta exists in `docs/`. The second half is done. The
+first waits on Owen picking the storage.
 
 ### 0C. Widen the kit (3 days)
 
@@ -228,8 +269,8 @@ deliberate gap injected into the writer is zero-padded to real time, not closed 
 **Done when:** `py run.py` builds and launches an empty-shell Quarry standalone titled
 "Quarry", and `Tests/` links `okstudio_kit` and runs green.
 
-**M0 total: 8 days.** 🔴 *0D should not start until Owen has answered the ASIO and JUCE
-questions — both change what `okstudio_add_plugin` is allowed to emit.*
+**M0 total: 8 days.** ✅ *0D is no longer gated. ASIO is dropped and JUCE 8 needs no paid tier
+yet, so `okstudio_add_plugin` emits a plain WASAPI/DirectSound Windows target.*
 
 ---
 
@@ -462,20 +503,30 @@ one-click 6-item rename popup at 204 px (inside Keys' 340 px no-hover-scroll bud
 
 ---
 
-## Milestone 9 — 🔴 The Claude read *(BLOCKED on Q1 and Q2)*
+## Milestone 9 — ❌ The Claude read *(CUT 2026-08-17)*
 
-`DESCRIBE_ONLINE` chip, **off by default**, sends the `AnalysisReport` as a ~1.5 KB JSON fact
-sheet to `claude-haiku-4-5` with an `output_config` json_schema returning
-`{headline, paragraph, notable[]}` (~$0.003 a call), on its own `juce::Thread` with a visible
-cancel. `claude-sonnet-5` offered as a deeper read. **Any failure silently keeps the local
-paragraph** — the network is an upgrade, never a dependency. No audio leaves the machine (the
-Claude API does not accept audio input as of July 2026), and the UI says exactly that.
+**Cut. Quarry does not talk to a network.** The design already said the network was an upgrade
+and never a dependency, with every failure path falling back to the locally written paragraph.
+A thing that is never depended on, that costs 3 days, that nobody can pay for without either
+shipping an extractable key or standing up a proxy service, and that most users would never
+switch on, is a thing to not build. The local read is the product.
 
-**Blocked because nobody has decided whose API key pays.** A key baked into a shipped binary
-is extractable and the cost is unbounded; a user-supplied key is a text field, which the
-contract forbids — so it has to be a file chooser pointing at a key file.
+What was planned, kept here so the decision is legible rather than forgotten: a `DESCRIBE_ONLINE`
+chip, off by default, sending the `AnalysisReport` as a ~1.5 KB JSON fact sheet to
+`claude-haiku-4-5` with an `output_config` json_schema returning `{headline, paragraph,
+notable[]}`, about $0.003 a call, on its own `juce::Thread` with a visible cancel.
 
-**3 days once unblocked.**
+**Why the key question had no good answer.** A key baked into a shipped binary is extractable
+within a day of release and the cost is unbounded. A user-supplied key is a text field, which
+the UI contract forbids, so it would have to be a file chooser pointing at a key file, which
+almost nobody would ever complete. A proxy Owen hosts keeps the key safe and the cost bounded,
+but it needs hosting, auth and per-user rate limits, and it turns a desktop app into a service
+with a standing bill.
+
+**If it is ever revived** it is the key file first, since it costs nothing to run, and the proxy
+only once there is revenue worth protecting. Nothing else in the plan depends on this milestone.
+
+**0 days. Was 3.**
 
 ---
 
@@ -546,17 +597,17 @@ materially.
 
 | Component | Question | Status | Blocks |
 |---|---|---|---|
-| **ASIO SDK** (vendored, `JUCE_ASIO=1`) | Steinberg requires a signed agreement to redistribute a binary containing it. Drop ASIO, or sign? Affects the **kit** too — `AudioCapture` keeps it deliberately | 🔴 **Owen** | M0D |
-| **JUCE** | A sold closed-source product with `JUCE_DISPLAY_SPLASH_SCREEN=0` needs a paid licence. NeuralNote never faced this (it is open source) | 🔴 **Owen** | M0D |
-| **`spotify/basic-pitch` NOTICE** | Does upstream ship one? Apache-2.0 §4(d) only binds if the Work included one, and if it did, its contents must be reproduced in Quarry's | Unverified — 5 minutes with network | M0D |
-| **`DamRsn/NeuralNote` NOTICE** | Same question | Unverified — none exists in this fork's history | M0D |
+| **ASIO SDK** | Steinberg requires a signed agreement to redistribute a binary containing it, and the 12 vendored SDK files were sitting in a **public** repo, which is redistribution before anything ships | ✅ **Dropped 2026-08-17.** `JUCE_ASIO=1` and `ThirdParty/ASIO/` are gone; Windows Audio and DirectSound remain, and Quarry records loopback anyway, so ASIO's round-trip latency was never being spent. The git history still holds the SDK: purging it means a force-push, so that is a separate call. **The kit is unaffected and keeps its own ASIO question** | — |
+| **JUCE** | A sold closed-source product with `JUCE_DISPLAY_SPLASH_SCREEN=0` needs a paid licence. NeuralNote never faced this (it is open source) | ✅ **Closed 2026-08-17. The premise was JUCE 6/7 and no longer holds.** This tree vendors **JUCE 8.0.6**, which has no splash screen at all: `juce_gui_basics.cpp:60` warns that `JUCE_DISPLAY_SPLASH_SCREEN` is ignored. JUCE 8 licenses by revenue instead. **Starter is free and permits closed-source commercial distribution up to $20k/yr** revenue or funding; Indie is $800 perpetual to $300k. Register Starter, budget Indie for the year Quarry crosses $20k. Confirm the figures at purchase | — |
+| **`spotify/basic-pitch` NOTICE** | Does upstream ship one? Apache-2.0 §4(d) only binds if the Work included one, and if it did, its contents must be reproduced in Quarry's | ✅ **Closed 2026-08-17.** It ships one, so §4(d) binds. Its attribution notices are now reproduced verbatim in `NOTICE` | — |
+| **`DamRsn/NeuralNote` NOTICE** | Same question | ✅ **Closed 2026-08-17.** No `NOTICE` at the root of upstream `master`, so §4(d) obliges nothing on its account. Recorded in `NOTICE` so it is not asked again | — |
 | **basic-pitch weights** | Apache-2.0 code *and* weights, per Spotify. Trained partly on MAESTRO (CC BY-NC-SA 4.0). Whether permissive weights trained on NC data survive a challenge is **unsettled law**. Owen already has this exposure today | Needs counsel before a **paid** launch, not before a build | Paid launch |
 | **Demucs / HTDemucs weights** | Author states research-only (`demucs#327`). Downstream repos relabel them MIT without authority | ❌ **Refused** — see design | — |
 | **Open-Unmix UMXL / ADTOF / MT3 checkpoints** | CC BY-NC-SA / CC BY-NC-SA / no licence at all | ❌ **Refused** | — |
 | **Essentia / madmom models / Chordino / libKeyFinder / aubio / QM-DSP** | AGPLv3 / CC BY-NC-SA / GPL × 4 | ❌ **Refused** — estimators are written in-house | — |
 | **FFmpeg, OpenCV video I/O** | LGPL: EULA reverse-engineering clause must be removed, exact-corresponding source hosted forever. OpenCV's Windows decode path *is* that LGPL DLL | ❌ **Refused** — Media Foundation instead | M10 |
-| **Claude API** | Whose key pays: user-supplied key file, baked-in, or no network at all | 🔴 **Owen** | M9 |
-| **ONNX Runtime fork** | `tiborvass/libonnxruntime-neuralnote` — a personal March-2023 release, gitignored, the single point of failure for every transcribing product in the line | ⚠️ **Mirror in M0B** | Everything |
+| **Claude API** | Whose key pays: user-supplied key file, baked-in, or no network at all | ✅ **Answered 2026-08-17: no network at all.** M9 is cut, so nothing pays. See the milestone | — |
+| **ONNX Runtime fork** | `tiborvass/libonnxruntime-neuralnote` — a personal March-2023 release, gitignored, the single point of failure for every transcribing product in the line | ⚠️ **Half done.** Cache, mirror override and a pinned SHA-256 are in `run.py`; off-machine storage is still Owen's call. See M0B | Everything |
 
 ---
 
@@ -564,16 +615,16 @@ materially.
 
 | M | Title | Days | Status |
 |---|---|---|---|
-| 0 | Preflight, spike, rename | 8 | 0D blocked on ASIO + JUCE |
+| 0 | Preflight, spike, rename | 8 | ✅ ungated |
 | 1 | The KEEP loop *(run.py usable)* | 8 | |
 | 2 | Tempo, and the end of the fictional grid | 4 | |
-| 3 | Confidence, honestly | 4 | needs 0B green |
+| 3 | Confidence, honestly | 4 | ✅ 0B is green |
 | 4 | The editable roll | 14 | largest estimate risk |
 | 5 | Bulk correction + re-slice | 6 | |
 | 6 | Key, ribbon, local description | 5 | |
 | 7 | Focus filters | 7 | 🟡 gated on ablation |
 | 8 | Chords + section boundaries | 7 | 🟡 gated on accuracy + Q1 |
-| 9 | The Claude read | 3 | 🔴 blocked |
+| ~~9~~ | ~~The Claude read~~ | ~~3~~ | ❌ **cut** |
 | 10 | Video audio in | 6 | |
 | 11 | Synthesia scanline | 20 | 🔴 blocked |
 
