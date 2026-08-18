@@ -28,9 +28,6 @@ Third-party components
 
   - JUCE (https://juce.com), Copyright Raw Material Software Limited,
     used under the JUCE licence.
-  - Steinberg ASIO SDK (https://www.steinberg.net/developers/), Copyright
-    Steinberg Media Technologies GmbH, used under the Steinberg ASIO SDK
-    Licensing Agreement. Windows builds only.
   - RTNeural (https://github.com/jatinchowdhury18/RTNeural), BSD-3-Clause.
   - ONNX Runtime (https://github.com/microsoft/onnxruntime), Copyright
     Microsoft Corporation, MIT License. Built for this project with
@@ -43,3 +40,47 @@ Third-party components
   - okstudio JUCE kit (https://github.com/owenpkent/okstudio-juce-kit),
     Copyright 2026 Owen Kent. Two headers from it are vendored in this
     repository under ThirdParty/okstudio; see that directory's README.md.
+
+Attribution notices from basic-pitch
+------------------------------------
+
+The model weights in Lib/ModelData derive from spotify/basic-pitch, which
+distributes a NOTICE file. Apache License, Version 2.0, section 4(d)
+therefore requires the attribution notices it contains to be reproduced
+here. They follow verbatim, and describe that work rather than Quarry.
+
+  Basic Pitch
+  Copyright 2022 Spotify AB
+
+  This product includes software developed at
+  Spotify AB (http://www.spotify.com/).
+
+  This product includes software from Librosa (ISC).
+  * Copyright (C) 2013--2017, librosa development team.
+
+  This product includes software from mir_eval (MIT)
+  * Copyright (C) 2014 Colin Raffel
+
+  This product includes software from numpy (BSD)
+  * Copyright (C) 2005-2022, NumPy Developers.
+
+  This product includes software from pretty-midi (MIT)
+  * Copyright (C) 2014 Colin Raffel
+
+  This product includes software from resampy (ISC)
+  * Copyright (C) 2016, Brian McFee
+
+  This product includes software from scipy (BSD)
+  * Copyright (C) 2001-2002 Enthought, Inc. 2003-2022, SciPy Developers
+
+  This product includes software from tensorflow (Apache 2.0)
+  * Copyright (C) 2019 Google, LLC <packages@tensorflow.org>
+
+  The tests for `basic-pitch` include audio files from the
+  Vocadito dataset liscened under Creative Commons
+  Attribution 4.0 International. The dataset can be found at:
+  https://zenodo.org/record/5578807#.YnRm5vPMKDU
+
+DamRsn/NeuralNote, from which Quarry is forked, ships no NOTICE file (its
+repository root was checked on master), so section 4(d) obliges nothing on
+its account.

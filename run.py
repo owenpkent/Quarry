@@ -11,7 +11,10 @@ changes can be tried without a DAW in the picture at all.
 
 On a fresh clone this also fetches what the build needs: the JUCE and RTNeural
 submodules, and the prebuilt onnxruntime library plus the feature model that
-build.bat would otherwise download.
+build.bat would otherwise download. That tarball is 600 MB and comes from one person's
+2023 GitHub release, so set OKSTUDIO_ONNXRUNTIME_CACHE to a directory outside every build
+tree and it is fetched once for every checkout you will ever make; OKSTUDIO_ONNXRUNTIME_URL
+points the fetch at a mirror if that release ever goes away.
 
 If the build tree was generated somewhere else, because this repo was renamed or moved, it is
 deleted and rebuilt. CMake bakes absolute paths into the cache and into every project file, so
@@ -29,6 +32,7 @@ Windows only, like the product. Standard library only, so it runs on a bare Pyth
 import argparse
 import ctypes
 import glob
+import hashlib
 import os
 import shutil
 import subprocess
@@ -58,11 +62,26 @@ try:
 except (AttributeError, OSError):
     pass
 
-# The onnxruntime build the upstream NeuralNote authors publish, as used by build.bat.
+# The onnxruntime build the upstream NeuralNote authors publish, as used by build.bat. It is one
+# individual's GitHub release, published once in March 2023, and every transcribing build in this
+# line depends on it, so both where it is fetched from and where it is kept are overridable:
+#
+#   OKSTUDIO_ONNXRUNTIME_URL    fetch the tarball from a mirror instead of that release
+#   OKSTUDIO_ONNXRUNTIME_CACHE  a directory outside every build tree to keep the tarball in, so a
+#                               clean checkout unpacks it with no network at all
+#
+# The Windows tarball is 600 MB and unpacks to a 2.9 GB static library. The newer
+# v1.14.1-neuralnote.2 release carries a macOS asset only, so .1 is the only Windows source
+# there has ever been.
 ONNX_VERSION = "v1.14.1-neuralnote.1"
 ONNX_DIRNAME = f"onnxruntime-{ONNX_VERSION}-windows-x86_64"
-ONNX_URL = (f"https://github.com/tiborvass/libonnxruntime-neuralnote/releases/download/"
-            f"{ONNX_VERSION}/{ONNX_DIRNAME}.tar.gz")
+ONNX_UPSTREAM_URL = (f"https://github.com/tiborvass/libonnxruntime-neuralnote/releases/download/"
+                     f"{ONNX_VERSION}/{ONNX_DIRNAME}.tar.gz")
+ONNX_URL = os.environ.get("OKSTUDIO_ONNXRUNTIME_URL", "").strip() or ONNX_UPSTREAM_URL
+ONNX_CACHE_DIR = os.environ.get("OKSTUDIO_ONNXRUNTIME_CACHE", "").strip()
+# SHA-256 of the upstream Windows tarball, 628,941,249 bytes, taken 2026-08-17. Checked on every
+# download so a mirror is worth no more trust than the bytes it serves.
+ONNX_SHA256 = "0fe0568469956181fafffdfb416916c10919114b0c8ce2badddd0a9a313ebab8"
 
 # --------------------------------------------------------------------------------------
 # Console
@@ -251,6 +270,31 @@ def ensure_submodules() -> bool:
     return True
 
 
+def file_sha256(path: str) -> str:
+    """Digest a file a chunk at a time; this one is 600 MB and will not fit comfortably."""
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def onnxruntime_archive() -> tuple:
+    """Where the tarball should live, and whether that place outlives this checkout.
+
+    With OKSTUDIO_ONNXRUNTIME_CACHE set it is kept there and reused; without one it lands
+    beside the source and is deleted once unpacked, as build.bat does.
+    """
+    if ONNX_CACHE_DIR:
+        try:
+            os.makedirs(ONNX_CACHE_DIR, exist_ok=True)
+            return os.path.join(ONNX_CACHE_DIR, f"{ONNX_DIRNAME}.tar.gz"), True
+        except OSError as exc:
+            print(f"{YELLOW}Ignoring OKSTUDIO_ONNXRUNTIME_CACHE ({ONNX_CACHE_DIR}):{RESET}")
+            print(f"{YELLOW}  {exc}{RESET}")
+    return os.path.join(ROOT, f"{ONNX_DIRNAME}.tar.gz"), False
+
+
 def ensure_onnxruntime() -> bool:
     """Download the prebuilt onnxruntime and feature model, as build.bat does."""
     lib = os.path.join(ROOT, "ThirdParty", "onnxruntime", "lib", "onnxruntime.lib")
@@ -258,15 +302,36 @@ def ensure_onnxruntime() -> bool:
     if os.path.exists(lib) and os.path.exists(model):
         return True
 
-    archive = os.path.join(ROOT, f"{ONNX_DIRNAME}.tar.gz")
-    print(f"{GREY}Downloading onnxruntime {ONNX_VERSION} (~100 MB, once)...{RESET}")
-    try:
-        urllib.request.urlretrieve(ONNX_URL, archive)
-    except OSError as exc:
-        print(f"{YELLOW}Could not download onnxruntime:{RESET}")
-        print(f"{YELLOW}  {exc}{RESET}")
-        print(f"{YELLOW}  {ONNX_URL}{RESET}")
-        return False
+    archive, cached = onnxruntime_archive()
+
+    if os.path.exists(archive):
+        print(f"{GREY}Unpacking onnxruntime {ONNX_VERSION} from {archive}...{RESET}")
+    else:
+        print(f"{GREY}Downloading onnxruntime {ONNX_VERSION} (600 MB, once)...{RESET}")
+        # Download to a sibling and rename, so a run killed mid-transfer cannot leave a
+        # half-file that every later run then treats as the cached copy.
+        part = f"{archive}.part"
+        try:
+            urllib.request.urlretrieve(ONNX_URL, part)
+            got = file_sha256(part)
+            if got != ONNX_SHA256:
+                os.remove(part)
+                print(f"{YELLOW}The onnxruntime download is not the expected file:{RESET}")
+                print(f"{YELLOW}  expected sha256 {ONNX_SHA256}{RESET}")
+                print(f"{YELLOW}  got             {got}{RESET}")
+                print(f"{YELLOW}  from {ONNX_URL}{RESET}")
+                return False
+            os.replace(part, archive)
+        except OSError as exc:
+            if os.path.exists(part):
+                os.remove(part)
+            print(f"{YELLOW}Could not download onnxruntime:{RESET}")
+            print(f"{YELLOW}  {exc}{RESET}")
+            print(f"{YELLOW}  {ONNX_URL}{RESET}")
+            if ONNX_URL == ONNX_UPSTREAM_URL:
+                print(f"{YELLOW}  That release belongs to one person's account. Point "
+                      f"OKSTUDIO_ONNXRUNTIME_URL at a mirror if it has gone.{RESET}")
+            return False
 
     try:
         extracted = os.path.join(ROOT, "ThirdParty", ONNX_DIRNAME)
@@ -283,8 +348,16 @@ def ensure_onnxruntime() -> bool:
         shipped_model = os.path.join(target, "model.with_runtime_opt.ort")
         if os.path.exists(shipped_model):
             os.replace(shipped_model, model)
-    finally:
+    except (OSError, tarfile.TarError) as exc:
+        # A cached archive that will not unpack is worse than none, because it would be
+        # reused forever. Drop it so the next run fetches again.
         if os.path.exists(archive):
+            os.remove(archive)
+        print(f"{YELLOW}The onnxruntime archive did not unpack:{RESET}")
+        print(f"{YELLOW}  {exc}{RESET}")
+        return False
+    finally:
+        if not cached and os.path.exists(archive):
             os.remove(archive)
 
     if not (os.path.exists(lib) and os.path.exists(model)):
