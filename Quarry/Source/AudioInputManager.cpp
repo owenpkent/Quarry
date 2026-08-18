@@ -765,8 +765,8 @@ AudioIODeviceType* AudioInputManager::_getSelectedDriver()
 {
     _ensureInitialised();
 
-    // getAvailableDeviceTypes() scans every driver, which in a plugin means loading the host's
-    // ASIO driver behind its back.
+    // getAvailableDeviceTypes() scans every driver, which in a plugin means opening drivers the
+    // host is already using, behind its back.
     if (!_isStandalone())
         return nullptr;
 

@@ -54,7 +54,7 @@ hardware, with no DAW and no trip through the Audio/MIDI Settings dialog:
 
 - **DRIVER** picks the audio driver to list inputs from. On Windows the first entry is **System Audio**, whose
   inputs are the computer's playback outputs rather than its microphones (see below). The rest are the real
-  drivers (Windows Audio, ASIO, DirectSound, ...).
+  drivers (Windows Audio, DirectSound, ...). Quarry does not build with ASIO.
 - **INPUT** picks what to record. `Host input (no device)` is the original NeuralNote behaviour: record whatever
   audio the DAW sends the plugin. Anything else is a device Quarry opens itself, kept separate from the
   standalone app's own audio setup, so choosing one never disturbs it.
@@ -63,8 +63,8 @@ hardware, with no DAW and no trip through the Audio/MIDI Settings dialog:
 
 Picking a device is standalone-only. Loaded in a DAW, Quarry never opens an audio device of its own: the strip
 hides those three pickers and shows only the level and what it is recording, and recording uses the audio the
-host sends the plugin, exactly as it always did. An ASIO driver serves one client at a time, so a driver the
-plugin took for itself would be a driver the host could lose.
+host sends the plugin, exactly as it always did. A device the plugin opened for itself is a device the host
+could lose, and the host's own device is the one the user already chose.
 
 Recording then works as it always did: hit record in the toolbar, play, hit stop, and the transcription
 appears. The chosen input is remembered between runs.
@@ -289,7 +289,6 @@ Quarry software and code is published under the Apache-2.0 license. See the [lic
 Here's a list of all the third party libraries used in Quarry and the license under which they are used.
 
 - [JUCE](https://juce.com/) (JUCE Starter)
-- [ASIO SDK](https://www.steinberg.net/developers/) (Steinberg ASIO SDK Licensing Agreement, Windows builds only)
 - [RTNeural](https://github.com/jatinchowdhury18/RTNeural) (BSD-3-Clause license)
 - [ONNXRuntime](https://github.com/microsoft/onnxruntime) (MIT License)
 - [ort-builder](https://github.com/olilarkin/ort-builder) (MIT License)

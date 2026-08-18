@@ -207,8 +207,7 @@ target_compile_definitions(${BaseTargetName}
         USE_TEST_NOTE_FRAME_TO_TIME=0
 )
 
-if (WIN32)
-    target_compile_definitions(${BaseTargetName} PUBLIC JUCE_ASIO=1)
-    target_include_directories(${BaseTargetName} PRIVATE ThirdParty/ASIO/common)
-endif ()
+# No ASIO. Steinberg's SDK cannot be redistributed without a signed agreement, and Quarry does
+# not need it: it records this machine's own playback through WASAPI loopback, so the round-trip
+# latency ASIO exists to cut is latency Quarry never spends. Windows Audio and DirectSound remain.
 

@@ -15,8 +15,9 @@ class QuarryAudioProcessor;
  * Settings dialog.
  *
  * All of that is standalone-only, see canSelectInputDevice(). A hosted plugin never lists drivers,
- * never lists devices and never opens one: a driver taken here is a driver the host's own engine
- * can lose, as an ASIO driver serves one client at a time. In a plugin there is nothing to select
+ * never lists devices and never opens one: a device taken here is a device the host's own engine
+ * can lose, since an exclusive-mode driver serves one client at a time. In a plugin there is
+ * nothing to select
  * and recording always uses the audio the host sends us, which is the original NeuralNote
  * behaviour.
  *
@@ -70,7 +71,7 @@ public:
      */
     void ensureInitialised();
 
-    /** Names of the available drivers, e.g. "Windows Audio", "ASIO", "DirectSound". */
+    /** Names of the available drivers, e.g. "Windows Audio", "DirectSound". */
     StringArray getDriverNames();
 
     String getSelectedDriverName() const { return mSelectedDriverName; }
