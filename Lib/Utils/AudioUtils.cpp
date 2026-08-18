@@ -67,6 +67,24 @@ std::unique_ptr<AudioFormatManager> createAudioFormatManager()
     return std::move(audio_format_manager);
 }
 
+void downmixToMono(AudioBuffer<float>& ioBuffer)
+{
+    const auto num_channels = ioBuffer.getNumChannels();
+
+    if (num_channels <= 1) {
+        return;
+    }
+
+    const auto num_samples = ioBuffer.getNumSamples();
+
+    for (int ch = 1; ch < num_channels; ch++) {
+        ioBuffer.addFrom(0, 0, ioBuffer, ch, 0, num_samples);
+    }
+
+    ioBuffer.applyGain(0, 0, num_samples, 1.0f / static_cast<float>(num_channels));
+    ioBuffer.setSize(1, num_samples, true, true, true);
+}
+
 void resampleBuffer(const AudioBuffer<float>& inBuffer,
                     AudioBuffer<float>& outBuffer,
                     double inSourceSampleRate,

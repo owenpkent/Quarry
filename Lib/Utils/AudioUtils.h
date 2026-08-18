@@ -41,6 +41,18 @@ StringArray getSupportedAudioFileExtensions();
 std::unique_ptr<AudioFormatManager> createAudioFormatManager();
 
 /**
+ * Collapse a buffer to a single channel by averaging.
+ *
+ * The transcription engine takes one pointer and reads one channel from it. Everything that feeds
+ * it therefore has to be mono before it gets there, or the channels that were not passed are
+ * simply discarded: on a stereo take that is half the recording, and on a piano recorded with a
+ * spaced pair it is half the keyboard's worth of level.
+ *
+ * @param ioBuffer Buffer to downmix in place. Left alone if it already has one channel or fewer.
+ */
+void downmixToMono(AudioBuffer<float>& ioBuffer);
+
+/**
  * Resample an audio buffer from source sample rate to target sample rate.
  * Filters are applied if needed to prevent any aliasing.
  * @param inBuffer Audio buffer to resample

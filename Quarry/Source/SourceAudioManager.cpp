@@ -278,9 +278,20 @@ bool SourceAudioManager::onFileDrop(const File& inFile)
             return false;
         }
 
-        // Downsample to basic pitch sample rate
+        // Downsample to basic pitch sample rate, mono, because that is what the engine reads.
+        //
+        // The downmix is not cosmetic. resampleBuffer preserves the channel count, and
+        // _runModel hands the engine getWritePointer(0), so without this a dropped stereo file
+        // was transcribed from its left channel alone and the right one was silently discarded.
+        // On a piano recorded with a spaced pair that is not "half the level", it is a different
+        // instrument: the near mic hears its own end of the keyboard. The capture path at line 84
+        // has always downmixed; only the file path did not.
+        AudioBuffer<float> mono_source;
+        mono_source.makeCopyOf(mSourceAudio);
+        AudioUtils::downmixToMono(mono_source);
+
         AudioUtils::resampleBuffer(
-            mSourceAudio, mDownsampledSourceAudio, mSourceAudioSampleRate, BASIC_PITCH_SAMPLE_RATE);
+            mono_source, mDownsampledSourceAudio, mSourceAudioSampleRate, BASIC_PITCH_SAMPLE_RATE);
 
         // Resample to current plugin sample rate for playback
         if (mSourceAudioSampleRate != mSampleRate) {
