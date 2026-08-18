@@ -1,0 +1,9 @@
+# name	onset_f1	onset_offset_f1	onset_velocity_f1	onset_err_ms	ref_notes	est_notes
+chords	0.8649	0.8649	0.2162	2.72	16	21
+dynamics	1.0000	0.8750	1.0000	1.76	8	8
+fast_run	1.0000	0.8571	1.0000	4.79	14	14
+scale	1.0000	0.8750	1.0000	4.55	8	8
+semitones	1.0000	1.0000	1.0000	2.44	8	8
+sustained	0.5714	0.0000	0.4762	2.82	6	15
+trill	1.0000	0.0417	1.0000	4.57	24	24
+ALL	0.9231	0.5604	0.7802	3.66	84	98

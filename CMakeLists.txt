@@ -201,6 +201,14 @@ if (BUILD_UNIT_TESTS)
     add_subdirectory(Tests)
 endif ()
 
+# The transcription bench. Off by default because it is a measuring instrument rather than part
+# of the product, and it links the whole engine, so it is not free to build. Prefixed because
+# RTNeural already owns a cache variable called BUILD_BENCH and turning that on by accident
+# builds a different tool entirely.
+if (QUARRY_BUILD_BENCH)
+    add_subdirectory(tools/bench)
+endif ()
+
 target_compile_definitions(${BaseTargetName}
         PRIVATE
         SAVE_DOWNSAMPLED_AUDIO=0
