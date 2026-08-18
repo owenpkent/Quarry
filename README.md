@@ -253,6 +253,33 @@ Now you can get back to building Quarry as follows:
 Once the build script has been executed at least once, you can load this project in your favorite IDE
 (CLion/Visual Studio/VSCode/etc) and click 'build' for one of the targets.
 
+### Measuring the transcription
+
+Changing the analysis engine without measuring it is guesswork, so there is a bench. It scores the
+real engine, through the real preprocessing, against reference MIDI.
+
+```
+cmake -S . -B build -DQUARRY_BUILD_BENCH=ON
+cmake --build build --target Bench --config Release
+py tools/bench/make_corpus.py Tests/bench_corpus
+build/tools/bench/Bench_artefacts/Release/Bench.exe Tests/bench_corpus --baseline tools/bench/baseline.tsv
+```
+
+It reports note-level precision, recall and F1 at the standard 50 ms onset tolerance three ways
+(onset, onset and offset, onset and velocity) plus mean onset error, and exits non-zero if the
+aggregate has fallen against the committed baseline. `--legacy` runs the engine as it stood before
+the current round of fixes, so a difference can be attributed to a change rather than to the
+corpus. `--write-baseline <file>` records a new one.
+
+`make_corpus.py` generates a synthetic piano corpus with exact ground truth so the bench is
+runnable immediately, and it is a starting point rather than a substitute: the notes are struck by
+an additive synth with no pedal, no sympathetic resonance and no room, so scores on it are an upper
+bound. Real material goes in the same directory, as matching `<name>.wav` and `<name>.mid` pairs.
+`Tests/bench_corpus/` is not tracked, since it regenerates deterministically.
+
+Unit tests, including the ten cases checking this port against basic-pitch's own Python
+implementation, build with `-DBUILD_UNIT_TESTS=ON`.
+
 ## Reuse code from Quarry’s transcription engine
 
 All the code to perform the transcription is in `Lib/Model` and all the model weights are in `Lib/ModelData/`. Feel free

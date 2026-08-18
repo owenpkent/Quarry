@@ -9,6 +9,24 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- feat: exported velocity is measured from the audio instead of taken from the model. The number
+  written into every `.mid` Quarry has produced was `Notes::Event::amplitude`, the mean note
+  posteriorgram over the note, which is the model's confidence and says nothing about how hard a
+  key was struck. On piano that is close to fatal, because voicing, accents and the melody sitting
+  above the accompaniment are carried by dynamics and nothing else. `Lib/Model/NoteVelocity` reads
+  the harmonic-stacked CQT the feature extractor already produced, sums each pitch's fundamental
+  and first two harmonics, peaks over the attack, and maps the take's own spread onto velocity.
+  Not the span's RMS, which contains every other note sounding at the same time and reads a quiet
+  note held under a loud chord as loud. Note-level velocity F1 on the bench goes 0.372 to 0.780.
+- feat: a transcription bench, in `tools/bench`. Note-level precision, recall and F1 against
+  reference MIDI at the standard 50 ms onset tolerance, three ways, plus mean onset error, over a
+  corpus of paired files, in one command against a committed baseline. `--legacy` runs the engine
+  as it stood before these changes, so a difference is attributable to the fixes rather than to
+  the corpus, and `--baseline` exits non-zero when aggregate F1 falls. `make_corpus.py` writes a
+  synthetic piano corpus with exact ground truth, so it is runnable before anyone has downloaded
+  MAESTRO. Configure with `-DQUARRY_BUILD_BENCH=ON`. It found that the first cut of these fixes
+  was a net regression, which is the entire argument for having it.
+
 - feat: pick the window, not just the application. Two browser windows are one process, and
   nothing about a process id says which of them made the sound, so the old guess took whichever
   window happened to be a few pixels wider and named the capture after the wrong tab. Each
@@ -70,6 +88,21 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- change: the sensitivity knobs offset a threshold read off the take rather than setting one
+  outright. They used to map straight onto the decoder as `1 - value`, with no reference to the
+  material, which asked you to find the right number by ear with no feedback; published work on
+  Basic Pitch finds the difference between 0.5 and 0.6 worth close to 50% relative F1. Quarry now
+  measures each posteriorgram's noise floor and fits an Otsu split above it, and the knobs move
+  from there. Both default to centred, meaning "use what the audio says".
+- change: notes shorter than 125 ms are no longer discarded. That floor was inherited and it is a
+  musical filter wearing a noise gate's clothes: it silently deleted every semiquaver at 120 BPM
+  along with every trill, grace note and ornament. 75 ms is swept on the bench rather than
+  guessed, being the highest note-level F1 that still recovers every reference note.
+- change: a note's reported end follows its decay instead of stopping at a global threshold. The
+  old rule had no decay model, no release and no pedal, so anything that decays was truncated
+  early. Detection is untouched: whether a note exists is still settled against the threshold, and
+  only the offset moves.
+
 - ui: Quarry opens on **SAMPLE**. Capturing is the first thing the app does; transcribing is
   something you then do to a capture, reached by handing one over, with **< SAMPLES** as the way
   back. The two page tabs are gone.
@@ -122,6 +155,28 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `DESCRIBE_ONLINE` is struck before the parameter ids freeze.
 
 ### Fixed
+
+- fix: a dropped stereo file was transcribed from its left channel alone. `resampleBuffer`
+  preserves the channel count and the engine is handed one pointer, so the right channel was
+  discarded without a word. On a piano recorded with a spaced pair that is not half the level, it
+  is the near mic's end of the keyboard. The capture path has always downmixed; only the file path
+  did not.
+- fix: quiet input could produce notes out of silence. The onset inference divides by the largest
+  minimum note-posteriorgram difference in the take, which is zero on anything near-silent or
+  heavily gated, and the resulting NaN fails every comparison at the gate that exists to reject
+  the frame, so the frame passed. Upstream has the same hole.
+- fix: a minor second could not survive decoding. Both decoding passes zeroed the neighbouring
+  pitch bins across a note's whole duration to suppress leakage, so clusters, close voicings and
+  any two-part writing touching a semitone lost a voice, structurally, every time. A neighbour is
+  now zeroed only when it is weak relative to the centre bin: two strong adjacent bins are two
+  notes. On the bench's minor-second case, F1 goes 0.667 to 1.000.
+- fix: turning a sensitivity knob no longer re-sorts the whole file. The melodia pass sorted one
+  record per (frame, pitch) on every parameter change, which on five minutes of audio is 2.27
+  million records and about 36 MB, and is why the knobs stalled on long takes. The order cannot
+  change between tweaks, so it is established once per take. Same output.
+- fix: onsets are no longer pinned to the 11.6 ms frame grid. A parabola through the onset peak
+  and its neighbours gives the vertex for three multiplies. Invisible in F1 at a 50 ms tolerance,
+  as it must be; mean onset error goes 5.4 ms to 3.7 ms.
 
 - fix: `Notes::convert` honours the note range it is given. `minFrequency` and `maxFrequency`
   were applied as the bounds of one loop, while the melodia pass that follows walks every band

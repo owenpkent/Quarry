@@ -149,12 +149,12 @@ ideas:
   why `retranscribe()` re-derives notes in about a millisecond — which is why the sensitivity
   knobs are live drag-to-update controls with the roll redrawing under the cursor. Keep that
   fast path front and centre; it is already technically free.
-- **`amplitude` is three fields, not one.** `[not built]` The model's mean note-posteriorgram
-  value is *confidence*. In the fork it is also written straight into exported MIDI velocity
-  and into the preview synth, so the fork's exported dynamics **are** the model's uncertainty.
-  Quarry splits it into `confidence`, `onsetConfidence` (peak onset-PG at the onset frame) and
-  `velocity` (RMS of the source audio over the note's span). Do this before building anything
-  that displays confidence.
+- **`amplitude` is three fields, not one.** `[built]` The model's mean note-posteriorgram
+  value is *confidence*. In the fork it was also written straight into exported MIDI velocity
+  and into the preview synth, so the fork's exported dynamics **were** the model's uncertainty.
+  `Notes::Event` now carries `velocity` and `onsetConfidence` alongside it. Velocity is
+  harmonic-band CQT energy at the attack, not span RMS as first specified: span RMS contains
+  every other note sounding at the same time. `Lib/Model/NoteVelocity.{h,cpp}`.
 - **Every estimator is arithmetic we wrote, in a `juce_core`-only header.** `[not built]`
   `KeyEstimator.h`, `TempoEstimator.h`, `ChordEstimator.h`, `SectionEstimator.h` — about 800
   lines total, over data already in RAM, unit-tested by a test exe linking `okstudio_kit`

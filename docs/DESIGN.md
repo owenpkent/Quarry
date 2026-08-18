@@ -262,14 +262,19 @@ so uniqueness is load-bearing rather than cosmetic.
   per 30 s of audio (measured: 49.4 ms for 3.1746 s, single-threaded). **The first slice
   never has to be right**, which is the only thing that makes a one-click capture
   psychologically safe.
-- **`amplitude` is doing three jobs and must be split into three fields.**
-  `Notes::Event::amplitude` is the mean note-posteriorgram value over a note's frames
-  (`Lib/Model/Notes.cpp:208-212`) — a model probability. It is also written straight into
-  exported MIDI velocity (`MidiFileWriter.cpp:35`) and into the preview synth
-  (`SynthController.cpp:42`). **Quarry's exported dynamics are currently the model's
-  uncertainty.** Split into `confidence` (mean note-PG), `onsetConfidence` (peak onset-PG at
-  the onset frame) and `velocity` (RMS of the source audio over the note's span) *before* any
-  confidence UI is built on top of it.
+- **`amplitude` was doing three jobs and has been split.** `[built]`
+  `Notes::Event::amplitude` is the mean note-posteriorgram value over a note's frames, a model
+  probability, and it was also written straight into exported MIDI velocity and the preview
+  synth, so Quarry's exported dynamics **were** the model's uncertainty. `Notes::Event` now
+  carries `velocity` and `onsetConfidence` alongside it, and everything that wanted loudness
+  reads `velocity`.
+
+  One correction to the original specification, which said velocity was "RMS of the source
+  audio over the note's span". That is right for a monophonic take and wrong for a polyphonic
+  one, because the span's RMS contains every other note sounding at the same time and a quiet
+  note held under a loud chord reads as loud. `Lib/Model/NoteVelocity.{h,cpp}` uses the CQT
+  energy in the note's own fundamental and first two harmonics, peaked over the attack. See
+  `ANALYSIS.md` §2.1.
 - **Widen `okstudio/Transcribe.h` before adopting it.** Its pimpl returns only
   `vector<Note>` and throws the posteriorgrams away — and the posteriorgrams (contours
   264 × N, notes 88 × N, onsets 88 × N at 86.13 fps) *are* the description pillar. Add a
@@ -374,8 +379,8 @@ right-click path has a left-click twin.
 | 9 | Key + ribbon | **analysis thread** | < 0.05 s | `KeyEstimator.h`: duration- **and confidence-**weighted 12-bin pitch-class histogram vs Temperley-Kostka-Payne (~85 % on symbolic input), then an 8-bar sliding window |
 
 > **A cut-down version of row 9 landed in the fork first**, as `Lib/Model/KeyEstimate.h`. It is
-> the histogram and nothing else: weighted by duration and amplitude rather than by model
-> confidence, correlated against Krumhansl-Kessler rather than Temperley-Kostka-Payne, one global
+> the histogram and nothing else: weighted by duration and measured velocity rather than by
+> model confidence, correlated against Krumhansl-Kessler rather than Temperley-Kostka-Payne, one global
 > answer with no ribbon and no runner-up, and it runs on the message thread because it is
 > microseconds over note events that already exist. Two guards the design above does not mention
 > turned out to be necessary: a correlation is positive for any histogram that is not perfectly
@@ -432,7 +437,7 @@ anywhere in Quarry. Two rules make this work at real zoom levels:
   but its hit rectangle is at least 34 px wide, centred on the body; overlaps resolve
   front-most, then highest-confidence. Without this the whole editing surface fails its own
   contract: at a 30-second view across ~1300 px of canvas the scale is ~43 px/s, so a note at
-  the default 125 ms minimum duration draws **5 px wide**, and getting it to a 34 px target
+  the default 75 ms minimum duration draws **3 px wide**, and getting it to a 34 px target
   means zooming to ~4.8 s visible — two bars at 120 BPM, at which point you cannot see a
   phrase. Lattice gets away with `minColW = 36` because its steps are quantised; a
   transcription is free-time and the time-axis gate has to be written from scratch.
@@ -462,7 +467,7 @@ rows. `cellIndex`, `MAX_STEPS` and the fixed-array-of-atomics publish scheme all
 struct Note {
     double        startSec, lenSec;
     int           pitch;            // 21..108
-    juce::uint8   velocity;         // source RMS over the span
+    juce::uint8   velocity;         // harmonic-band CQT energy at the attack, not span RMS
     float         confidence;       // mean note posteriorgram
     float         onsetConfidence;  // peak onset posteriorgram at onset
     juce::uint8   focusId;          // 0 full mix, 1 harmonic, 2 percussive, 3..5 bands

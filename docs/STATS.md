@@ -116,7 +116,8 @@ and how much is the pushing and pulling. It is also the discriminator in §2.3.
 
 ### 3.3 Free, from the CQT
 
-Per-note velocity from harmonic-band energy (`ANALYSIS.md` §2.1, already specified), spectral
+Per-note velocity from harmonic-band energy (`ANALYSIS.md` §2.1, **built**, in
+`Lib/Model/NoteVelocity.{h,cpp}`), spectral
 centroid over time, spectral flatness (which distinguishes a pitched note from a drum hit that
 the model has hallucinated a pitch onto), band energy over time as a rough arrangement map,
 and per-note inharmonicity.
@@ -150,8 +151,8 @@ it costs one pass over data already in memory.
 
 ### 4.1 What ships today
 
-`Lib/Model/KeyEstimate.cpp`: a 12-bin pitch-class histogram weighted by duration times
-amplitude (`KeyEstimate.cpp:102`), correlated against Krumhansl-Kessler probe-tone profiles
+`Lib/Model/KeyEstimate.cpp`: a 12-bin pitch-class histogram weighted by duration times measured
+velocity (`KeyEstimate.cpp:103`), correlated against Krumhansl-Kessler probe-tone profiles
 for all 24 rotations, best wins. Two guards that matter and should survive any rewrite: at
 least 3 pitch classes must each carry 1 % of the take, and `kMinConfidence = 0.5f`
 (`KeyEstimate.h:40`). Both exist because a correlation is positive for any histogram that is
@@ -160,9 +161,11 @@ score 0.84 against C minor.
 
 ### 4.2 What is wrong with it
 
-1. **The weight is confidence, not loudness.** `amplitude` is the mean note posteriorgram
-   value, so the histogram is weighted by how sure the model was. `ANALYSIS.md` §2.1 fixes
-   this for export; key detection gets the fix for free and should be re-measured after.
+1. ~~**The weight is confidence, not loudness.**~~ **Fixed.** The histogram was weighted by
+   `amplitude`, the mean note posteriorgram, so it was weighted by how sure the model was.
+   `ANALYSIS.md` §2.1 landed and key detection took the fix for free: the weight is now
+   duration times measured velocity. It has **not** been re-measured against a labelled set,
+   because there is no key bench, only the behavioural cases in `Tests/key_estimate_test.h`.
 
 2. **Krumhansl-Kessler is the weakest of the standard profiles.** `DESIGN.md:361` already
    specifies Temperley-Kostka-Payne instead. Albrecht-Shanahan is worth benching too, being
@@ -322,8 +325,9 @@ merely moved the damage elsewhere.
    that §2.3 needs.
 3. **Tempo and beat phase**. Chords, the bass histogram and beat-synchronous anything all
    block on it.
-4. **Key rework** (§4). The `ANALYSIS.md` §2.1 velocity fix lands first and this is re-measured
-   after it; then profiles, then the bass histogram, then the ribbon.
+4. **Key rework** (§4). The `ANALYSIS.md` §2.1 velocity fix has landed, so the re-measurement
+   is now the blocker and needs a labelled set to measure against; then profiles, then the bass
+   histogram, then the ribbon.
 5. **Chords** (§5), porting from `../Keys` with the three changes in §5.3, and the shared-code
    location decided before the first copy.
 6. **Material profiles** (§2), once there is enough measurement to auto-propose one.

@@ -56,8 +56,10 @@
 >   calls `TranscriptionManager::setLaunchNewTranscription()`, and there is no Transcribe
 >   button in the UI at all.
 > - The failing `UnitTests` note-conversion test is **not** caused by the short-input
->   underflow guard in `6c7699e`, and is not a fork regression. `Lib/` and `Tests/` are
->   byte-identical to upstream apart from that guard and an LTO flag; the golden file
+>   underflow guard in `6c7699e`, and is not a fork regression. `Lib/` and `Tests/` were
+>   byte-identical to upstream apart from that guard and an LTO flag at the time of writing
+>   (the `ANALYSIS.md` §2 fixes have since changed the decoder, all behind parameters that
+>   default to upstream's behaviour, so the fixtures still pass); the golden file
 >   `Tests/test_data/note_events.output.json` was last regenerated at `1b4b46e`, and upstream
 >   then changed note conversion twice after it (`9421055`, `0a339f2`). It fails on upstream
 >   NeuralNote too. Any milestone here that claims per-note confidence still needs it green,
@@ -207,11 +209,12 @@ Do this **before** Quarry consumes it; every product on the line benefits.
    `struct Posteriorgrams { std::vector<std::vector<float>> notes, onsets, contours; double frameRate; }`
    and `const Posteriorgrams& posteriorgrams() const`. The pimpl currently returns only
    `vector<Note>` and throws them away, and they are the entire description pillar.
-2. **Split `Note::amplitude` into three.** `confidence` (mean note-PG, what it already is),
-   `onsetConfidence` (peak onset-PG at the onset frame), `velocity` (RMS of the source audio
-   over the note's span). Today one number is written into MIDI velocity
-   (`MidiFileWriter.cpp:35`) *and* the preview synth (`SynthController.cpp:42`), so exported
-   dynamics are the model's uncertainty. This is a latent bug fix, not a feature.
+2. **Split `Note::amplitude` into three.** `[done]` `confidence` (mean note-PG, what
+   `amplitude` already was), `onsetConfidence` (onset-PG at the onset frame), `velocity`.
+   Exported dynamics were the model's uncertainty; they are now measured from the audio.
+   Velocity is **not** span RMS as originally specified: that reads a quiet note under a loud
+   chord as loud. It is harmonic-band CQT energy at the attack, in
+   `Lib/Model/NoteVelocity.{h,cpp}`. See `ANALYSIS.md` §2.1.
 3. **`okstudio/AudioCapture.h`** — split `listen(const Source&)` out of `start()`. Verified
    coupling: `:205` `start()` opens the device and `:263` immediately calls `recorder.start()`,
    so there is currently no way to hear or meter a source without writing a WAV. Add
@@ -385,7 +388,7 @@ from `TimeQuantizeOptions`), and the hit testing.
 
 1. **Minimum hit width.** A note is drawn at true length but its hit rectangle is ≥ 34 px
    wide, centred on the body; overlaps resolve front-most, then highest-confidence. Without
-   this, a note at the default 125 ms duration draws 5 px wide at a 30 s view and the whole
+   this, a note at the default 75 ms duration draws 3 px wide at a 30 s view and the whole
    editing surface fails its own contract.
 2. **Pitch nudge on the bar** — `−8ve −1 +1 +8ve` at 40 × 24 — so pitch and time are never
    coupled in one gesture. Move mode's drag is time-only.
