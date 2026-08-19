@@ -355,8 +355,11 @@ void QuarryMainView::resized()
 
     mVisualizationPanel.setBounds(328, 140, 642, 491);
     mTranscriptionOptions.setBounds(29, 140, 274, 190);
-    mNoteOptions.setBounds(29, 354, 274, 163);
-    mQuantizePanel.setBounds(29, 525, 274, 120);
+    // Shorter than it was by the row the detected-key readout used to take. That reading is in
+    // the summary now, beside the tempo and the meter, so the panel is snap controls and
+    // nothing else and Time Quantize moves up behind it.
+    mNoteOptions.setBounds(29, 354, 274, 134);
+    mQuantizePanel.setBounds(29, 496, 274, 120);
 
     // The window grew by 60 px to seat this; nothing above it moved.
     mSampleBar->setBounds(29, 665, 941, 46);

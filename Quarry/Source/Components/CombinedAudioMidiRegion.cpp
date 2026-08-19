@@ -27,11 +27,28 @@ CombinedAudioMidiRegion::~CombinedAudioMidiRegion()
 void CombinedAudioMidiRegion::resized()
 {
     mAudioRegion.setBounds(0, 0, getWidth(), mAudioRegionHeight);
-    mPianoRoll.setBounds(0, mPianoRollY, getWidth(), getHeight() - mPianoRollY);
+    mPianoRoll.setBounds(0, pianoRollY(), getWidth(), jmax(0, getHeight() - pianoRollY()));
+}
+
+void CombinedAudioMidiRegion::setAudioRegionHeight(int inHeight)
+{
+    const auto wanted = jmax(40, inHeight);
+
+    if (wanted == mAudioRegionHeight)
+        return;
+
+    mAudioRegionHeight = wanted;
+    resized();
 }
 
 void CombinedAudioMidiRegion::paint(Graphics& g)
 {
+    ignoreUnused(g);
+}
+
+void CombinedAudioMidiRegion::setPianoRollVisible(bool inShouldShow)
+{
+    mPianoRoll.setVisible(inShouldShow);
 }
 
 bool CombinedAudioMidiRegion::isInterestedInFileDrag(const StringArray& files)

@@ -7,6 +7,34 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- feat: any window is recordable, playing or not. The source picker used to list only
+  applications making a sound, which had the common case backwards: you do not find a video
+  and then decide to record it, you decide to record it and then press play. It now lists
+  every window on the desktop, with the audible ones and their meters sorted to the top, a
+  filter box to get through them, and one row per window rather than per process. Process
+  loopback never needed an audible target - its stream is a clock, and a silent process
+  delivers zero-filled packets at the requested rate - so arming something quiet and then
+  starting it is supported rather than a trick. `docs/SAMPLER.md` carries the reasoning and
+  the list of what is excluded.
+- feat: the Transcribe page says what it heard instead of drawing it. The piano roll gave up
+  the lower half of the page to eighty-eight lanes of mostly nothing, and answered no question
+  worth asking: the notes are not editable here and they are on their way to a host, so it was
+  a picture of the export rather than a judgement of it. In its place is a readout - key with
+  its runner-up, tempo, meter, note count, length - over a per-bar confidence strip built from
+  the model confidence that was computed and thrown away on every take since the fork. Click a
+  bar to seek to it, or press NEXT SHAKY BAR to walk the ones worth checking. The roll is one
+  click away and the waveform, which is the transport, takes the height it used to spend.
+- fix: the confidence strip ranks rather than judges. Absolute cutoffs were tried first and do
+  not survive contact with the decoder's per-take derived thresholds: the first real capture
+  run through them came back with all thirty-one bars red. The tiers are now fractions of the
+  take's own median bar, so an even take reads as even and a real slump still stands out, and
+  each bar's raw number is on its tooltip.
+- refactor: the detected key is reported in one place. It was in the Scale Quantize panel and
+  is now in the summary with the rest of what describes a take; the button that adopts it went
+  with it. Two readouts of one number is one of them being out of date.
+
 ### Added
 
 - feat: an out-of-process transcription sidecar, and the app can use it. Set

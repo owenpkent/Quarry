@@ -39,10 +39,24 @@ struct KeyEstimate {
     */
     static constexpr float kMinConfidence = 0.5f;
 
+    /** The second-best of the twenty-four rotations, and how it scored.
+
+        Shown beside the winner rather than hidden, because a key reading is a ranking and
+        not a fact: the relative major and minor of a tonal phrase score within a whisker of
+        each other, and a readout that prints only the winner turns a coin toss into an
+        assertion. The user can see the gap and judge it.
+    */
+    int runnerUpRoot = 0;
+    bool runnerUpIsMinor = false;
+    float runnerUpConfidence = 0.0f;
+
     bool isValid() const { return confidence >= kMinConfidence; }
 
     /** "F# minor". Empty when there was nothing to judge. */
     String toString() const;
+
+    /** The runner-up, named the same way. Empty when there was nothing to judge. */
+    String runnerUpToString() const;
 };
 
 /**

@@ -14,6 +14,7 @@
 #if JUCE_WINDOWS
 
 #include <memory>
+#include <utility>
 #include <vector>
 
 namespace quarry::sampler
@@ -104,6 +105,11 @@ private:
         float peak = 0.0f;
         bool isPlaying = false;
 
+        /** True when the application holds an audio session, so there is a level to meter and
+            a volume to warn about. False for a window that is merely open, which is most of
+            them and is a perfectly good thing to arm the recorder on. */
+        bool hasAudioSession = false;
+
         /** Where the row's meter actually sits, as opposed to `peak`, which is where it is
             heading. Carried across refreshes so the level glides between enumerations rather
             than stepping four times a second. */
@@ -120,6 +126,10 @@ private:
 
     void _refreshSources();
 
+    /** Fills mSources from mAllSources, keeping what the filter box matches. Split from the
+        enumeration so typing in the box costs a string compare rather than a round of COM. */
+    void _applySourceFilter();
+
     void _toggleRecording();
 
     void _fixSelectedVolume();
@@ -128,6 +138,9 @@ private:
 
     /** The row currently selected, or nothing if the app it named has gone away. */
     const SourceRow* _selectedSource() const;
+
+    /** The row at a list position, counting from zero past the "everything" row. */
+    const SourceRow& _shownSource(int inListRow) const;
 
     void _updateEnablements();
 
@@ -149,6 +162,10 @@ private:
     void _rebuildChooser();
 
     std::unique_ptr<ListBox> mSourceList;
+
+    /** Everything open is a long list, and the one you want has a name you can type. Matches
+        on the application and on the window title, because either is what you remember. */
+    std::unique_ptr<TextEditor> mSourceFilter;
 
     /** The same choice as the list, for the narrow window, where a list of one visible row
         and a great deal of nothing was most of what the window was. */
@@ -208,7 +225,18 @@ private:
     std::unique_ptr<ThreadPool> mScanPool;
     std::atomic<bool> mScanRunning { false };
 
+    /** Every window and session the last enumeration found, before the filter box. The rows
+        live here and nowhere else, so the meter ballistics have one place to write to. */
     std::vector<SourceRow> mSources;
+
+    /** Indices into mSources, in list order: what the filter box left showing. Indices rather
+        than copies, because the level on a copy would stop moving the moment it was taken. */
+    std::vector<size_t> mShownSources;
+
+    /** The same rows named by what they are rather than by where they sit, so a refresh can
+        tell a list that changed from one that only moved. An index cannot: it outlives the
+        vector it points into. */
+    std::vector<std::pair<uint32, uint64>> mShownIdentities;
 
     // A pid alone no longer names a row: one application can be several of them. The window
     // is what separates two rows that share a process.

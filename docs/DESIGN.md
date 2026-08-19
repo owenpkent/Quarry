@@ -33,7 +33,13 @@ Four things it says about what it heard, ranked by how much they are worth (this
 is a decision, not a wish list — see *Load-bearing ideas*):
 
 1. **Per-note confidence.** Which notes the model is unsure about, and therefore which
-   bars to go fix by hand. Already computed today and thrown away.
+   bars to go fix by hand. Computed today and, until 2026-08-18, thrown away: the Transcribe
+   page now spends the space the piano roll used to hold on a per-bar confidence strip built
+   from it, with the key, tempo, meter, note count and length over the top. The roll is a
+   toggle rather than the default, because it was a picture of the export and this is a
+   judgement of it. See `TranscriptionSummary`, and the CHANGELOG entry for what the strip
+   is measured against - the tiers are relative to the take's own median, since the decoder
+   derives its thresholds per take and absolute cutoffs painted every bar red.
 2. **Tempo and meter.** Not a description feature at all — a correctness prerequisite,
    because without it every exported MIDI file carries a fabricated 120 / 4-4 tempo map.
 3. **Key**, with its runner-up and its relative sibling always on screen, plus a sliding

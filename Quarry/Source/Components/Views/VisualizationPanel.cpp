@@ -10,6 +10,7 @@ VisualizationPanel::VisualizationPanel(QuarryAudioProcessor* processor)
     : mProcessor(processor)
     , mCombinedAudioMidiRegion(processor, mKeyboard)
     , mMidiFileDrag(processor)
+    , mSummary(*processor)
 {
     mAudioMidiViewport.setViewedComponent(&mCombinedAudioMidiRegion);
     addAndMakeVisible(mAudioMidiViewport);
@@ -21,23 +22,8 @@ VisualizationPanel::VisualizationPanel(QuarryAudioProcessor* processor)
     mAudioMidiViewport.setScrollBarsShown(false, true, false, false);
     addChildComponent(mMidiFileDrag);
 
-    auto tempo_str_validator = [](const String& tempo_str) {
-        if (tempo_str.isEmpty()) {
-            return false;
-        }
-
-        float tempo = tempo_str.getFloatValue();
-        return tempo >= 20.0f && tempo <= 999.0f;
-    };
-
-    auto tempo_str_corrector = [](const String& tempo_str) {
-        return tempo_str.isEmpty() ? String("120") : String(jlimit(20.0f, 999.0f, tempo_str.getFloatValue()));
-    };
-
-    mFileTempo = std::make_unique<NumericTextEditor<double>>(
-        mProcessor, NnId::ExportTempoId, 6, 120.0, Justification::centred, tempo_str_validator, tempo_str_corrector);
-    mFileTempo->setTooltip(QuarryTooltips::export_tempo);
-    addChildComponent(*mFileTempo);
+    addAndMakeVisible(mSummary);
+    mSummary.onRollVisibilityToggled = [this](bool shouldShow) { _setRollVisible(shouldShow); };
 
     mAudioGainSlider.setSliderStyle(Slider::SliderStyle::LinearHorizontal);
     mAudioGainSlider.setTextBoxStyle(Slider::TextEntryBoxPosition::TextBoxLeft, true, 40, 20);
@@ -69,64 +55,73 @@ VisualizationPanel::VisualizationPanel(QuarryAudioProcessor* processor)
     // Add this as mouse listener of audio region and pianoroll to control visibility of gain sliders
     mCombinedAudioMidiRegion.getAudioRegion()->addMouseListener(this, true);
     mCombinedAudioMidiRegion.getPianoRoll()->addMouseListener(this, true);
+
+    _setRollVisible(mShowRoll);
 }
 
 void VisualizationPanel::resized()
 {
-    mKeyboard.setBounds(0,
-                        mCombinedAudioMidiRegion.mPianoRollY,
-                        KEYBOARD_GEOMETRY_WIDTH,
-                        getHeight() - mCombinedAudioMidiRegion.mPianoRollY);
+    // The summary is given exactly what it needs. Stretched to fill it was a readout with two
+    // hundred pixels of nothing under the last sentence.
+    const auto summaryHeight = jmin(getHeight() / 2,
+                                    mShowRoll ? TranscriptionSummary::compactHeight()
+                                              : TranscriptionSummary::naturalHeight());
+    const auto scrollingHeight = jmax(120, getHeight() - summaryHeight - SUMMARY_GAP);
 
-    mAudioMidiViewport.setBounds(0, 0, getWidth(), getHeight());
+    // Whatever is left over goes to the waveform when the roll is away, which is most of the
+    // time and is the point: it is the transport, and a take you can see the shape of is a
+    // take you can scrub. With the roll up the waveform goes back to its old height and the
+    // roll takes the remainder.
+    mCombinedAudioMidiRegion.setAudioRegionHeight(
+        mShowRoll ? CombinedAudioMidiRegion::DEFAULT_AUDIO_REGION_HEIGHT
+                  : scrollingHeight - mCombinedAudioMidiRegion.mHeightBetweenAudioMidi);
+
+    const auto rollY = mCombinedAudioMidiRegion.pianoRollY();
+
+    // Against the roll's own height, not the panel's. PianoRoll asks the keyboard where every
+    // pitch sits, so a keyboard laid out taller than the roll it answers for puts most of the
+    // notes below the bottom edge - which is exactly what a shorter roll did to it.
+    mKeyboard.setBounds(0, rollY, KEYBOARD_GEOMETRY_WIDTH, jmax(1, scrollingHeight - rollY));
+
+    // The waveform and the roll share one horizontally scrolling region, because they share a
+    // time axis and must not be able to disagree about where in the take you are looking.
+    mAudioMidiViewport.setBounds(0, 0, getWidth(), scrollingHeight);
 
     mCombinedAudioMidiRegion.setBaseWidth(getWidth());
-    mCombinedAudioMidiRegion.setBounds(0, 0, getWidth(), getHeight());
+    mCombinedAudioMidiRegion.setBounds(0, 0, getWidth(), scrollingHeight);
     mCombinedAudioMidiRegion.changeListenerCallback(mProcessor->getSourceAudioManager()->getAudioThumbnail());
 
-    // The export tempo used to sit in the keyboard gutter. With the gutter gone the
-    // waveform runs to the left edge, and every pixel of it seeks the playhead, so
-    // the tempo moves onto the strip between the waveform and the roll: the one band
-    // in here that is nobody's click target. The drag handle gives up its right end.
-    auto band =
-        Rectangle<int>(0, mCombinedAudioMidiRegion.mPianoRollY - TEMPO_BAND_HEIGHT, getWidth(), TEMPO_BAND_HEIGHT);
-    auto tempo_block = band.removeFromRight(TEMPO_BLOCK_WIDTH);
+    // The strip between the waveform and wherever the roll would be: nobody's click target,
+    // which is why the drag handle lives in it.
+    mMidiFileDrag.setBounds(0, rollY - DRAG_BAND_HEIGHT, getWidth() - 6, DRAG_BAND_HEIGHT);
 
-    mMidiFileDrag.setBounds(band.withTrimmedRight(6));
-
-    mTempoBlockBounds = tempo_block;
-    tempo_block.removeFromRight(8);
-    mFileTempo->setBounds(tempo_block.removeFromRight(TEMPO_EDITOR_WIDTH));
-    mTempoLabelBounds = tempo_block.withTrimmedLeft(8).withTrimmedRight(6);
+    mSummary.setBounds(0, getHeight() - summaryHeight, getWidth(), summaryHeight);
 
     mAudioGainSlider.setBounds(getWidth() - 205, 3, 200, 20);
-    mMidiGainSlider.setBounds(getWidth() - 205, mCombinedAudioMidiRegion.mPianoRollY + 3, 200, 20);
+    mMidiGainSlider.setBounds(getWidth() - 205, rollY + 3, 200, 20);
 
-    mAudioRegionBounds = {0, 0, getWidth(), mCombinedAudioMidiRegion.mAudioRegionHeight};
-    mPianoRollBounds = {
-        0,
-        mCombinedAudioMidiRegion.mAudioRegionHeight + mCombinedAudioMidiRegion.mHeightBetweenAudioMidi,
-        getWidth(),
-        getHeight() - (mCombinedAudioMidiRegion.mAudioRegionHeight + mCombinedAudioMidiRegion.mHeightBetweenAudioMidi)};
+    mAudioRegionBounds = {0, 0, getWidth(), mCombinedAudioMidiRegion.audioRegionHeight()};
+    mPianoRollBounds = {0, rollY, getWidth(), jmax(0, scrollingHeight - rollY)};
 }
 
-void VisualizationPanel::paint(Graphics& g)
+void VisualizationPanel::_setRollVisible(bool inShouldShow)
 {
-    if (mMidiFileDrag.isVisible()) {
-        g.setColour(PANEL_BG);
-        g.fillRoundedRectangle(mTempoBlockBounds.toFloat(), 4);
+    mShowRoll = inShouldShow;
 
-        g.setColour(TEXT_MAIN);
-        g.setFont(UIDefines::LABEL_FONT());
-        g.drawFittedText("MIDI FILE TEMPO", mTempoLabelBounds, Justification::centredRight, 1);
-    }
+    mCombinedAudioMidiRegion.setPianoRollVisible(inShouldShow);
+    mSummary.setRollVisible(inShouldShow);
+
+    if (! inShouldShow)
+        mMidiGainSlider.setVisible(false);
+
+    resized();
 }
 
 void VisualizationPanel::clear()
 {
-    mCombinedAudioMidiRegion.setSize(getWidth(), getHeight());
+    mCombinedAudioMidiRegion.setSize(getWidth(), mAudioMidiViewport.getHeight());
     mMidiFileDrag.setVisible(false);
-    mFileTempo->setVisible(false);
+    mSummary.clear();
 }
 
 void VisualizationPanel::repaintPianoRoll()
@@ -137,7 +132,6 @@ void VisualizationPanel::repaintPianoRoll()
 void VisualizationPanel::setMidiFileDragComponentVisible()
 {
     mMidiFileDrag.setVisible(true);
-    mFileTempo->setVisible(true);
 }
 
 void VisualizationPanel::mouseEnter(const MouseEvent& event)
@@ -147,7 +141,7 @@ void VisualizationPanel::mouseEnter(const MouseEvent& event)
     if (mProcessor->getState() == PopulatedAudioAndMidiRegions) {
         if (event.originalComponent == mCombinedAudioMidiRegion.getAudioRegion()) {
             mAudioGainSlider.setVisible(true);
-        } else if (event.originalComponent == mCombinedAudioMidiRegion.getPianoRoll()) {
+        } else if (mShowRoll && event.originalComponent == mCombinedAudioMidiRegion.getPianoRoll()) {
             mMidiGainSlider.setVisible(true);
         }
     }

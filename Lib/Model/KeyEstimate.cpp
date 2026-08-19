@@ -79,6 +79,14 @@ String KeyEstimate::toString() const
     return String(kNoteNames[rootNote]) + (isMinor ? " minor" : " major");
 }
 
+String KeyEstimate::runnerUpToString() const
+{
+    if (!isValid())
+        return {};
+
+    return String(kNoteNames[runnerUpRoot]) + (runnerUpIsMinor ? " minor" : " major");
+}
+
 KeyEstimate estimateKey(const std::vector<Notes::Event>& inNoteEvents)
 {
     KeyEstimate estimate;
@@ -120,27 +128,39 @@ KeyEstimate estimateKey(const std::vector<Notes::Event>& inNoteEvents)
         return estimate;
 
     double best = -1.0;
+    double second = -1.0;
+
+    // The runner-up is kept because the winner alone overstates how settled the answer is.
+    // Two rotations a hundredth apart is a different situation from one that won by a
+    // quarter, and the readout can only say so if the loser survives the loop.
+    const auto consider = [&](double score, int root, bool minor) {
+        if (score > best) {
+            second = best;
+            estimate.runnerUpRoot = estimate.rootNote;
+            estimate.runnerUpIsMinor = estimate.isMinor;
+
+            best = score;
+            estimate.rootNote = root;
+            estimate.isMinor = minor;
+            return;
+        }
+
+        if (score > second) {
+            second = score;
+            estimate.runnerUpRoot = root;
+            estimate.runnerUpIsMinor = minor;
+        }
+    };
 
     for (int root = 0; root < 12; root++) {
-        const auto major = correlate(histogram, kMajorProfile, root);
-        const auto minor = correlate(histogram, kMinorProfile, root);
-
-        if (major > best) {
-            best = major;
-            estimate.rootNote = root;
-            estimate.isMinor = false;
-        }
-
-        if (minor > best) {
-            best = minor;
-            estimate.rootNote = root;
-            estimate.isMinor = true;
-        }
+        consider(correlate(histogram, kMajorProfile, root), root, false);
+        consider(correlate(histogram, kMinorProfile, root), root, true);
     }
 
     // The clamp only keeps the number inside its advertised range; what decides
     // whether the answer is usable is KeyEstimate::kMinConfidence.
     estimate.confidence = static_cast<float>(jlimit(0.0, 1.0, best));
+    estimate.runnerUpConfidence = static_cast<float>(jlimit(0.0, 1.0, second));
 
     return estimate;
 }

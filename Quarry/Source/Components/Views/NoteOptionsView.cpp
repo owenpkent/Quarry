@@ -53,26 +53,12 @@ NoteOptionsView::NoteOptionsView(QuarryAudioProcessor& processor)
         *mProcessor.getParams()[ParameterHelpers::KeySnapModeId], *mSnapMode);
     addAndMakeVisible(mSnapMode.get());
 
-    // A reading of the take, not an instruction to it. Sits in a well beside the
-    // snap controls so output does not look like something you set.
-    mDetectedLabel = std::make_unique<Label>("DetectedKey");
-    mDetectedLabel->setJustificationType(Justification::centredLeft);
-    // Hit tested only so the tooltip can be found under the mouse. The label is not editable, so
-    // there is nothing for a click to do.
-    mDetectedLabel->setInterceptsMouseClicks(true, false);
-    mDetectedLabel->setTooltip(QuarryTooltips::detected_key);
-    addAndMakeVisible(*mDetectedLabel);
+    // The detected key used to be reported here, beside the snap controls that act on it. It
+    // is in TranscriptionSummary now, with the tempo and the meter and everything else that
+    // describes the take rather than instructs it, and the button that adopts it went along.
+    // Two readouts of one number is one of them being out of date.
 
-    mUseKeyButton = std::make_unique<TextButton>("Use it");
-    mUseKeyButton->setTooltip(QuarryTooltips::use_detected_key);
-    mUseKeyButton->onClick = [this]() { _adoptDetectedKey(); };
-    addAndMakeVisible(*mUseKeyButton);
-
-    setSize(266, 169);
-
-    _clearDetectedKey();
-    _refreshDetectedKey();
-    startTimerHz(2);
+    setSize(266, 140);
 
     mProcessor.getParams()[static_cast<size_t>(ParameterHelpers::EnableNoteQuantizationId)]->addListener(this);
 
@@ -82,7 +68,6 @@ NoteOptionsView::NoteOptionsView(QuarryAudioProcessor& processor)
 
 NoteOptionsView::~NoteOptionsView()
 {
-    stopTimer();
     mProcessor.getParams()[static_cast<size_t>(ParameterHelpers::EnableNoteQuantizationId)]->removeListener(this);
 }
 
@@ -93,8 +78,6 @@ void NoteOptionsView::resized()
     mRootNoteDropdown->setBounds(64, LEFT_SECTIONS_TOP_PAD + 46, 55, 17);
     mKeyType->setBounds(124, LEFT_SECTIONS_TOP_PAD + 46, 129, 17);
     mSnapMode->setBounds(100, LEFT_SECTIONS_TOP_PAD + 75, 154, 17);
-    mDetectedLabel->setBounds(83, LEFT_SECTIONS_TOP_PAD + 104, 116, 17);
-    mUseKeyButton->setBounds(203, LEFT_SECTIONS_TOP_PAD + 103, 50, 19);
 }
 
 void NoteOptionsView::paint(Graphics& g)
@@ -121,11 +104,6 @@ void NoteOptionsView::paint(Graphics& g)
     g.drawText("KEY", Rectangle<int>(19, mRootNoteDropdown->getY(), 80, 17), Justification::centredLeft);
 
     g.drawText("SNAP MODE", Rectangle<int>(19, mSnapMode->getY(), 80, 17), Justification::centredLeft);
-
-    // Detected is not part of the disabled group: it describes the take, which is
-    // true whether or not snapping is switched on.
-    g.setColour(TEXT_MAIN);
-    g.drawText("DETECTED", Rectangle<int>(19, mDetectedLabel->getY(), 80, 17), Justification::centredLeft);
 }
 
 void NoteOptionsView::parameterValueChanged(int parameterIndex, float newValue)
@@ -151,74 +129,3 @@ void NoteOptionsView::_enableView(bool inEnable)
     repaint();
 }
 
-void NoteOptionsView::timerCallback()
-{
-    _refreshDetectedKey();
-}
-
-void NoteOptionsView::_refreshDetectedKey()
-{
-    auto* transcription_manager = mProcessor.getTranscriptionManager();
-
-    // The transcription job rebuilds the note vector on a worker thread, and the store of this state
-    // at the end of that job is the only thing that makes it safe to read from here. The piano roll
-    // waits on the same edge.
-    if (mProcessor.getState() != PopulatedAudioAndMidiRegions) {
-        if (mHasReading)
-            _clearDetectedKey();
-
-        return;
-    }
-
-    const std::uint32_t revision = transcription_manager->getRawNoteEventsRevision();
-
-    if (mHasReading && revision == mLastNoteRevision)
-        return;
-
-    mLastNoteRevision = revision;
-    mHasReading = true;
-
-    // Judged on the model output rather than on what scale quantize left behind. With SNAP MODE set
-    // to Remove every out-of-key note is already gone, so the readout would do no more than repeat
-    // the key the user typed in.
-    const auto& events = transcription_manager->getRawNoteEventVector();
-    mDetected = estimateKey(events);
-
-    const bool usable = mDetected.isValid();
-
-    if (!usable) {
-        mDetectedLabel->setColour(Label::textColourId, TEXT_DIM);
-        mDetectedLabel->setText(events.empty() ? "nothing yet" : "no clear key", dontSendNotification);
-    } else {
-        // Confidence is shown rather than hidden: percussive material scores low,
-        // and the user should be able to see that before trusting the answer.
-        mDetectedLabel->setColour(Label::textColourId, okstudio::obsidian::accentOf(*this).base);
-        mDetectedLabel->setText(mDetected.toString() + "  " + String(mDetected.confidence, 2),
-                                dontSendNotification);
-    }
-
-    mUseKeyButton->setEnabled(usable);
-}
-
-void NoteOptionsView::_clearDetectedKey()
-{
-    mHasReading = false;
-    mDetected = KeyEstimate();
-
-    mDetectedLabel->setColour(Label::textColourId, TEXT_DIM);
-    mDetectedLabel->setText("nothing yet", dontSendNotification);
-    mUseKeyButton->setEnabled(false);
-}
-
-void NoteOptionsView::_adoptDetectedKey()
-{
-    if (!mDetected.isValid())
-        return;
-
-    // The estimator counts from C; the picker starts at A.
-    const int root_index = (mDetected.rootNote + 3) % 12;
-
-    mRootNoteDropdown->setSelectedItemIndex(root_index, sendNotificationSync);
-    mKeyType->setSelectedItemIndex(mDetected.isMinor ? NoteUtils::Minor : NoteUtils::Major,
-                                   sendNotificationSync);
-}

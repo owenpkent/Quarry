@@ -39,7 +39,10 @@ The workflow is very simple:
     - Or, in the standalone app, pick an audio input in the **SOURCE** strip and record straight from it
       (see below).
     - Or drop an audio file on the plugin. (.wav, .aiff, .flac, .mp3 and .ogg (vorbis) supported)
-- The MIDI transcription instantly appears in the piano roll section.
+- Quarry says what it heard: the key and its runner-up, the tempo, the meter, how many notes,
+  and a strip showing which bars the model was least sure of. Click a bar to jump there, or press
+  **NEXT SHAKY BAR** to walk them. **show notes** puts the piano roll under the waveform when you
+  want to see the notes themselves.
 - Listen to the result by clicking the play button.
     - Play with the different settings to adjust the transcription, even while listening to it
     - Individually adjust the level of the source audio and of the synthesized transcription
@@ -116,11 +119,14 @@ As part of the original NeuralNote project, its authors
 ## Sampling one application
 
 Quarry opens on **SAMPLE**, which captures audio in the first place rather than converting it.
-Transcribe is unchanged and is still where a take becomes MIDI; it is now somewhere a capture
-takes you, and **< SAMPLES** in the toolbar is the way back.
+Transcribe is still where a take becomes MIDI; it is somewhere a capture takes you, and
+**< SAMPLES** in the toolbar is the way back.
 
-It lists what is making a sound right now, one row each with a live meter, and records the one
-you pick **in isolation**. Not the speakers, the application: a browser tab and nothing else, no
+It lists **every window you have open**, one row each, with whatever is making a sound right now
+sorted to the top and metered. Type in the filter box to narrow it. You do not have to wait for a
+tab to start playing before you can arm it: process loopback records a silent target quite happily,
+so pick the window first and press play afterwards. Quarry records the one you pick **in
+isolation**. Not the speakers, the application: a browser tab and nothing else, no
 notification arriving halfway through, no second app bleeding in. Because the capture follows
 that process rather than the output, focus does not matter. Arm the tab, hit record, switch to
 the browser, play it, switch back, stop. Nothing you did in between is in the file, and the

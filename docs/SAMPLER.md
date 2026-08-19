@@ -152,16 +152,32 @@ every field is nullable in the schema.
    Windows.Graphics.Capture for hardware-composited windows that come back black. Written
    as a `.png` beside the audio, downscaled to about 480 px wide.
 
-The source picker itself lists **apps currently making sound**, not all processes:
-`IAudioSessionManager2::GetSessionEnumerator`, with a live meter per row from
-`IAudioMeterInformation::GetPeakValue`. You pick from a short list of things you can see
-moving.
+The source picker lists **every window on the desktop**, with the ones currently making sound
+at the top: `IAudioSessionManager2::GetSessionEnumerator` for the audible half, with a live
+meter per row from `IAudioMeterInformation::GetPeakValue`, merged with an `EnumWindows` walk
+for everything else. A filter box narrows it, matching on the application and on the window
+title.
 
 **Rank on the meter, not on the session state.** `AudioSessionStateActive` sounds like the
-right filter and is not: run the listing on this machine and Premiere, Resolve and a
+right sort key and is not: run the listing on this machine and Premiere, Resolve and a
 wallpaper engine all report as active at a peak of exactly zero, holding a stream open
 against the moment they need it. Of fifteen sessions, one was making sound. Sorting by peak
-is what makes the list short.
+is what puts the row that matters first.
+
+**Updated 2026-08-18: audible is an ordering, not a filter.** It used to be both, and a row
+had to be making a sound to be listed at all. That got the common case exactly backwards. You
+do not find a video and then decide to record it; you decide to record it and then press play,
+and a picker that cannot see a paused tab makes you start the audio, race to Quarry, find the
+row, and arm it, having already lost the opening. Process loopback never needed the target to
+be audible: its stream is a clock, and a silent process delivers zero-filled packets at the
+requested rate, so arming something quiet and waiting is supported rather than a trick. The
+list is now everything you could point at, ordered by what is playing.
+
+That trades a short list for a long one, so three things keep it usable: the filter box, one
+row per window rather than per process (a browser with four windows is four rows, and the
+title is what tells them apart), and exclusions for the things nobody means by "that window" -
+owned and untitled windows, `WS_EX_TOOLWINDOW` palettes, the shell's desktop and its wallpaper
+hosts, DWM-cloaked suspended UWP shells, and Quarry itself.
 
 ---
 

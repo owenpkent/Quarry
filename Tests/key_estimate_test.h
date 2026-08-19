@@ -88,6 +88,32 @@ static bool expectNoKey(const char* inWhat, const KeyEstimate& inEstimate)
 
 /** An estimate refused by the support gate is left at zero, so a positive confidence
     proves the reading was scored and then turned down by kMinConfidence instead. */
+/** The runner-up has to be a real second place: a key, not the winner again, and never scored
+    above the thing it lost to. The bookkeeping that fills it demotes the old best when a new
+    one arrives, which is exactly the shape that quietly ends up holding two copies of one
+    answer. */
+static bool expectRunnerUp(const char* inWhat, const KeyEstimate& inEstimate)
+{
+    if (inEstimate.runnerUpRoot == inEstimate.rootNote && inEstimate.runnerUpIsMinor == inEstimate.isMinor) {
+        std::cout << "FAIL: " << inWhat << " named " << inEstimate.toString().toStdString()
+                  << " as its own runner-up" << std::endl;
+        return false;
+    }
+
+    if (inEstimate.runnerUpConfidence > inEstimate.confidence) {
+        std::cout << "FAIL: " << inWhat << " scored its runner-up " << inEstimate.runnerUpConfidence
+                  << " above the winner's " << inEstimate.confidence << std::endl;
+        return false;
+    }
+
+    if (inEstimate.runnerUpToString().isEmpty()) {
+        std::cout << "FAIL: " << inWhat << " would not name its runner-up" << std::endl;
+        return false;
+    }
+
+    return true;
+}
+
 static bool expectScoredThenRejected(const char* inWhat, const KeyEstimate& inEstimate)
 {
     if (!(inEstimate.confidence > 0.0f)) {
@@ -127,6 +153,7 @@ bool key_estimate_test()
     const auto c_major = estimateKey(makePhrase(60, major_phrase));
     std::cout << c_major.toString().toStdString() << " " << c_major.confidence << std::endl;
     succeeded &= expectKey("a clean C major phrase", c_major, 0, false);
+    succeeded &= expectRunnerUp("a clean C major phrase", c_major);
 
     if (c_major.confidence < 0.9f) {
         std::cout << "FAIL: a clean C major phrase scored only " << c_major.confidence << ", expected at least 0.9"

@@ -39,6 +39,11 @@ public:
 
     void setBaseWidth(int inWidth);
 
+    /** Shows or hides the roll under the waveform. Hidden, it takes no height and no clicks:
+        the region is sized to the waveform alone and the roll is not a hit target that is
+        merely invisible. */
+    void setPianoRollVisible(bool inShouldShow);
+
     void repaintPianoRoll();
 
     void resizeAccordingToNumSamplesAvailable();
@@ -55,11 +60,21 @@ public:
 
     PianoRoll* getPianoRoll();
 
+    /** How tall the waveform is. Was a constant at 85 px, back when the roll took the rest of
+        the panel whether or not it was earning it. With the roll away there is a great deal of
+        height going spare and the waveform is the thing that wants it: it is the transport,
+        every pixel of it seeks, and the shape of a take is what you scrub against. */
+    void setAudioRegionHeight(int inHeight);
+
+    int audioRegionHeight() const { return mAudioRegionHeight; }
+
+    int pianoRollY() const { return mAudioRegionHeight + mHeightBetweenAudioMidi; }
+
     const double mBaseNumPixelsPerSecond = 100.0;
 
-    const int mAudioRegionHeight = 85;
+    static constexpr int DEFAULT_AUDIO_REGION_HEIGHT = 85;
+
     const int mHeightBetweenAudioMidi = 23;
-    const int mPianoRollY = mAudioRegionHeight + mHeightBetweenAudioMidi;
 
 private:
     void _onVBlankCallback();
@@ -86,6 +101,8 @@ private:
     const double mMaxZoomLevel = 5.0;
     const double mMinZoomLevel = 0.1;
     double mZoomLevel = 1.0;
+
+    int mAudioRegionHeight = DEFAULT_AUDIO_REGION_HEIGHT;
 
     AudioRegion mAudioRegion;
     PianoRoll mPianoRoll;

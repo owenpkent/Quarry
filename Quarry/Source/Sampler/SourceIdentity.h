@@ -59,6 +59,47 @@ struct SourceWindow
  */
 std::vector<SourceWindow> windowsOfSource(juce::uint32 processId);
 
+/** One window on the desktop, and the application behind it. */
+struct DesktopWindow
+{
+    /** The HWND, carried as an integer so this header stays clear of windows.h. */
+    juce::uint64 handle = 0;
+
+    juce::String title;
+
+    juce::uint32 processId = 0;
+
+    /** "chrome.exe". Empty when the process would not say. */
+    juce::String processName;
+};
+
+/**
+ * Every window on the desktop a person could point at, frontmost first.
+ *
+ * windowsOfSource() answers "which windows does this pid own", which is only askable once
+ * something is already making a sound. This is the other direction: everything that is open,
+ * whether or not it holds an audio session, because a browser tab that is paused is exactly
+ * the thing you want to arm the recorder on *before* you hit play on it.
+ *
+ * Process loopback does not need the target to be audible. Its stream is a clock: a silent
+ * process still delivers zero-filled packets at the requested rate, so arming on a quiet
+ * window and waiting is a supported way to use it, not a trick.
+ *
+ * Skips owned windows, untitled windows, and the cloaked shells Windows keeps around for
+ * suspended UWP apps, all of which are things nobody means when they say "that window".
+ * Quarry's own windows are skipped too.
+ */
+std::vector<DesktopWindow> desktopWindows();
+
+/**
+ * The full path of a process's executable, or empty.
+ *
+ * The audio-session enumeration reports this for anything holding a session. A window picked
+ * out of desktopWindows() may not be, and the capture sidecar still wants the path, so this
+ * asks the process directly.
+ */
+juce::String executablePathOf(juce::uint32 processId);
+
 /**
  * Title and, where there is one, the URL.
  *

@@ -11,6 +11,8 @@
 #include "SourceAudioManager.h"
 #include <okstudio/Obsidian.h>
 
+#include <algorithm>
+
 // Last, deliberately: these drag in the Windows audio headers. Everything below them pays
 // for it, which is why this file spells out juce::Rectangle and reaches for
 // Colours::transparentBlack: windows.h declares a Rectangle() that makes the unqualified
@@ -146,11 +148,19 @@ SamplePageView::SamplePageView(QuarryAudioProcessor& inProcessor)
     mSourceList->setColour(ListBox::outlineColourId, Colours::transparentBlack);
     addAndMakeVisible(*mSourceList);
 
+    mSourceFilter = std::make_unique<TextEditor>("Filter sources");
+    mSourceFilter->setTextToShowWhenEmpty("filter windows", TEXT_DIM);
+    mSourceFilter->setColour(TextEditor::backgroundColourId, PANEL_BOT);
+    mSourceFilter->setColour(TextEditor::textColourId, TEXT_MAIN);
+    mSourceFilter->setColour(TextEditor::outlineColourId, Colours::transparentBlack);
+    mSourceFilter->onTextChange = [this]() { _applySourceFilter(); };
+    addAndMakeVisible(*mSourceFilter);
+
     // The same choice the list offers, for the window that has no room for a list. Added as a
     // child component rather than made visible: only one of the two is ever on screen.
     mSourceChooser = std::make_unique<ComboBox>("Source");
     mSourceChooser->setTextWhenNothingSelected("Pick what to record");
-    mSourceChooser->setTextWhenNoChoicesAvailable("Nothing is playing");
+    mSourceChooser->setTextWhenNoChoicesAvailable("No windows open");
     mSourceChooser->onChange = [this]() {
         const auto id = mSourceChooser->getSelectedId();
 
@@ -159,9 +169,9 @@ SamplePageView::SamplePageView(QuarryAudioProcessor& inProcessor)
             mSelectedPid = everythingPid;
             mSelectedWindow = 0;
         }
-        else if (id >= 2 && (size_t) (id - 2) < mSources.size())
+        else if (id >= 2 && (size_t) (id - 2) < mShownSources.size())
         {
-            const auto& picked = mSources[(size_t) (id - 2)];
+            const auto& picked = _shownSource(id - 2);
             mSelectedPid = picked.processId;
             mSelectedWindow = picked.windowHandle;
         }
@@ -282,6 +292,7 @@ void SamplePageView::resized()
         auto column = area.reduced(4, 0);
 
         mHeaderBounds = {};
+        mSourceFilter->setBounds({});
         mLibraryHeaderBounds = {};
         mLibraryColumnsBounds = {};
         mSelectionBounds = {};
@@ -339,8 +350,14 @@ void SamplePageView::resized()
     mSelectionBounds = rail.removeFromBottom(66);
     rail.removeFromBottom(12);
 
+    // The list is everything open now, not the two things making a noise, so it needs the same
+    // way in that the library has had all along.
+    mSourceFilter->setBounds(rail.removeFromTop(26));
+    rail.removeFromTop(6);
+
     // Everything left over, the way the library list takes everything left over. A list with
     // room to grow reads as a list; it was only a hole when nothing else was in the column.
+    rail.removeFromBottom(rail.getHeight() % rowHeight);
     mSourceList->setBounds(rail);
 
     //==========================================================================
@@ -390,7 +407,7 @@ void SamplePageView::paint(Graphics& g)
     g.setFont(UIDefines::LABEL_FONT());
 
     if (mShowCaptures)
-        g.drawText("PLAYING AUDIO", mHeaderBounds.withTrimmedLeft(6),
+        g.drawText("WINDOWS", mHeaderBounds.withTrimmedLeft(6),
                    Justification::centredLeft, false);
 
     if (mShowCaptures)
@@ -518,11 +535,20 @@ void SamplePageView::_paintSelection(Graphics& g)
     if (beneath.isNotEmpty())
         g.drawText(beneath, area.removeFromTop(18), Justification::topLeft, true);
 
-    if (! everything && source->volume < 0.999f && area.getHeight() >= 18)
+    if (! everything && source->hasAudioSession && source->volume < 0.999f && area.getHeight() >= 18)
     {
         g.setColour(Colours::orange);
         g.drawText("playing at " + String(roundToInt(source->volume * 100.0f)) + "%, which is baked in",
                    area.removeFromTop(18), Justification::topLeft, true);
+    }
+
+    // Arming something silent is now allowed, so it has to be said. Otherwise a take started
+    // ahead of a video reads as a broken recorder for as long as the video takes to start.
+    if (! everything && ! source->hasAudioSession && area.getHeight() >= 18)
+    {
+        g.setColour(TEXT_DIM);
+        g.drawText("silent for now, records when it plays", area.removeFromTop(18),
+                   Justification::topLeft, true);
     }
 }
 
@@ -625,23 +651,29 @@ void SamplePageView::_refreshSources()
 
     std::vector<SourceRow> found;
 
+    // Pass one: what is holding an audio session. These are the only rows that can carry a
+    // meter or a volume warning, so they are gathered first and the window pass defers to them.
+    //
+    // Nothing is filtered on level any more. It used to be, because the list was the only way
+    // to reach a source and a hundred silent sessions would have buried the one playing; now
+    // the list holds every window on the desktop anyway and the filter box is how you get
+    // through it. What loudness still decides is the order.
+    const auto self = (uint32) GetCurrentProcessId();
+
     for (const auto& session : WasapiProcessLoopback::sessions())
     {
-        // Everything holds a session; almost nothing is making a sound. Premiere, Resolve
-        // and a wallpaper engine all sit at a peak of exactly zero waiting for the moment
-        // they need it. Showing all of them would bury the one row that matters, so a row
-        // has to be audible now, or be the one already chosen.
-        const auto worthShowing = session.peak > 0.0001f || session.processId == mSelectedPid;
-
-        if (! worthShowing)
+        // Quarry holds a session of its own for the preview synth, and offering to record
+        // ourselves would be a loop with a menu item.
+        if (session.processId == self)
             continue;
 
         SourceRow row;
-        row.processId = session.processId;
-        row.name      = session.processName;
-        row.volume    = session.volume;
-        row.peak      = session.peak;
-        row.isPlaying = session.isPlaying;
+        row.processId       = session.processId;
+        row.name            = session.processName;
+        row.volume          = session.volume;
+        row.peak            = session.peak;
+        row.isPlaying       = session.isPlaying;
+        row.hasAudioSession = true;
 
         // An application showing several windows gets a row for each of them. Which one made
         // the sound is not a question the pid can answer - a browser is one process behind all
@@ -649,18 +681,13 @@ void SamplePageView::_refreshSources()
         //
         // This is on the refresh timer, so it is paid four times a second. An EnumWindows pass
         // is cheap; the process snapshot behind parentOf() is not, and is only reached for a
-        // session whose own pid owns no window. If it ever shows up in a profile, the fix is
-        // one snapshot per refresh shared across every session rather than one per session.
+        // session whose own pid owns no window. The desktop pass below adds one EnumWindows and
+        // one OpenProcess per distinct process. If any of it ever shows up in a profile, the
+        // fix is one snapshot per refresh shared across every session rather than one per.
         const auto windows = quarry::sampler::windowsOfSource(session.processId);
 
-        if (windows.size() < 2)
+        if (windows.empty())
         {
-            if (! windows.empty())
-            {
-                row.windowHandle = windows.front().handle;
-                row.windowTitle  = windows.front().title;
-            }
-
             found.push_back(row);
             continue;
         }
@@ -670,14 +697,98 @@ void SamplePageView::_refreshSources()
             auto perWindow = row;
             perWindow.windowHandle = window.handle;
             perWindow.windowTitle  = window.title;
-            perWindow.oneOfSeveral = true;
             found.push_back(perWindow);
         }
     }
 
+    // Pass two: everything else that is open. Process loopback does not need its target to be
+    // audible - the stream is a clock and a silent process still delivers - so a paused tab is
+    // a thing you can arm the recorder on and then go press play. That is the normal way round
+    // and the old list could not express it at all.
+    for (const auto& window : quarry::sampler::desktopWindows())
+    {
+        const auto covered = std::any_of(found.begin(), found.end(), [&](const SourceRow& row) {
+            return row.windowHandle == window.handle;
+        });
+
+        if (covered)
+            continue;
+
+        SourceRow row;
+        row.processId   = window.processId;
+        row.name        = window.processName.isNotEmpty() ? window.processName
+                                                          : String("pid ") + String((int) window.processId);
+        row.windowHandle = window.handle;
+        row.windowTitle  = window.title;
+
+        found.push_back(std::move(row));
+    }
+
+    // Loud first, then anything else with a session, then the rest by name. Sorted by process
+    // rather than row by row, so an application's windows stay together whatever their levels
+    // are doing: the grouped painting below reads them as adjacent and so does the eye.
+    struct Group
+    {
+        uint32 processId = 0;
+        float peak = 0.0f;
+        bool hasAudioSession = false;
+        String name;
+    };
+
+    std::vector<Group> groups;
+
+    for (const auto& row : found)
+    {
+        auto existing = std::find_if(groups.begin(), groups.end(),
+                                     [&](const Group& g) { return g.processId == row.processId; });
+
+        if (existing == groups.end())
+        {
+            groups.push_back({row.processId, row.peak, row.hasAudioSession, row.name.toLowerCase()});
+            continue;
+        }
+
+        existing->peak = jmax(existing->peak, row.peak);
+        existing->hasAudioSession |= row.hasAudioSession;
+    }
+
+    std::stable_sort(groups.begin(), groups.end(), [](const Group& a, const Group& b) {
+        const auto audibleA = a.peak > 0.0001f;
+        const auto audibleB = b.peak > 0.0001f;
+
+        if (audibleA != audibleB)
+            return audibleA;
+
+        if (audibleA && a.peak != b.peak)
+            return a.peak > b.peak;
+
+        if (a.hasAudioSession != b.hasAudioSession)
+            return a.hasAudioSession;
+
+        return a.name < b.name;
+    });
+
+    std::vector<SourceRow> ordered;
+    ordered.reserve(found.size());
+
+    for (const auto& group : groups)
+        for (const auto& row : found)
+            if (row.processId == group.processId)
+                ordered.push_back(row);
+
+    // Which rows have to say a window title to be told apart, settled once the order is fixed.
+    for (size_t i = 0; i < ordered.size(); ++i)
+    {
+        const auto siblings = std::count_if(ordered.begin(), ordered.end(), [&](const SourceRow& row) {
+            return row.processId == ordered[i].processId;
+        });
+
+        ordered[i].oneOfSeveral = siblings > 1;
+    }
+
     // Carry each row's meter position over from the last enumeration. Without this every
     // refresh would restart the level from zero and the bar would tick rather than move.
-    for (auto& row : found)
+    for (auto& row : ordered)
         for (const auto& previous : mSources)
             if (previous.processId == row.processId && previous.windowHandle == row.windowHandle)
             {
@@ -685,8 +796,49 @@ void SamplePageView::_refreshSources()
                 break;
             }
 
-    const auto changedShape = found.size() != mSources.size();
-    mSources = std::move(found);
+    mSources = std::move(ordered);
+    _applySourceFilter();
+}
+
+void SamplePageView::_applySourceFilter()
+{
+    const auto wanted = mSourceFilter != nullptr ? mSourceFilter->getText().trim() : String();
+
+    std::vector<size_t> shown;
+    shown.reserve(mSources.size());
+
+    for (size_t i = 0; i < mSources.size(); ++i)
+    {
+        const auto& row = mSources[i];
+
+        // The selection always survives the filter. Typing to find the next thing to record
+        // should not silently drop what is already armed, or worse, what is being recorded.
+        const auto isSelected = row.processId == mSelectedPid && row.windowHandle == mSelectedWindow;
+
+        const auto matches = wanted.isEmpty() || isSelected
+                          || row.name.containsIgnoreCase(wanted)
+                          || row.windowTitle.containsIgnoreCase(wanted);
+
+        if (matches)
+            shown.push_back(i);
+    }
+
+    // Compared row for row, not by count. A window closing while another opens leaves the
+    // length alone and every label wrong, which used to be a rare enough coincidence to
+    // ignore and is not now that the list holds the whole desktop.
+    //
+    // Against identities rather than against mShownSources, which by now indexes a vector that
+    // has already been replaced: an index survives the refresh, what it pointed at does not.
+    std::vector<std::pair<uint32, uint64>> identities;
+    identities.reserve(shown.size());
+
+    for (const auto index : shown)
+        identities.emplace_back(mSources[index].processId, mSources[index].windowHandle);
+
+    const auto changedShape = identities != mShownIdentities;
+
+    mShownSources = std::move(shown);
+    mShownIdentities = std::move(identities);
 
     if (changedShape)
     {
@@ -710,7 +862,7 @@ int SamplePageView::getNumRows()
 {
     // One more than there are applications: row zero is "everything", which is always
     // offered because it is the fallback when nothing else here can work.
-    return (int) mSources.size() + 1;
+    return (int) mShownSources.size() + 1;
 }
 
 void SamplePageView::paintListBoxItem(int row, Graphics& g, int width, int height, bool)
@@ -721,8 +873,8 @@ void SamplePageView::paintListBoxItem(int row, Graphics& g, int width, int heigh
     const auto isEverything = row == 0;
     const auto chosen = isEverything
                           ? mSelectedPid == everythingPid
-                          : mSources[(size_t) row - 1].processId == mSelectedPid
-                                && mSources[(size_t) row - 1].windowHandle == mSelectedWindow;
+                          : _shownSource(row - 1).processId == mSelectedPid
+                                && _shownSource(row - 1).windowHandle == mSelectedWindow;
 
     auto bounds = juce::Rectangle<int>(0, 0, width, height).reduced(2, 1);
 
@@ -752,7 +904,7 @@ void SamplePageView::paintListBoxItem(int row, Graphics& g, int width, int heigh
         return;
     }
 
-    const auto& source = mSources[(size_t) row - 1];
+    const auto& source = _shownSource(row - 1);
 
     auto text = bounds.reduced(8, 0);
     auto meter = text.removeFromRight(80).withSizeKeepingCentre(80, 6);
@@ -760,7 +912,7 @@ void SamplePageView::paintListBoxItem(int row, Graphics& g, int width, int heigh
 
     // The volume the app is set to is baked into anything captured from it, so it is said
     // here rather than discovered afterwards in a file that came back quiet.
-    if (source.volume < 0.999f)
+    if (source.hasAudioSession && source.volume < 0.999f)
     {
         auto warning = text.removeFromRight(70);
         g.setColour(Colours::orange);
@@ -771,10 +923,18 @@ void SamplePageView::paintListBoxItem(int row, Graphics& g, int width, int heigh
 
     const auto accent = chosen ? okstudio::obsidian::accentOf(*this).base : TEXT_DIM;
 
+    // A window with no audio session has no level, and an empty meter track sitting there
+    // would read as silence rather than as "nothing to meter". Most of the list is in that
+    // state now, so the track is drawn only where there is something to put in it.
+    const auto paintMeter = [&](juce::Rectangle<int> inBounds) {
+        if (source.hasAudioSession)
+            drawMeter(g, inBounds, source.shownPeak, accent);
+    };
+
     if (! source.oneOfSeveral)
     {
         g.drawText(appLabel(source.name), text, Justification::centredLeft, true);
-        drawMeter(g, meter, source.shownPeak, accent);
+        paintMeter(meter);
         return;
     }
 
@@ -782,8 +942,8 @@ void SamplePageView::paintListBoxItem(int row, Graphics& g, int width, int heigh
     // it gets the room; the name is printed once, against the first of its windows, and left
     // off the rest. Repeated down every row it was a column of identical cells, which costs a
     // read and settles nothing.
-    const auto index = (size_t) row - 1;
-    const auto firstOfGroup = index == 0 || mSources[index - 1].processId != source.processId;
+    const auto index = row - 1;
+    const auto firstOfGroup = index == 0 || _shownSource(index - 1).processId != source.processId;
 
     auto label = text.removeFromLeft(64);
 
@@ -796,7 +956,7 @@ void SamplePageView::paintListBoxItem(int row, Graphics& g, int width, int heigh
     g.setColour(chosen ? TEXT_MAIN : TEXT_DIM);
     g.drawText(source.windowTitle, text, Justification::centredLeft, true);
 
-    drawMeter(g, meter, source.shownPeak, accent);
+    paintMeter(meter);
 }
 
 void SamplePageView::listBoxItemClicked(int row, const MouseEvent&)
@@ -817,16 +977,19 @@ void SamplePageView::listBoxItemClicked(int row, const MouseEvent&)
     }
     else
     {
-        const auto& picked = mSources[(size_t) row - 1];
+        const auto& picked = _shownSource(row - 1);
 
         mSelectedPid = picked.processId;
         mSelectedWindow = picked.windowHandle;
 
         // Say the window back, because on a row that is one of several it is the only part
         // that identifies what was picked.
-        mStatusText = "Ready to record "
-                    + (picked.oneOfSeveral && picked.windowTitle.isNotEmpty() ? picked.windowTitle
-                                                                             : picked.name);
+        const auto what = picked.oneOfSeveral && picked.windowTitle.isNotEmpty() ? picked.windowTitle
+                                                                                 : picked.name;
+
+        mStatusText = picked.hasAudioSession
+                        ? "Ready to record " + what
+                        : "Ready to record " + what + ". Nothing playing yet.";
     }
 
     _updateEnablements();
@@ -834,6 +997,12 @@ void SamplePageView::listBoxItemClicked(int row, const MouseEvent&)
 }
 
 //==============================================================================
+const SamplePageView::SourceRow& SamplePageView::_shownSource(int inListRow) const
+{
+    jassert(isPositiveAndBelow(inListRow, (int) mShownSources.size()));
+    return mSources[mShownSources[(size_t) inListRow]];
+}
+
 const SamplePageView::SourceRow* SamplePageView::_selectedSource() const
 {
     for (const auto& source : mSources)
@@ -872,7 +1041,8 @@ void SamplePageView::_updateEnablements()
     // of the page; and when it did appear it had to explain itself, because nothing about a
     // standing "SET TO 100%" says what it acts on or why you would want it.
     // Not in the narrow window, which has room for the act of recording and nothing else.
-    const auto quiet = mShowCaptures && ! recording && source != nullptr && source->volume < 0.999f;
+    const auto quiet = mShowCaptures && ! recording && source != nullptr && source->hasAudioSession
+                    && source->volume < 0.999f;
 
     mFixVolumeButton->setVisible(quiet);
     mFixVolumeButton->setEnabled(quiet);
@@ -948,10 +1118,14 @@ void SamplePageView::_toggleRecording()
     session.isPlaying   = source->isPlaying;
 
     // The executable path is not carried on the row, and the sidecar wants it, so it is
-    // fetched fresh here from the one session that matches.
+    // fetched fresh here from the one session that matches. A window that holds no session
+    // matches nothing, so the process is asked directly instead.
     for (const auto& live : WasapiProcessLoopback::sessions())
         if (live.processId == source->processId)
             session.executablePath = live.executablePath;
+
+    if (session.executablePath.isEmpty())
+        session.executablePath = quarry::sampler::executablePathOf(source->processId);
 
     // The window that was picked, so the sidecar records the one chosen rather than whichever
     // of the application's windows a guess would have landed on.
@@ -1151,9 +1325,9 @@ void SamplePageView::_rebuildChooser()
     mSourceChooser->clear(dontSendNotification);
     mSourceChooser->addItem("Everything this computer plays", 1);
 
-    for (size_t i = 0; i < mSources.size(); ++i)
+    for (size_t i = 0; i < mShownSources.size(); ++i)
     {
-        const auto& source = mSources[i];
+        const auto& source = mSources[mShownSources[i]];
 
         // The window title is what tells two of one application apart, so it is what the item
         // leads with; the name follows it for the ones showing a single window.
@@ -1175,8 +1349,9 @@ void SamplePageView::_rebuildChooser()
     if (mSelectedPid == everythingPid)
         wanted = 1;
     else
-        for (size_t i = 0; i < mSources.size(); ++i)
-            if (mSources[i].processId == mSelectedPid && mSources[i].windowHandle == mSelectedWindow)
+        for (size_t i = 0; i < mShownSources.size(); ++i)
+            if (_shownSource((int) i).processId == mSelectedPid
+                && _shownSource((int) i).windowHandle == mSelectedWindow)
                 wanted = (int) i + 2;
 
     mSourceChooser->setSelectedId(wanted, dontSendNotification);
@@ -1197,11 +1372,13 @@ void SamplePageView::_setCapturesVisible(bool shouldShow)
                         static_cast<Component*>(mRevealButton.get()),
                         static_cast<Component*>(mDeleteButton.get()),
                         static_cast<Component*>(mFolderButton.get()),
-                        static_cast<Component*>(mSourceList.get()) })
+                        static_cast<Component*>(mSourceList.get()),
+                        static_cast<Component*>(mSourceFilter.get()) })
         if (part != nullptr)
             part->setVisible(shouldShow);
 
     // The dropdown stands in for the list, so exactly one of them is up at a time.
+
     if (mSourceChooser != nullptr)
     {
         mSourceChooser->setVisible(! shouldShow);

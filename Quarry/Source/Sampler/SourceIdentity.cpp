@@ -17,15 +17,19 @@
 #include <objbase.h>
 #include <oleacc.h>
 
+#include <dwmapi.h>
 #include <tlhelp32.h>
 #include <uiautomation.h>
 
+#include <algorithm>
+#include <utility>
 #include <vector>
 
 #if defined(_MSC_VER)
  #pragma comment(lib, "gdi32.lib")
  #pragma comment(lib, "user32.lib")
  #pragma comment(lib, "ole32.lib")
+ #pragma comment(lib, "dwmapi.lib")
 #endif
 
 // Windows 8.1 and later. Spelled out rather than raising the SDK target, because everything
@@ -309,7 +313,153 @@ juce::String addressBarOf(HWND window)
 
     return {};
 }
+
+/**
+ * True for the windows Windows keeps but nobody is looking at.
+ *
+ * A suspended UWP app - Mail, Settings, anything from the Store that has been minimised long
+ * enough - keeps a visible, titled, unowned top-level window that draws nothing and cannot be
+ * switched to. IsWindowVisible says yes to all of them. DWM knows better, and this is the only
+ * way to ask it.
+ */
+bool isCloaked(HWND window)
+{
+    DWORD cloaked = 0;
+
+    if (FAILED(DwmGetWindowAttribute(window, DWMWA_CLOAKED, &cloaked, sizeof(cloaked))))
+        return false;
+
+    return cloaked != 0;
+}
+
+struct DesktopWindowRow
+{
+    juce::uint64 handle = 0;
+    juce::String title;
+    DWORD processId = 0;
+    juce::String processName;
+};
+
+struct DesktopSearch
+{
+    /** Quarry's own pid, so the picker never offers the thing doing the picking. */
+    DWORD self = 0;
+
+    /** In z-order, topmost first, which is the order EnumWindows walks in and the order a
+        person expects: what you used last is what you are most likely reaching for. */
+    std::vector<DesktopWindowRow> found;
+};
+
+BOOL CALLBACK collectDesktopWindows(HWND window, LPARAM userData)
+{
+    auto* search = reinterpret_cast<DesktopSearch*>(userData);
+
+    if (! IsWindowVisible(window))
+        return TRUE;
+
+    // The desktop itself. Progman is titled "Program Manager" and passes every other test
+    // here, so without this the shell turns up in the list as something you could record.
+    if (window == GetShellWindow())
+        return TRUE;
+
+    wchar_t className[64] = {};
+    GetClassNameW(window, className, (int) juce::numElementsInArray(className));
+
+    // The wallpaper hosts the shell spawns behind everything. Same story: real windows, with
+    // titles, that nobody means.
+    if (juce::String(className) == "WorkerW" || juce::String(className) == "Progman")
+        return TRUE;
+
+    // The same two exclusions windowsOfSource makes, for the same reasons: owned windows are
+    // tooltips, popups and menus, and a window with no title has no way to be named in a list.
+    if (GetWindow(window, GW_OWNER) != nullptr || GetWindowTextLengthW(window) == 0)
+        return TRUE;
+
+    if (isCloaked(window))
+        return TRUE;
+
+    // Tool windows are palettes and overlays: real, titled, and never what someone means by
+    // "that window". This is the same test the Alt-Tab list makes.
+    if ((GetWindowLongPtrW(window, GWL_EXSTYLE) & WS_EX_TOOLWINDOW) != 0)
+        return TRUE;
+
+    RECT bounds {};
+
+    if (! GetWindowRect(window, &bounds) || bounds.right - bounds.left < 8
+        || bounds.bottom - bounds.top < 8)
+        return TRUE;
+
+    DWORD owner = 0;
+    GetWindowThreadProcessId(window, &owner);
+
+    if (owner == 0 || owner == search->self)
+        return TRUE;
+
+    DesktopWindowRow row;
+    row.handle    = (juce::uint64) reinterpret_cast<juce::pointer_sized_uint>(window);
+    row.title     = titleOf(window);
+    row.processId = owner;
+
+    search->found.push_back(std::move(row));
+    return TRUE;
+}
 } // namespace
+
+//==============================================================================
+std::vector<DesktopWindow> desktopWindows()
+{
+    DesktopSearch search;
+    search.self = GetCurrentProcessId();
+    EnumWindows(collectDesktopWindows, reinterpret_cast<LPARAM>(&search));
+
+    // One process name lookup per process rather than per window: a browser with eight
+    // windows open is eight rows and one OpenProcess.
+    std::vector<std::pair<DWORD, juce::String>> names;
+
+    for (auto& found : search.found)
+    {
+        const auto known = std::find_if(names.begin(), names.end(),
+                                        [&](const auto& entry) { return entry.first == found.processId; });
+
+        if (known != names.end())
+        {
+            found.processName = known->second;
+            continue;
+        }
+
+        const auto path = executablePathOf((juce::uint32) found.processId);
+        const auto name = path.fromLastOccurrenceOf("\\", false, false);
+
+        names.emplace_back(found.processId, name);
+        found.processName = name;
+    }
+
+    std::vector<DesktopWindow> windows;
+    windows.reserve(search.found.size());
+
+    for (const auto& found : search.found)
+        windows.push_back({ found.handle, found.title, (juce::uint32) found.processId, found.processName });
+
+    return windows;
+}
+
+juce::String executablePathOf(juce::uint32 processId)
+{
+    if (processId == 0)
+        return {};
+
+    auto* process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, (DWORD) processId);
+
+    if (process == nullptr)
+        return {};
+
+    wchar_t path[MAX_PATH] = {};
+    DWORD size = MAX_PATH;
+    const auto ok = QueryFullProcessImageNameW(process, 0, path, &size) != 0;
+    CloseHandle(process);
+
+    return ok ? juce::String(path) : juce::String();
+}
 
 //==============================================================================
 std::vector<SourceWindow> windowsOfSource(juce::uint32 processId)
