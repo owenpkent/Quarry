@@ -14,6 +14,7 @@
 #include <cmath>
 #include <iostream>
 #include <map>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -23,6 +24,7 @@
 #include "AudioUtils.h"
 #include "BasicPitch.h"
 #include "BasicPitchConstants.h"
+#include "SidecarClient.h"
 
 namespace
 {
@@ -38,11 +40,30 @@ constexpr double kOffsetToleranceRatio = 0.2;
 // rescale below. Velocity is only ever recoverable up to a scale, so the scale is not the test.
 constexpr double kVelocityTolerance = 0.1;
 
+// The sustain-pedal onset tolerance Kong et al. use in their piano transcription evaluation
+// ("High-Resolution Piano Transcription with Pedals by Regressing Onset and Offset Times", 2021):
+// 200 ms, four times the note-onset tolerance above. A sustain gesture's edge is heard, not
+// played to a click, so it gets a wider window than a struck note's onset does.
+constexpr double kPedalOnsetToleranceSeconds = 0.2;
+
 struct Note {
     double onset = 0.0;
     double offset = 0.0;
     int pitch = 0;
     double velocity = 0.0; // 0 to 127, to match MIDI on both sides
+};
+
+// One CC64 sample, in the sidecar's own units: seconds and a 0-127 value, exactly the range MIDI
+// (and the ground-truth mid's CC64 events) already use.
+struct PedalEvent {
+    double time = 0.0;
+    int value = 0;
+};
+
+// One pedal-down span, value >= 64 to value < 64, in excerpt-relative seconds.
+struct PedalSpan {
+    double onset = 0.0;
+    double offset = 0.0;
 };
 
 struct Score {
@@ -66,6 +87,10 @@ struct ItemResult {
     Score onsetOnly;
     Score onsetOffset;
     Score onsetVelocity;
+    // Span-level pedal score (see scorePedalSpans). reference/estimated/matched all stay 0 when
+    // the run has no pedal capability at all (no --sidecar); printRow tells that case apart from
+    // a genuine zero-recall score by checking hasPedalCapability, not by looking at these counts.
+    Score pedal;
     // Mean absolute onset error over the matched pairs, in milliseconds. F1 at a 50 ms tolerance
     // cannot see sub-frame onset refinement at all, because the frame grid is 11.6 ms and the
     // whole correction is smaller than a tenth of the tolerance. This can.
@@ -261,9 +286,100 @@ Score scoreOnsetsAndVelocity(const std::vector<Note>& inReference, const std::ve
 }
 
 /**
- * Read note events out of a reference MIDI file, in seconds.
+ * Candidate pairs under the pedal-onset criterion: onsets within kPedalOnsetToleranceSeconds.
+ * No pitch to match on (there is one pedal channel, not 128), so this is onsetAdjacency with
+ * that one constraint dropped.
  */
-bool loadReference(const juce::File& inFile, std::vector<Note>& outNotes)
+std::vector<std::vector<int>> pedalOnsetAdjacency(const std::vector<PedalSpan>& inReference,
+                                                   const std::vector<PedalSpan>& inEstimate)
+{
+    std::vector<std::vector<int>> adjacency(inReference.size());
+
+    for (size_t r = 0; r < inReference.size(); r++) {
+        for (size_t e = 0; e < inEstimate.size(); e++) {
+            if (std::abs(inReference[r].onset - inEstimate[e].onset) <= kPedalOnsetToleranceSeconds) {
+                adjacency[r].push_back(static_cast<int>(e));
+            }
+        }
+    }
+
+    return adjacency;
+}
+
+/**
+ * Score pedal-down spans the same way scoreOnsetsAndOffsets scores notes: bipartite-matched on
+ * onset within tolerance, then filtered to also require the offset within max(that tolerance,
+ * kOffsetToleranceRatio of the reference span's own length) -- the same 20% rule notes use, just
+ * measured against the wider pedal onset tolerance rather than the note one.
+ */
+Score scorePedalSpans(const std::vector<PedalSpan>& inReference, const std::vector<PedalSpan>& inEstimate)
+{
+    auto adjacency = pedalOnsetAdjacency(inReference, inEstimate);
+
+    for (size_t r = 0; r < inReference.size(); r++) {
+        const auto duration = inReference[r].offset - inReference[r].onset;
+        const auto tolerance = std::max(kPedalOnsetToleranceSeconds, kOffsetToleranceRatio * duration);
+
+        auto& candidates = adjacency[r];
+        candidates.erase(std::remove_if(candidates.begin(),
+                                        candidates.end(),
+                                        [&](int e) {
+                                            const auto& estimate = inEstimate[static_cast<size_t>(e)];
+                                            return std::abs(inReference[r].offset - estimate.offset) > tolerance;
+                                        }),
+                         candidates.end());
+    }
+
+    Score score;
+    score.reference = static_cast<int>(inReference.size());
+    score.estimated = static_cast<int>(inEstimate.size());
+
+    std::vector<std::pair<int, int>> matches;
+    score.matched = maximumMatching(adjacency, inEstimate.size(), matches);
+
+    return score;
+}
+
+/**
+ * Segment a CC64 stream into pedal-down spans: a value >= 64 opens a span, a value < 64 closes
+ * it. A span still open at inDuration is closed there rather than left dangling, so a pedal held
+ * through the end of the excerpt still scores as one bounded span ("clip to the excerpt"). Events
+ * are trusted to already be in time order, as both the ground-truth mid and the sidecar protocol
+ * guarantee.
+ */
+std::vector<PedalSpan> pedalSpans(const std::vector<PedalEvent>& inEvents, double inDuration)
+{
+    std::vector<PedalSpan> spans;
+    bool down = false;
+    double open_time = 0.0;
+
+    for (const auto& event: inEvents) {
+        const auto t = juce::jlimit(0.0, inDuration, event.time);
+        const auto is_down = event.value >= 64;
+
+        if (is_down && !down) {
+            down = true;
+            open_time = t;
+        } else if (!is_down && down) {
+            down = false;
+
+            if (t > open_time) {
+                spans.push_back({open_time, t});
+            }
+        }
+    }
+
+    if (down && inDuration > open_time) {
+        spans.push_back({open_time, inDuration});
+    }
+
+    return spans;
+}
+
+/**
+ * Read note and CC64 (sustain pedal) events out of a reference MIDI file, in seconds.
+ */
+bool loadReference(const juce::File& inFile, std::vector<Note>& outNotes, std::vector<PedalEvent>& outPedal)
 {
     juce::FileInputStream stream(inFile);
 
@@ -281,6 +397,7 @@ bool loadReference(const juce::File& inFile, std::vector<Note>& outNotes)
     midi.convertTimestampTicksToSeconds();
 
     outNotes.clear();
+    outPedal.clear();
 
     for (int track_idx = 0; track_idx < midi.getNumTracks(); track_idx++) {
         auto track = *midi.getTrack(track_idx);
@@ -289,20 +406,24 @@ bool loadReference(const juce::File& inFile, std::vector<Note>& outNotes)
         for (int i = 0; i < track.getNumEvents(); i++) {
             const auto& message = track.getEventPointer(i)->message;
 
-            if (!message.isNoteOn()) {
-                continue;
+            if (message.isNoteOn()) {
+                const auto note_off = track.getTimeOfMatchingKeyUp(i);
+
+                Note note;
+                note.onset = message.getTimeStamp();
+                // A note-on with no matching key-up is a malformed file, not a note of zero length.
+                note.offset = note_off > note.onset ? note_off : message.getTimeStamp();
+                note.pitch = message.getNoteNumber();
+                note.velocity = message.getVelocity();
+
+                outNotes.push_back(note);
+            } else if (message.isController() && message.getControllerNumber() == 64) {
+                PedalEvent event;
+                event.time = message.getTimeStamp();
+                event.value = message.getControllerValue();
+
+                outPedal.push_back(event);
             }
-
-            const auto note_off = track.getTimeOfMatchingKeyUp(i);
-
-            Note note;
-            note.onset = message.getTimeStamp();
-            // A note-on with no matching key-up is a malformed file, not a note of zero length.
-            note.offset = note_off > note.onset ? note_off : message.getTimeStamp();
-            note.pitch = message.getNoteNumber();
-            note.velocity = message.getVelocity();
-
-            outNotes.push_back(note);
         }
     }
 
@@ -310,7 +431,81 @@ bool loadReference(const juce::File& inFile, std::vector<Note>& outNotes)
         return a.onset < b.onset || (a.onset == b.onset && a.pitch < b.pitch);
     });
 
+    std::stable_sort(outPedal.begin(), outPedal.end(), [](const PedalEvent& a, const PedalEvent& b) {
+        return a.time < b.time;
+    });
+
     return true;
+}
+
+/**
+ * Build the bench's own Note rows from Notes::Event, the currency both BasicPitch and the
+ * sidecar client (via toNotesEvents) produce. Shared so the sidecar path scores exactly the same
+ * way the BasicPitch path always has.
+ */
+std::vector<Note> notesFromEvents(const std::vector<Notes::Event>& inEvents)
+{
+    std::vector<Note> notes;
+    notes.reserve(inEvents.size());
+
+    for (const auto& event: inEvents) {
+        Note note;
+        note.onset = event.startTime;
+        note.offset = event.endTime;
+        note.pitch = event.pitch;
+        note.velocity = event.velocity * 127.0;
+
+        notes.push_back(note);
+    }
+
+    std::sort(notes.begin(), notes.end(), [](const Note& a, const Note& b) {
+        return a.onset < b.onset || (a.onset == b.onset && a.pitch < b.pitch);
+    });
+
+    return notes;
+}
+
+/**
+ * Map the sidecar's own pedal event shape onto the bench's PedalEvent, which is that same shape:
+ * kept as a named conversion (rather than reusing SidecarPedalEvent directly downstream) so the
+ * pedal-scoring code below reads the same regardless of where the events came from, the same
+ * reason notesFromEvents exists for notes.
+ */
+std::vector<PedalEvent> pedalFromSidecarEvents(const std::vector<SidecarPedalEvent>& inEvents)
+{
+    std::vector<PedalEvent> events;
+    events.reserve(inEvents.size());
+
+    for (const auto& event: inEvents) {
+        events.push_back({event.time, event.value});
+    }
+
+    return events;
+}
+
+/**
+ * The excerpt's own duration in seconds, read from the audio file's header alone (no decode),
+ * so pedalSpans has a boundary to clip a still-down span to. Falls back to a full decode only for
+ * formats createReaderFor doesn't cover (mp3; see AudioUtils::loadAudioFile), which no pedal
+ * corpus currently uses.
+ */
+double excerptDurationSeconds(const juce::File& inFile)
+{
+    auto format_manager = AudioUtils::createAudioFormatManager();
+    std::unique_ptr<juce::AudioFormatReader> reader(format_manager->createReaderFor(inFile));
+
+    if (reader && reader->sampleRate > 0.0) {
+        return static_cast<double>(reader->lengthInSamples) / reader->sampleRate;
+    }
+
+    juce::AudioBuffer<float> buffer;
+    double sample_rate = 0.0;
+
+    if (AudioUtils::loadAudioFile(inFile, buffer, sample_rate) && sample_rate > 0.0) {
+        return static_cast<double>(buffer.getNumSamples()) / sample_rate;
+    }
+
+    return 0.0;
 }
 
 /**
@@ -347,21 +542,39 @@ bool transcribe(const juce::File& inFile, bool inLegacy, std::vector<Note>& outN
     engine.transcribeToMIDI(downsampled.getWritePointer(0), downsampled.getNumSamples());
     outSeconds = (juce::Time::getMillisecondCounterHiRes() - started) / 1000.0;
 
-    outNotes.clear();
+    outNotes = notesFromEvents(engine.getNoteEvents());
 
-    for (const auto& event: engine.getNoteEvents()) {
-        Note note;
-        note.onset = event.startTime;
-        note.offset = event.endTime;
-        note.pitch = event.pitch;
-        note.velocity = event.velocity * 127.0;
+    return true;
+}
 
-        outNotes.push_back(note);
+/**
+ * Transcribe one file through a sidecar process instead of BasicPitch, for --sidecar. Goes
+ * through the same SidecarNote -> Notes::Event -> Note pipeline the plugin will eventually use,
+ * so this exercises exactly the conversion the real integration relies on rather than a shortcut.
+ * Also hands back the sidecar's raw pedal (CC64) stream in outPedal: BasicPitch has no pedal
+ * output at all, so this is the only path that ever produces one.
+ */
+bool transcribeWithSidecar(SidecarClient& ioClient,
+                          const juce::String& inEngine,
+                          const juce::File& inFile,
+                          std::vector<Note>& outNotes,
+                          std::vector<SidecarPedalEvent>& outPedal,
+                          double& outSeconds)
+{
+    std::vector<SidecarNote> sidecar_notes;
+    juce::String error;
+
+    const auto started = juce::Time::getMillisecondCounterHiRes();
+    const auto ok = ioClient.transcribe(inFile, inEngine, sidecar_notes, outPedal, error);
+    outSeconds = (juce::Time::getMillisecondCounterHiRes() - started) / 1000.0;
+
+    if (!ok) {
+        std::cerr << "  sidecar error on " << inFile.getFileName().toStdString() << ": " << error.toStdString()
+                  << std::endl;
+        return false;
     }
 
-    std::sort(outNotes.begin(), outNotes.end(), [](const Note& a, const Note& b) {
-        return a.onset < b.onset || (a.onset == b.onset && a.pitch < b.pitch);
-    });
+    outNotes = notesFromEvents(toNotesEvents(sidecar_notes));
 
     return true;
 }
@@ -371,14 +584,32 @@ juce::String cell(double inValue)
     return juce::String(inValue, 3).paddedLeft(' ', 7);
 }
 
-void printRow(const juce::String& inName, const ItemResult& inResult)
+/**
+ * The pedal column: "-" when this run has no pedal capability at all (no --sidecar, so nothing
+ * was ever collected to score) or when the reference excerpt simply has no pedal spans (nothing
+ * to measure recall against); a real F1 -- 0.000 included -- whenever the reference has spans and
+ * the run could in principle have matched them, whether or not the engine actually produced any
+ * for this case. That is what keeps a genuine zero-recall score (sidecar ran, engine emitted no
+ * pedal, reference had some) visibly different from "not measured" (no sidecar at all).
+ */
+juce::String pedalCell(bool inHasPedalCapability, const Score& inPedal)
+{
+    if (!inHasPedalCapability || inPedal.reference == 0) {
+        return juce::String("-").paddedLeft(' ', 7);
+    }
+
+    return cell(inPedal.f1());
+}
+
+void printRow(const juce::String& inName, const ItemResult& inResult, bool inHasPedalCapability)
 {
     std::cout << inName.paddedRight(' ', 20).toStdString() << cell(inResult.onsetOnly.precision()).toStdString()
               << cell(inResult.onsetOnly.recall()).toStdString() << cell(inResult.onsetOnly.f1()).toStdString()
               << cell(inResult.onsetOffset.f1()).toStdString() << cell(inResult.onsetVelocity.f1()).toStdString()
               << juce::String(inResult.onsetErrorMs, 1).paddedLeft(' ', 8).toStdString()
               << juce::String(inResult.onsetOnly.reference).paddedLeft(' ', 7).toStdString()
-              << juce::String(inResult.onsetOnly.estimated).paddedLeft(' ', 7).toStdString() << std::endl;
+              << juce::String(inResult.onsetOnly.estimated).paddedLeft(' ', 7).toStdString()
+              << pedalCell(inHasPedalCapability, inResult.pedal).toStdString() << std::endl;
 }
 
 /**
@@ -402,6 +633,10 @@ ItemResult aggregate(const std::vector<ItemResult>& inResults)
         total.onsetVelocity.matched += result.onsetVelocity.matched;
         total.onsetVelocity.estimated += result.onsetVelocity.estimated;
         total.onsetVelocity.reference += result.onsetVelocity.reference;
+
+        total.pedal.matched += result.pedal.matched;
+        total.pedal.estimated += result.pedal.estimated;
+        total.pedal.reference += result.pedal.reference;
 
         total.onsetErrorMs += result.onsetErrorMs * result.onsetOnly.matched;
         total.seconds += result.seconds;
@@ -436,6 +671,42 @@ juce::String toBaseline(const std::vector<ItemResult>& inResults, const ItemResu
     line(inTotal);
 
     return out;
+}
+
+/**
+ * Write one case's transcribed notes to a TSV file, so they can be scored by something other
+ * than this bench (mir_eval, another transcriber's own scorer) without re-running the engine.
+ * Velocity is on the 0-127 MIDI scale: the same value scoreOnsetsAndVelocity above matches
+ * against the reference, before its own optimal rescale.
+ */
+bool writeNotesTsv(const juce::File& inFile, const std::vector<Note>& inNotes)
+{
+    juce::String out;
+    out << "onset_s\toffset_s\tpitch\tvelocity\n";
+
+    for (const auto& note: inNotes) {
+        out << juce::String(note.onset, 6) << "\t" << juce::String(note.offset, 6) << "\t" << note.pitch << "\t"
+            << juce::String(note.velocity, 3) << "\n";
+    }
+
+    return inFile.replaceWithText(out);
+}
+
+/**
+ * Write one case's raw sidecar pedal stream to a TSV file, for --dump-notes: the engine's own
+ * CC64 events, unsegmented, so a span-boundary disagreement can be checked against the actual
+ * samples rather than just the derived F1. Only ever called when the sidecar produced pedal.
+ */
+bool writePedalTsv(const juce::File& inFile, const std::vector<SidecarPedalEvent>& inPedal)
+{
+    juce::String out;
+    out << "time\tvalue\n";
+
+    for (const auto& event: inPedal) {
+        out << juce::String(event.time, 6) << "\t" << event.value << "\n";
+    }
+
+    return inFile.replaceWithText(out);
 }
 
 std::map<juce::String, double> readBaselineF1(const juce::File& inFile)
@@ -498,12 +769,23 @@ juce::String takeOptionValue(juce::ArgumentList& ioArgs, juce::StringRef inOptio
 void printUsage()
 {
     std::cout << "Quarry transcription bench\n\n"
-              << "  Bench <corpus-dir> [--baseline <file>] [--write-baseline <file>]\n\n"
+              << "  Bench <corpus-dir> [--baseline <file>] [--write-baseline <file>] [--dump-notes <dir>]\n"
+              << "                     [--sidecar \"<command line>\"] [--engine <name>]\n\n"
               << "  <corpus-dir> holds pairs of <name>.wav (or .aiff/.flac/.ogg/.mp3) and <name>.mid.\n"
               << "  Reports note-level precision, recall and F1 at a 50 ms onset tolerance, three\n"
-              << "  ways: onset only, onset and offset, onset and velocity.\n\n"
+              << "  ways: onset only, onset and offset, onset and velocity. Also reports span-level\n"
+              << "  sustain-pedal F1 against the reference mid's own CC64 stream, printed as \"-\"\n"
+              << "  when the run has no pedal capability (no --sidecar) or the reference excerpt has\n"
+              << "  no pedal spans; only --sidecar ever produces pedal to score against it.\n\n"
               << "  With --baseline it prints the change against a committed run and exits non-zero\n"
-              << "  if aggregate onset F1 has fallen.\n";
+              << "  if aggregate onset F1 has fallen.\n\n"
+              << "  With --dump-notes it writes each case's transcribed notes to <dir>/<name>.est.tsv,\n"
+              << "  and, when the run produced pedal, its raw CC64 stream to <dir>/<name>.pedal.tsv,\n"
+              << "  creating <dir> if needed.\n\n"
+              << "  With --sidecar every case is transcribed through that command instead of\n"
+              << "  BasicPitch: the process is launched once, sent one transcribe request per case over\n"
+              << "  the sidecar protocol, and shut down at the end. --engine selects the sidecar's\n"
+              << "  engine (default \"auto\"); ignored without --sidecar.\n";
 }
 } // namespace
 
@@ -519,6 +801,10 @@ int main(int argc, char* argv[])
     const auto legacy = args.removeOptionIfFound("--legacy");
     const auto baseline_path = takeOptionValue(args, "--baseline");
     const auto write_baseline_path = takeOptionValue(args, "--write-baseline");
+    const auto dump_notes_path = takeOptionValue(args, "--dump-notes");
+    const auto sidecar_command = takeOptionValue(args, "--sidecar");
+    const auto sidecar_engine_option = takeOptionValue(args, "--engine");
+    const auto sidecar_engine = sidecar_engine_option.isNotEmpty() ? sidecar_engine_option : juce::String("auto");
 
     if (args.size() < 1) {
         printUsage();
@@ -530,6 +816,25 @@ int main(int argc, char* argv[])
     if (!corpus.isDirectory()) {
         std::cerr << "Not a directory: " << corpus.getFullPathName().toStdString() << std::endl;
         return 1;
+    }
+
+    juce::File dump_notes_dir;
+
+    if (dump_notes_path.isNotEmpty()) {
+        dump_notes_dir = juce::File::getCurrentWorkingDirectory().getChildFile(dump_notes_path);
+        dump_notes_dir.createDirectory();
+    }
+
+    std::unique_ptr<SidecarClient> sidecar_client;
+
+    if (sidecar_command.isNotEmpty()) {
+        sidecar_client = std::make_unique<SidecarClient>(sidecar_command);
+        juce::String sidecar_error;
+
+        if (!sidecar_client->start(sidecar_error)) {
+            std::cerr << "Could not start sidecar: " << sidecar_error.toStdString() << std::endl;
+            return 1;
+        }
     }
 
     juce::Array<juce::File> audio_files;
@@ -551,17 +856,23 @@ int main(int argc, char* argv[])
         }
 
         std::vector<Note> reference;
+        std::vector<PedalEvent> reference_pedal;
 
-        if (!loadReference(reference_file, reference)) {
+        if (!loadReference(reference_file, reference, reference_pedal)) {
             std::cerr << "  skipping " << audio_file.getFileName().toStdString() << ": unreadable reference"
                       << std::endl;
             continue;
         }
 
         std::vector<Note> estimate;
+        std::vector<SidecarPedalEvent> sidecar_pedal; // Only the sidecar path ever fills this in.
         double seconds = 0.0;
 
-        if (!transcribe(audio_file, legacy, estimate, seconds)) {
+        const auto transcribed = sidecar_client
+            ? transcribeWithSidecar(*sidecar_client, sidecar_engine, audio_file, estimate, sidecar_pedal, seconds)
+            : transcribe(audio_file, legacy, estimate, seconds);
+
+        if (!transcribed) {
             std::cerr << "  skipping " << audio_file.getFileName().toStdString() << ": could not transcribe"
                       << std::endl;
             continue;
@@ -570,6 +881,22 @@ int main(int argc, char* argv[])
         ItemResult result;
         result.name = audio_file.getFileNameWithoutExtension();
         result.seconds = seconds;
+
+        if (dump_notes_path.isNotEmpty()) {
+            const auto out_file = dump_notes_dir.getChildFile(result.name + ".est.tsv");
+
+            if (!writeNotesTsv(out_file, estimate)) {
+                std::cerr << "  could not write " << out_file.getFullPathName().toStdString() << std::endl;
+            }
+
+            if (!sidecar_pedal.empty()) {
+                const auto pedal_file = dump_notes_dir.getChildFile(result.name + ".pedal.tsv");
+
+                if (!writePedalTsv(pedal_file, sidecar_pedal)) {
+                    std::cerr << "  could not write " << pedal_file.getFullPathName().toStdString() << std::endl;
+                }
+            }
+        }
 
         std::vector<std::pair<int, int>> matches;
         result.onsetOnly = scoreOnsets(reference, estimate, matches);
@@ -586,8 +913,23 @@ int main(int argc, char* argv[])
         result.onsetOffset = scoreOnsetsAndOffsets(reference, estimate);
         result.onsetVelocity = scoreOnsetsAndVelocity(reference, estimate);
 
+        const auto excerpt_duration = excerptDurationSeconds(audio_file);
+        const auto reference_pedal_spans = pedalSpans(reference_pedal, excerpt_duration);
+        const auto estimated_pedal_spans = pedalSpans(pedalFromSidecarEvents(sidecar_pedal), excerpt_duration);
+        result.pedal = scorePedalSpans(reference_pedal_spans, estimated_pedal_spans);
+
         results.push_back(result);
     }
+
+    if (sidecar_client) {
+        sidecar_client->shutdown();
+    }
+
+    // Whether this run could have produced pedal at all: only --sidecar ever fills sidecar_pedal
+    // in, so a plain BasicPitch run has no pedal signal to score against the reference regardless
+    // of what that reference contains. printRow uses this to tell "not measured" apart from a
+    // genuine zero score.
+    const auto has_pedal_capability = sidecar_client != nullptr;
 
     if (results.empty()) {
         std::cerr << "No usable pairs in " << corpus.getFullPathName().toStdString() << std::endl;
@@ -595,6 +937,9 @@ int main(int argc, char* argv[])
     }
 
     const auto total = aggregate(results);
+
+    const auto engine_label = sidecar_client ? "ENGINE: sidecar (" + sidecar_engine + ")"
+                                             : juce::String(legacy ? "ENGINE: legacy (pre-fix)" : "ENGINE: current");
 
     std::cout << std::endl
               << juce::String("item").paddedRight(' ', 20).toStdString()
@@ -605,22 +950,26 @@ int main(int argc, char* argv[])
               << juce::String("+vel").paddedLeft(' ', 7).toStdString()
               << juce::String("err ms").paddedLeft(' ', 8).toStdString()
               << juce::String("ref").paddedLeft(' ', 7).toStdString()
-              << juce::String("est").paddedLeft(' ', 7).toStdString() << std::endl
-              << std::string(77, '-') << std::endl;
+              << juce::String("est").paddedLeft(' ', 7).toStdString()
+              << juce::String("pedal").paddedLeft(' ', 7).toStdString() << std::endl
+              << std::string(84, '-') << std::endl;
 
     for (const auto& result: results) {
-        printRow(result.name, result);
+        printRow(result.name, result, has_pedal_capability);
     }
 
-    std::cout << std::string(77, '-') << std::endl;
-    printRow("ALL", total);
+    std::cout << std::string(84, '-') << std::endl;
+    printRow("ALL", total, has_pedal_capability);
 
     std::cout << std::endl
               << "onset tolerance 50 ms; offset tolerance max(that, " << kOffsetToleranceRatio
               << " x note length); velocity" << std::endl
               << "tolerance " << kVelocityTolerance << " of the take's peak, after the optimal global rescale."
               << std::endl
-              << (legacy ? "ENGINE: legacy (pre-fix)" : "ENGINE: current") << std::endl
+              << "pedal span onset tolerance " << (kPedalOnsetToleranceSeconds * 1000.0)
+              << " ms (Kong et al.); pedal offset tolerance max(that, " << kOffsetToleranceRatio
+              << " x span length)." << std::endl
+              << engine_label.toStdString() << std::endl
               << "transcribed " << results.size() << " items in " << juce::String(total.seconds, 2).toStdString()
               << " s" << std::endl;
 
