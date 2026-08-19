@@ -82,6 +82,18 @@ Since the sidecar exists, `Bench.exe --sidecar --engine <name>` measures the sam
 through Quarry's own pipeline, which is the number that counts; the Python runner remains
 useful for engines not yet wired into the sidecar.
 
+A sweep survives its cases: a case that fails is recorded and skipped, the failures are
+listed at the end, and the run exits non-zero — the same record-don't-raise policy as the
+fetch scripts, adopted after a 90-take run twice lost every case after the first bad file.
+
+For material with no ground truth (real takes from the recording folder),
+`tools/bakeoff/agreement.py` scores every engine pair's outputs against each other with the
+same matcher and buckets takes by the specialist pair's mutual agreement: convergence between
+independently trained models is the trust signal accuracy cannot provide there. Engines with
+different instrument scopes disagree on mixes by scope rather than accuracy, so it prints
+note counts beside the scores; read both. What the 2026-08-19 sweep of the 90 real takes
+found is recorded in `ANALYSIS.md` §4.2.
+
 ## 4. The key bench
 
 `tools/keybench/`: `fetch_giantsteps.py` pulls the GiantSteps Key dataset (604 key-labelled

@@ -540,6 +540,26 @@ Findings, in order of consequence:
   trained on, and the bass stem still goes to the generalist rather than the monophonic
   tracker `STATS.md` §7 specifies. Mixes remain the open front, which is what the AMT
   Challenge numbers in §3 already said of the whole field.
+- **The engines took Owen's own material, 2026-08-19.** All four engines over all 90 readable
+  takes in the recording folder. Real takes have no ground truth, so
+  `tools/bakeoff/agreement.py` scores what is measurable instead: every engine pair against
+  each other with the same matcher, convergence between independently trained models standing
+  in for accuracy (`out/recorded_all/agreement.tsv`, the engines' MIDI beside it). Where the
+  material is clean the specialists corroborate hard — 31 takes at 0.8+ transkun/muscriptor
+  agreement, the cleanest at 0.94-0.98 — and the CPU tier trails on every one of them (0.73
+  mean against the specialists), the corpus verdict restated on the material that matters.
+  Three findings that only real material could surface. **Fourteen takes are unpitched and
+  only the specialists say so**: vocal takes and scraps on which transkun and muscriptor emit
+  near-nothing while kong invents up to ~500 notes and the CPU tier a few dozen — an engine
+  able to answer "nothing transcribable here" is a measured product need, not a nicety.
+  **Twenty-six mixes disagree by scope, not accuracy**: muscriptor hears 3-8k notes (bass,
+  percussion, everything), transkun hundreds (the tonal core), kong between, so pairwise F1
+  on mixes must be read next to the note counts, and which scope Quarry prefers is a decision
+  for the material profiles (`STATS.md` §2), not for a leaderboard. And **one take is an open
+  verdict**: a loud 25-minute capture with 83% of its energy below 300 Hz, on which muscriptor
+  emits zero notes at any length (checked at 60 s; not a length limit), transkun 18, and the
+  CPU tier 9,849 bass-register notes — either bass-dominated non-music the specialists rightly
+  refuse, or a real bass performance they wrongly dismiss. Only listening settles it.
 
 ### 4.3 Separation, if the bench says mixes are the gap
 

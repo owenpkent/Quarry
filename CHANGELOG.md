@@ -9,6 +9,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- fix: a bake-off sweep survives its cases. `run_bakeoff.py` aborted the whole engine run
+  when one case threw, which is exactly how two engines each silently lost ~50 of 90 real
+  takes in one day; a failing case is now recorded and skipped, the failures are listed at
+  the end, and the run exits non-zero. Same record-don't-raise policy as the fetch scripts.
 - feat: any window is recordable, playing or not. The source picker used to list only
   applications making a sound, which had the common case backwards: you do not find a video
   and then decide to record it, you decide to record it and then press play. It now lists
@@ -37,6 +41,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- feat: engines are comparable on material with no ground truth. `tools/bakeoff/agreement.py`
+  scores every engine pair's outputs against each other with the bake-off's own matcher, so
+  real takes — which have no reference MIDI and never will — get a trust signal from
+  convergence between independently trained models instead. Run against all 90 takes in the
+  recording folder it found the specialists corroborating at 0.94-0.98 on the clean takes,
+  fourteen unpitched takes that only the specialists decline to invent notes for, and that
+  on full mixes engines disagree by instrument scope rather than accuracy (`docs/ANALYSIS.md`
+  §4.2, the 2026-08-19 block).
 - feat: an out-of-process transcription sidecar, and the app can use it. Set
   `QUARRY_SIDECAR_CMD` and every take transcribes through a separate Python process running a
   real model (kong, transkun or muscriptor, chosen by `QUARRY_SIDECAR_ENGINE`), measured
@@ -63,11 +75,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   any external model through identical scoring. What it found is recorded in `ANALYSIS.md`
   §4.0 and §4.2, starting with: the synthetic corpus flattered the engine by 15 points, and
   pedal density predicts almost all of the damage.
-- feat: a key bench, waiting on its measurement. `tools/keybench/` fetches the GiantSteps Key
+- feat: a key bench, and its verdict. `tools/keybench/` fetches the GiantSteps Key
   dataset (604 labelled EDM excerpts, labels committed so the harness survives upstream),
   rebuilds `KeyEstimate`'s exact histogram from bench dumps, and scores four key-profile sets
   by accuracy and the MIREX weighted score. Its self-test proves the relative major/minor
-  blind spot `STATS.md` predicted. No key rework ships ahead of this number.
+  blind spot `STATS.md` predicted. Measured 2026-08-19, all 604 tracks: the shipping
+  Krumhansl-Kessler profile wins outright (0.513 accuracy / 0.605 MIREX) and
+  Temperley-Kostka-Payne, the profile the design specified as its replacement, measures worst
+  of the three classical sets, so the planned swap is off and the leverage moves to the bass
+  histogram and the ribbon (`STATS.md` §4.3, tables and readings; `docs/BENCH.md` §4, the
+  commands that reproduce it).
 
 - feat: exported velocity is measured from the audio instead of taken from the model. The number
   written into every `.mid` Quarry has produced was `Notes::Event::amplitude`, the mean note

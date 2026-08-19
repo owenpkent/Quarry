@@ -159,6 +159,7 @@ def main() -> int:
             transcriber = make()
 
         rows = []
+        failed = []
         onset_total = Counts(0, 0, 0)
         onset_offset_total = Counts(0, 0, 0)
 
@@ -167,16 +168,27 @@ def main() -> int:
             mid_path = engine_out_dir / f"{name}.mid"
             started = time.time()
 
-            if engine == "dump":
-                if args.dump_dir is None:
-                    print("--dump-dir is required for the 'dump' engine", file=sys.stderr)
-                    return 1
+            # A failure on one case is recorded, not raised, so the sweep reaches the end
+            # (same policy as fetch_giantsteps.py): a 90-case corpus should never lose its
+            # remaining cases to one bad file. KeyboardInterrupt still stops the run.
+            try:
+                if engine == "dump":
+                    if args.dump_dir is None:
+                        print("--dump-dir is required for the 'dump' engine", file=sys.stderr)
+                        return 1
 
-                notes = run_dump(name, args.dump_dir)
-                write_notes_midi(mid_path, notes)
-            else:
-                _make, run = ENGINES[engine]
-                run(transcriber, wav_path, mid_path)
+                    notes = run_dump(name, args.dump_dir)
+                    write_notes_midi(mid_path, notes)
+                else:
+                    _make, run = ENGINES[engine]
+                    run(transcriber, wav_path, mid_path)
+            except KeyboardInterrupt:
+                raise
+            except Exception as error:
+                failed.append(name)
+                exit_code = 1
+                print(f"  {engine}/{name}: FAILED ({type(error).__name__}: {error})", file=sys.stderr)
+                continue
 
             elapsed = time.time() - started
 
@@ -192,6 +204,9 @@ def main() -> int:
 
         print(f"\n=== {engine} ===")
         print_table(rows, onset_total, onset_offset_total)
+
+        if failed:
+            print(f"{engine}: {len(failed)} case(s) failed: {', '.join(failed)}", file=sys.stderr)
 
     return exit_code
 
