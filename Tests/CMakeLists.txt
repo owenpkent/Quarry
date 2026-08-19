@@ -9,8 +9,13 @@ file(GLOB_RECURSE HEADERS_TESTS ${CMAKE_CURRENT_LIST_DIR}/../Lib/*.h)
 
 # SampleLibrary is juce_core only, so unlike the recorder it can be linked in here and its
 # path guard tested directly. That guard is a security boundary, not a convenience.
+#
+# MidiFileWriter is added the same way: its pedal-tick-conversion arithmetic is pure logic over a
+# TimeQuantizeOptions::TimeQuantizeInfo (header-only) and a written-then-read-back MIDI file, none
+# of which needs audio, so it is worth testing here despite living in Quarry/Source rather than Lib.
 target_sources(${PROJECT_NAME} PRIVATE Tests.cpp ${SOURCES_TESTS} ${HEADERS_TESTS}
-        ${CMAKE_CURRENT_LIST_DIR}/../Quarry/Source/Sampler/SampleLibrary.cpp)
+        ${CMAKE_CURRENT_LIST_DIR}/../Quarry/Source/Sampler/SampleLibrary.cpp
+        ${CMAKE_CURRENT_LIST_DIR}/../Quarry/Source/MidiFile/MidiFileWriter.cpp)
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../ThirdParty/ONNXRuntime/${ONNXRUNTIME_DIRNAME}/include)
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../ThirdParty/minimp3)

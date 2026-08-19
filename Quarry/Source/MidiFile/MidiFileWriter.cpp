@@ -8,7 +8,8 @@ bool MidiFileWriter::writeMidiFile(const std::vector<Notes::Event>& inNoteEvents
                                    const File& fileToUse,
                                    const TimeQuantizeOptions::TimeQuantizeInfo& inInfo,
                                    double inExportBpm,
-                                   PitchBendModes inPitchBendMode) const
+                                   PitchBendModes inPitchBendMode,
+                                   const std::vector<SidecarPedalEvent>& inPedalEvents) const
 {
     // Compute offset to start at beginning of the previous bar
     const double start_offset = - inInfo.getStartLastBarSec();
@@ -63,6 +64,15 @@ bool MidiFileWriter::writeMidiFile(const std::vector<Notes::Event>& inNoteEvents
 
         message_sequence.addEvent(note_off);
         message_sequence.updateMatchedPairs();
+    }
+
+    // Sustain pedal (CC64), channel 1, same wall-clock-to-tick conversion as the notes above.
+    // Unquantized on purpose even when time quantization is on: quantize() only ever runs over
+    // note events, and giving pedal its own quantized mapping is future work, not done here.
+    for (const auto& pedal_event: inPedalEvents) {
+        auto cc_event = MidiMessage::controllerEvent(1, 64, pedal_event.value);
+        cc_event.setTimeStamp((pedal_event.time + start_offset) * inExportBpm / 60.0 * mTicksPerQuarterNote);
+        message_sequence.addEvent(cc_event);
     }
 
     message_sequence.sort();

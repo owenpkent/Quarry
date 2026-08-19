@@ -58,7 +58,8 @@ void MidiFileDrag::mouseDown(const MouseEvent& event)
         out_file,
         mProcessor->getTranscriptionManager()->getTimeQuantizeOptions().getTimeQuantizeInfo(),
         export_bpm,
-        static_cast<PitchBendModes>(mProcessor->getParameterValue(ParameterHelpers::PitchBendModeId)));
+        static_cast<PitchBendModes>(mProcessor->getParameterValue(ParameterHelpers::PitchBendModeId)),
+        mProcessor->getTranscriptionManager()->getPedalEvents());
 
     if (!success_midi_file_creation) {
         NativeMessageBox::showMessageBoxAsync(

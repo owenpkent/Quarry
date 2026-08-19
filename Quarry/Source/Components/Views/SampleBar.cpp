@@ -255,6 +255,7 @@ struct SaveRequest {
     bool wantMidi = false;
     File source;
     std::vector<Notes::Event> notes;
+    std::vector<SidecarPedalEvent> pedalEvents;
     TimeQuantizeOptions::TimeQuantizeInfo quantizeInfo;
     double exportBpm = 120.0;
     PitchBendModes pitchBendMode = NoPitchBend;
@@ -281,8 +282,12 @@ void runSave(const SaveRequest& inRequest, StringArray& outWritten, StringArray&
         const auto destination = inRequest.folder.getChildFile(inRequest.stem + ".mid");
 
         const MidiFileWriter writer;
-        const bool ok = writer.writeMidiFile(
-            inRequest.notes, destination, inRequest.quantizeInfo, inRequest.exportBpm, inRequest.pitchBendMode);
+        const bool ok = writer.writeMidiFile(inRequest.notes,
+                                             destination,
+                                             inRequest.quantizeInfo,
+                                             inRequest.exportBpm,
+                                             inRequest.pitchBendMode,
+                                             inRequest.pedalEvents);
 
         if (ok)
             outWritten.add(destination.getFileName());
@@ -336,6 +341,7 @@ void SampleBar::_save()
 
     request.source = mProcessor.getSourceAudioManager()->getSourceFile();
     request.notes = transcription_manager->getNoteEventVector();
+    request.pedalEvents = transcription_manager->getPedalEvents();
     request.quantizeInfo = transcription_manager->getTimeQuantizeOptions().getTimeQuantizeInfo();
     request.exportBpm = mProcessor.getValueTree().getProperty(NnId::ExportTempoId, 120.0);
     request.pitchBendMode =
