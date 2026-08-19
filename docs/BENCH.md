@@ -87,14 +87,25 @@ useful for engines not yet wired into the sidecar.
 `tools/keybench/`: `fetch_giantsteps.py` pulls the GiantSteps Key dataset (604 key-labelled
 Beatport excerpts; the working audio mirror is `www.cp.jku.at/datasets/giantsteps/backup/`,
 MD5-verified against the dataset's own hashes; `giantsteps_labels.tsv` is committed so the
-harness works if upstream vanishes). `score_keys.py` rebuilds `KeyEstimate`'s exact
+harness works if upstream vanishes). `make_giantsteps_corpus.py` lays the cached mp3s out as
+`Tests/bench_corpus_giantsteps` with a one-note stub `.mid` beside each, purely to satisfy the
+bench's pairing check: the dataset has no note-level ground truth, so every note-score column
+the bench prints for this corpus is junk by construction and only the `--dump-notes` output
+matters. `score_keys.py` rebuilds `KeyEstimate`'s exact
 duration-times-velocity histogram from `--dump-notes` output or MIDI and scores four profile
 sets (Krumhansl-Kessler with `KeyEstimate.cpp`'s constants, Temperley-Kostka-Payne,
 Albrecht-Shanahan, a doubled-tonic modal set) by accuracy and the MIREX weighted score. Its
 `--self-test` recovers 24/24 keys per profile and proves numerically that relative major and
 minor are indistinguishable to a flat diatonic template (`STATS.md` §4.2 item 4, now with a
-proof). **Status: harness complete, measurement not yet run** (19 of 604 audio files cached);
-`STATS.md` §4.3 gates all key rework on it.
+proof). **Status: measured 2026-08-19**, all 604 tracks through the CPU tier; the table and its
+three readings close `STATS.md` §4.3. To reproduce:
+
+```
+py tools\keybench\fetch_giantsteps.py --audio-all
+py tools\keybench\make_giantsteps_corpus.py
+build\tools\bench\Bench_artefacts\Release\Bench.exe Tests\bench_corpus_giantsteps --dump-notes tools\keybench\out\dump_cpu
+py tools\keybench\score_keys.py tools\keybench\out\dump_cpu tools\keybench\giantsteps_labels.tsv
+```
 
 ## 5. Reading the results
 

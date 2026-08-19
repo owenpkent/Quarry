@@ -166,12 +166,16 @@ score 0.84 against C minor.
 1. ~~**The weight is confidence, not loudness.**~~ **Fixed.** The histogram was weighted by
    `amplitude`, the mean note posteriorgram, so it was weighted by how sure the model was.
    `ANALYSIS.md` §2.1 landed and key detection took the fix for free: the weight is now
-   duration times measured velocity. It has **not** been re-measured against a labelled set,
-   because there is no key bench, only the behavioural cases in `Tests/key_estimate_test.h`.
+   duration times measured velocity. Measured 2026-08-19 on the key bench (§4.3): the shipping
+   configuration scores 0.513 accuracy / 0.605 MIREX on GiantSteps.
 
-2. **Krumhansl-Kessler is the weakest of the standard profiles.** `DESIGN.md:361` already
-   specifies Temperley-Kostka-Payne instead. Albrecht-Shanahan is worth benching too, being
-   corpus-derived rather than probe-tone-derived.
+2. ~~**Krumhansl-Kessler is the weakest of the standard profiles.**~~ **Measured 2026-08-19,
+   and the measurement says the opposite** (§4.3): on GiantSteps, through the CPU tier's notes,
+   Krumhansl-Kessler beats both alternatives outright. Temperley-Kostka-Payne, which
+   `DESIGN.md:361` specified as the replacement, measures *worst* of the three classical sets;
+   its confusions pile up on the fifth (157 of 579), the signature of a profile too flat around
+   the dominant for this material. The profile swap is off the table until some future dump
+   re-ranks them; the leverage is in items 3 to 5, not the profile constants.
 
 3. **None of the classical profiles fit electronic music.** They encode functional tonality
    with a leading tone. A modal EDM track with a flat seventh and no leading tone correlates
@@ -206,6 +210,30 @@ histogram and scores every profile set (Krumhansl-Kessler, Temperley-Kostka-Payn
 Albrecht-Shanahan, and the modal set from `ScaleModes.h`) against the labels, so comparing
 profiles never needs a rebuild. Scoring is plain accuracy plus the MIREX weighted score
 (fifth 0.5, relative 0.3, parallel 0.2). Nothing in §4 ships ahead of its number here.
+
+**Measured 2026-08-19**, all 604 tracks, notes from the CPU tier (`Bench.exe --dump-notes`,
+no sidecar), 25 tracks failing the pitch-class support gate and abstaining:
+
+| profile set | accuracy | MIREX | n | dominant confusion |
+| --- | --- | --- | --- | --- |
+| Krumhansl-Kessler (ships) | **0.513** | **0.605** | 579 | other 126, fifth 60, parallel 57 |
+| Temperley-Kostka-Payne | 0.339 | 0.504 | 579 | other 160, fifth 157 |
+| Albrecht-Shanahan | 0.411 | 0.561 | 579 | fifth 133, other 126 |
+| Modal (7-mode, doubled tonic) | 0.259 | 0.291 | 579 | other-mode 322 |
+
+Three readings. First, the profile swap that `DESIGN.md` specified is measured off: KK wins,
+TKP loses worst, so §4.2 item 2 is closed in the direction nobody expected. Second, the modal
+set as a *scoring* template is dead on arrival (the self-test's indistinguishability proof made
+that predictable); if modes appear in the product it is as a report alongside the major/minor
+answer, never as the decider. Third, the number itself: 0.605 MIREX through a transcription
+engine's notes on the engine's weakest material sits below the 0.65-0.75 of dedicated key
+detectors on this set, which is the honest cost of deriving key from transcribed notes. The
+open levers, in the order §4.2 argues: the bass histogram (relative + fifth confusions are
+~17 % of tracks even for KK), the ribbon, and re-dumping through the sidecar's better notes to
+see how much of the gap is note quality rather than profile fit.
+
+On a partial 115-track dump mid-download, Albrecht-Shanahan led and KK trailed by 0.045; the
+full set reversed it. Worth remembering the next time a partial number looks decisive.
 
 ---
 
