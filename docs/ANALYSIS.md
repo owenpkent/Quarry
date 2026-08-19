@@ -39,6 +39,14 @@ Basic Pitch's own published accuracy is roughly **52% note-level F1 on vocals** 
 GuitarSet**, and it degrades sharply on anything denser than a single instrument. That is not
 a criticism of the port, which is faithful. It is the model.
 
+**Where that ceiling went, 2026-08-18.** The model did get replaced, out of process: the
+sidecar of §4.2 is built, integrated behind `QUARRY_SIDECAR_CMD`, and measured through
+Quarry's own binary at onset F1 0.98, velocity F1 0.96+, and pedal F1 0.83 to 0.90 on real
+piano recordings, against this tier's 0.775. Everything in §2 stands as the record of the
+CPU tier, which remains the shippable Apache-2.0 default and the automatic fallback. The
+measured story of the replacement is the end of §4.0 and §4.2, and `SIDECAR.md` is how to
+run it.
+
 ---
 
 ## 2. What is wrong, worst first
@@ -205,6 +213,18 @@ Mono, 22.05 kHz, 88 pitch bins, one generic model, no instrument conditioning, n
 Full mixes are the documented failure mode of Basic Pitch, and none of §2.1 to §2.7 changes
 that. That is what the GPU tier is for.
 
+### 2.9 There is no pedal, on any tier
+
+Named late, in the world-class review of 2026-08-18, and it belongs in §2 because it is the
+largest single absence for the primary use case: no stage in Quarry emits or models CC64.
+Half of a piano score is the pedal lane, and without damper state the offset the decoder
+hunts for does not acoustically exist: the pedal decides where a note ends, not the key.
+`sustained` at F1 0.571 with 15 notes against 6 is the closest the synthetic corpus can get
+to this shape, and §2.3's relative release cannot fix it, because no decoder rule recovers a
+state the model never saw. The fix is a model that regresses pedal (§3.0.2), CC64 through
+`MidiFileWriter`, and a pedal column on the bench. Until then every exported piano take is
+missing half its information, silently.
+
 ---
 
 ## 3. What has replaced it
@@ -259,9 +279,32 @@ first of these.
   point, so §4.2's spike has to test pedalled material specifically rather than take the
   headline number on trust.
 
-For narrower scopes there are stronger options still: **hFT-Transformer** (Sony) for piano,
-**SwiftF0** and **CREPE-Notes** for monophonic material, and **Demucs** as a separation front
-end so that mixes get transcribed one stem at a time instead of all at once.
+#### 3.0.2 The piano specialists, which are the piano answer
+
+Revised 2026-08-18. The paragraph that stood here treated the specialists as a footnote for
+"narrower scopes". That had the emphasis backwards: the narrower scope is the primary use
+case, and §3.0.1's three limits all land on it. The specialists erase all three.
+
+- **Kong et al. (ByteDance, 2021)**, the same work §2.2 cites: a CRNN regressing continuous
+  onset and offset times, onset F1 **96.72** on MAESTRO, and it emits **velocity and sustain
+  pedal** as first-class outputs. Ships as `pip install piano-transcription-inference`. Code
+  Apache-2.0; the weights are MAESTRO-trained, which is the same unsettled exposure the
+  basic-pitch weights already carry, and the sidecar keeps them out of the binary either way.
+  It is also non-autoregressive, so an ONNX export is a bounded project rather than a
+  research one, unlike MuScriptor.
+- **hFT-Transformer** (Sony, 2023): stronger still on note-with-offset, heavier to run,
+  licence to verify at integration.
+- **Transkun**: event-based semi-CRF decoding, stated MIT for code and weights, which would
+  make it the licence-cleanest of the three; verify before relying on it.
+
+So the tier picture inverts: **the piano flagship should be a specialist, and MuScriptor is
+the mixes tier**, not the other way round. Pointing the generalist at solo pedalled piano
+optimises for the material Quarry cares least about at the expense of the material it cares
+most about.
+
+For monophonic material **SwiftF0** and **CREPE-Notes** remain the stronger options, and
+**Demucs** as a separation front end (§4.3) is what lets mixes be transcribed one stem at a
+time instead of all at once.
 
 ### 3.1 The licensing finding, which decides the architecture
 
@@ -270,6 +313,8 @@ end so that mixes get transcribed one stem at a time instead of all at once.
 | Basic Pitch | Apache-2.0 | Apache-2.0 |
 | MuScriptor | MIT | **CC BY-NC 4.0, non-commercial only** |
 | YourMT3+ | **GPL-3.0** | not clearly stated |
+| Kong et al. piano | Apache-2.0 | MAESTRO-trained; same unsettled exposure as basic-pitch |
+| Transkun | stated MIT | stated MIT; verify at integration |
 
 This is the same wall `DESIGN.md:278-283` already hit with the classic C++ MIR stack, where
 Essentia, madmom, Chordino, libKeyFinder, aubio and QM-DSP are all copyleft or non-commercial.
@@ -317,9 +362,42 @@ notes and the sweep it existed to inform was meaningless. And a corpus whose sho
 longer than the floor being swept can only ever argue for raising the floor, which is why the
 trill case exists.
 
-**Still missing: real material.** MAESTRO excerpts, and pedalled playing specifically, since that
-is the stated weak point of both tiers. Every number above is synthetic and should be read as an
-upper bound.
+**Still missing: real material, and there is a rung between synthetic and real.** The additive
+corpus cannot represent pedalled playing, which is the stated weak point of both tiers. The next
+rung is **rendered MAESTRO**: the MIDI-only release (57 MB, CC BY-NC-SA, fine for the bench under
+the personal-use posture in `PLAN.md`), test split, excerpts stratified by pedal density, rendered
+through a sampled piano. Real performances, real velocities, real pedal, exact ground truth, still
+no real microphones. Ground-truth offsets follow the standard pedal-extension convention (a note's
+reference offset is the later of key release and pedal release), and onset F1 stays the primary
+number until the engine emits pedal. The top rung is MAESTRO's audio proper, 120 GB, when it is
+downloaded. A one-time `mir_eval` cross-check of the bench's arithmetic comes with the first real
+corpus, so the numbers are comparable to the literature rather than merely to each other. Tooling:
+`tools/bench/fetch_maestro.py` and `tools/bench/make_real_corpus.py`, corpus in
+`Tests/bench_corpus_maestro/`.
+
+**Measured, 2026-08-18.** Built and run the same day, plus three corpora this paragraph did not
+plan: MAESTRO's actual recordings (the full 101 GB archive is local now, and
+`Tests/bench_corpus_maestro_real/` holds real-audio twins of the same 22 windows), SMD (50 real
+Disklavier recordings, Zenodo), BabySlakh (multi-instrument mixes with per-stem ground truth),
+and a 24-case corpus rendered from the local GM MIDI collection. The `mir_eval` cross-check
+passed exactly on onsets, per case and aggregate. The current engine, onset F1:
+
+| corpus | material | onset F1 |
+| --- | --- | --- |
+| synthetic (old bench) | additive piano | 0.923 |
+| rendered MAESTRO | real performances, sampled piano | 0.824 |
+| MAESTRO real audio | real performances, real recording | 0.775 |
+| SMD | real recordings, different piano and room | 0.760 |
+| GM collection | mixed classes, FluidR3 render | 0.552 |
+| BabySlakh | multi-instrument mixes | 0.335 |
+
+Two structural findings. Pedal density predicts the damage: on MAESTRO material the low-pedal
+bucket holds near 0.93 while the high-pedal bucket falls toward 0.6-0.7, all of it recall
+(precision stays around 0.9, so the engine misses notes under sustain rather than inventing
+them), which is §2.9 with a number on it. And rendering bias is real but runs the wrong way for
+comfort: the current engine scores 0.049 *better* on the FluidSynth render than on the real
+recording, while MAESTRO-trained specialists score better on the real audio, so a rendered
+corpus understates the gap to the specialists.
 
 ### 4.1 CPU tier: fix Basic Pitch
 
@@ -381,37 +459,127 @@ instrument conditioning with keeping transcriptions coherent across segment boun
 package probably chunks internally. Running it on a three-minute take answers this in minutes
 and is part of the spike below, rather than a design problem to reason about in advance.
 
-**Spike it before integrating any of it.** Install the package, transcribe a piano take and an
-electronic track that already exist, and put both next to Basic Pitch on the same audio. That
-settles whether it is better *on this material*, how it handles a long file, whether the
-same-pitch limitation is audible on real pedalling, and what `serve` exposes. An afternoon,
-and every other decision in this section depends on the answer.
+**Bake it off before integrating any of it.** Revised 2026-08-18: the spike as first written
+auditioned one model by ear. It is now a three-way bake-off scored by the bench on the rendered
+MAESTRO corpus of §4.0, plus an electronic track and a full mix: **Basic Pitch against Kong et
+al.'s piano specialist against MuScriptor** (§3.0.2). That settles which model leads on which
+material with a number, how each handles a long file, whether the same-pitch limitation is
+audible on real pedalling, and what `serve` exposes. MuScriptor's HuggingFace licence acceptance
+is Owen's and blocks only its own lane; the other two lanes run without it. Tooling in
+`tools/bakeoff/`. Every other decision in this section depends on the answer.
+
+**Run, 2026-08-18, and the answer is decisive.** Onset F1, identical corpora, identical
+`mir_eval` scoring, all on CPU:
+
+| engine | rendered MAESTRO | MAESTRO real | SMD real | BabySlakh mixes |
+| --- | --- | --- | --- | --- |
+| Quarry (Basic Pitch + §2) | 0.824 | 0.775 | 0.760 | 0.335 |
+| Kong et al. | 0.935 | 0.982 | 0.944 | 0.381 |
+| Transkun | **0.977** | **0.985** | **0.953** | 0.394 |
+| MuScriptor medium | not run | 0.849 | 0.822 | **0.433** |
+
+Findings, in order of consequence:
+
+- **The piano gap is 21 points on real recordings** (0.775 against 0.985), and the specialists
+  hold roughly 0.95-0.98 in the high-pedal bucket where the current engine falls toward 0.6.
+  §3.0.2's inversion is confirmed: on piano, the specialist is the flagship.
+- **No piano model survives a mix.** On BabySlakh the specialists manage 0.38-0.39 against
+  Quarry's 0.335, despite scoring 0.98 on solo piano. The material class dominates the model,
+  so per-material routing plus §4.3's separation is mandatory, not an optimisation.
+- **Offsets under pedal are a convention question, not a quality ranking.** Against
+  pedal-extended ground truth on MAESTRO real audio, Kong's onset+offset F1 is 0.712 while
+  Transkun's collapses to 0.02-0.06 on high-pedal cases at 0.97+ onset F1: Transkun reports
+  key-release offsets, Kong sustain-extends natively and also emits CC64, pedal and velocity.
+  The sidecar adapter resolves this either way; until it does, Kong is the complete piano
+  answer and Transkun (stated MIT, code and weights) is the accuracy and licensing answer.
+- **The GPU tier needs no GPU.** Kong runs a 30 s excerpt in about 7 s and Transkun in about
+  11 s on CPU alone, both faster than real time. The sidecar is viable on any machine and a
+  GPU only makes it instant.
+- **MuScriptor confirms the routing split from the other side.** Licence accepted, medium
+  checkpoint fetched, run on the 5090 (about 6-10 s per 30 s excerpt with cu128 torch; note
+  the cu128 wheel index tops out at torch 2.11, and 2.13+cpu does not count as older than
+  2.11+cu128 for pip, so the CUDA build must be forced explicitly). It is the **best engine
+  on mixes** (0.433 BabySlakh, 0.673 on the GM corpus against Quarry's 0.552) and clearly
+  behind the specialists on piano (0.849 real MAESTRO, 0.822 SMD). It beats the current
+  engine on every corpus. Even so, 0.43 on mixes says separation stays on the plan; the
+  generalist narrows the mix gap, it does not close it.
+- **Two adapter findings the sidecar must inherit.** MuScriptor's MIDI writer moves the whole
+  transcription onto a detected bar grid (`BeatGrid.onset_delay`), a DAW-drop convention
+  that landed every onset a constant +1.0 s late here and collapsed scored F1 to 0.108 until
+  `detect_tempo=False` disabled it; wall-clock times must come from that flag, with the bar
+  alignment reapplied by Quarry's own writer if wanted. And `TranscriptionModel.load_model`
+  defaults were CPU: the adapter selects CUDA explicitly.
+- **The sidecar itself is built and measured, same day.** `tools/sidecar/` (protocol v1,
+  newline JSON over stdio, three engines, lazy model cache, pedal and velocity in the
+  response) plus `Lib/Sidecar/SidecarClient` (native pipes: `juce::ChildProcess` cannot
+  write a child's stdin, verified against the JUCE source) plus `--sidecar` on the bench.
+  Through Quarry's own binary: kong 0.981 / 0.944 and transkun 0.985 / 0.953 onset F1 on
+  real MAESTRO / SMD, identical to the Python bake-off to the third decimal, so the pipe is
+  lossless. The column the bake-off could not see: **onset+velocity F1 0.958 (kong) and
+  0.977 (transkun)** against the CPU tier's 0.275, at 3.4 to 3.9 ms mean onset error. Both
+  stated complaints, missed and invented notes and no dynamics, are answered by this one
+  path.
+- **§5 step 3 is complete, same day.** The plugin transcribes through the sidecar when
+  `QUARRY_SIDECAR_CMD` is set (`QUARRY_SIDECAR_ENGINE` picks the engine), fed the
+  original-rate audio, with BasicPitch as automatic per-take fallback and the decoder-only
+  sensitivity knobs skipping re-decode on sidecar takes. Sidecar-measured velocities bypass
+  `NoteVelocity`; a velocity-less engine (MuScriptor) still flows through it. CC64 reaches
+  exported MIDI through `MidiFileWriter`, and the bench grew a `pedal` column: span-level
+  F1 at the 200 ms tolerance Kong et al. use, against ground truth that now carries the
+  window's CC64 stream including mid-pedal window opens. Measured through the full pipe:
+  kong pedal F1 **0.827** on real MAESTRO and **0.861** on SMD. And a correction recorded
+  the day it was made: transkun does emit CC64, sparsely; a single-file check saw none, the
+  corpus run scored its sparse toggles at **0.895**. Both piano lanes carry pedal.
+- **Separation, sized (§4.3, §5 step 5), same day.** Demucs (htdemucs, personal tier per
+  §3.1) rides the sidecar as a `sep+` engine prefix: separate, drop the drums stem,
+  transcribe the rest per stem, merge with stem-tagged instruments; about 1.4 s to separate
+  a 30 s mix on the 5090. Measured: sep+muscriptor **0.457** on BabySlakh against 0.433
+  without, **0.684** on the GM corpus against 0.673, and sep+kong 0.393, worse than the
+  generalist alone. The recovery is +0.01 to +0.02, not the leap §4.3 hoped for. Two
+  caveats before that hardens: BabySlakh is 16 kHz mono renders, a domain htdemucs was not
+  trained on, and the bass stem still goes to the generalist rather than the monophonic
+  tracker `STATS.md` §7 specifies. Mixes remain the open front, which is what the AMT
+  Challenge numbers in §3 already said of the whole field.
 
 ### 4.3 Separation, if the bench says mixes are the gap
 
 Demucs as an optional pre-stage inside the same sidecar, transcribing per stem. This is the
-largest single win available for full-mix input and it is cheap once §4.2 exists. It is last
-because it should be justified by a measurement rather than by intuition.
+largest single win available for full-mix input and it is cheap once §4.2 exists. Revised
+2026-08-18: it no longer waits on a measurement to justify its existence, because full mixes
+are already the documented failure mode; the bench's job is to size the recovery, not to
+relitigate the gap. Routing is per stem (`STATS.md` §7): bass to a monophonic sub tracker,
+drums to onset and kick-spec extraction, the remainder to the polyphonic model. Personal tier
+only, exactly as §3.1 already decided.
 
 ---
 
 ## 5. Sequencing
 
-Revised 2026-08-17. The original order ran bench, then CPU fixes, then sidecar. Two things
-changed it: the stated complaints about real takes are **missed and invented notes** and
-**no dynamics**, and §3.0.1 established that the sidecar answers the first and cannot answer
-the second. So the sidecar moves up and the CPU fix list moves down, but §2.1 survives both
-moves because it is the only fix that every path needs.
+Revised 2026-08-18; the 2026-08-17 revision moved the sidecar ahead of the CPU fixes, and its
+reasoning is kept in `PLAN.md`'s status history. What changed today: the CPU fix list is done,
+the bench exists, and the world-class review added four things the previous order did not know
+about. The real corpus outranks the spike, because a model decision gets read off a number,
+not vibes. The spike is a bake-off with a piano specialist in it (§3.0.2). Pedal is in scope
+(§2.9). And separation for EDM no longer waits on a measurement to justify its existence, only
+to size it.
 
-1. **Spike the sidecar** (§4.2). An afternoon, no integration, and it decides everything
-   after it. Pedalled piano is a required case, per §3.0.1.
-2. **The velocity stage** (§2.1), built tier-independent: note events plus audio in, velocity
-   out. Required whichever tier wins, fixes the second complaint, and takes `KeyEstimate` off
-   confidence-weighting on the way past.
-3. **The bench** (§4.0), scoped to comparing the two tiers and keeping step 2 honest, rather
-   than to policing seven CPU fixes.
-4. **The sidecar proper** (§4.2), if step 1 says yes.
-5. **CPU fixes** (§4.1). Lower priority than when this document was written, not gone: the NaN
-   guard and the sort removal are worth an hour regardless, and if step 1 says no, this list
-   becomes the plan again.
-6. **Demucs** (§4.3), if and only if the numbers say mixes are where the loss is.
+1. ~~**The real corpus** (§4.0).~~ Done 2026-08-18, and it outgrew the spec: six corpora,
+   including MAESTRO's real audio and SMD's real recordings. The measured table closes §4.0.
+2. ~~**The bake-off** (§4.2).~~ Done, same day. Transkun and Kong take piano, MuScriptor
+   takes mixes; the verdict table and its findings close §4.2.
+3. ~~**The sidecar proper.**~~ Done, same day, through to the plugin: service, client,
+   `QUARRY_SIDECAR_CMD`, CC64 into exported MIDI, and a pedal column on the bench. See the
+   §4.2 measured block and `SIDECAR.md`.
+4. **Velocity calibration**, halved in scope by measurement: the sidecar engines' own
+   velocities score 0.958 and 0.977, so calibration now matters only for the CPU tier's
+   `NoteVelocity` stage (0.227 on real MAESTRO), which is the fallback path. Still worth
+   doing against MAESTRO's Disklavier velocities; no longer on the critical path.
+5. ~~**Separation** (§4.3).~~ Done and sized, same day: +0.01 to +0.02 as built, caveats in
+   §4.2. The mixes front stays open.
+6. **CPU decoder work: stop.** §2.1 to §2.7 are done and everything left sits on the
+   17k-parameter ceiling, which now has a working replacement beside it.
+
+After steps 1 to 5, the program is `STATS.md`'s: tempo, the key bench, the library and batch
+answer, the acoustic chain. Plus the mixes front, which is the one measured disappointment:
+a bass-stem monophonic tracker, and separation retested on 44.1 kHz stereo material rather
+than 16 kHz mono renders.

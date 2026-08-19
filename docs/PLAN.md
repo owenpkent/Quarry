@@ -1,5 +1,46 @@
 # Quarry — Build Plan
 
+> ## Status, 2026-08-18 — the world-class review, and Phase 1
+>
+> A full critical review of the transcription plan against the stated goal (world-class piano
+> first, EDM reverse-engineering second, batch and library statistics wanted) produced five
+> decisions. The arguments live in `ANALYSIS.md` §2.9, §3.0.2, §4.0, §5 and `STATS.md` §4.3,
+> §7; this block is the record.
+>
+> **Decided.**
+> - **The real-material bench precedes the sidecar spike.** A model decision gets read off a
+>   number, not vibes. The first rung is rendered MAESTRO (real performances, real pedal,
+>   exact ground truth) with a one-time `mir_eval` cross-check of the bench's arithmetic;
+>   MAESTRO's audio proper is the second rung.
+> - **The spike is a bake-off, not an audition.** Basic Pitch against Kong et al.'s piano
+>   specialist against MuScriptor, same corpus, scored by the bench. The piano flagship is
+>   expected to be a specialist; MuScriptor is the mixes tier. `ANALYSIS.md` §3.0.1's three
+>   limits all land on piano and the specialists erase all three.
+> - **Pedal is in scope.** No tier emits CC64 today and half a piano score is the pedal lane.
+>   It arrives with the specialist adapter, through `MidiFileWriter`, with a pedal column on
+>   the bench. `ANALYSIS.md` §2.9.
+> - **Separation for EDM is already justified** at the personal tier: full mixes are the
+>   documented failure mode, and the sidecar is the licence boundary exactly as designed. The
+>   bench sizes the recovery; it does not relitigate the gap.
+> - **Batch and the library report are a milestone** (`STATS.md` §7): `AnalysisReport` JSON
+>   per take, `quarry-cli` over folders, an aggregate key/scale/tempo report. And
+>   `source.wav` goes 32-bit float and durable (`STATS.md` §1).
+>
+> **Phase 1, started 2026-08-18:** the rendered-MAESTRO corpus (`tools/bench/fetch_maestro.py`,
+> `make_real_corpus.py`), the bench's `--dump-notes` flag plus the `mir_eval` cross-check
+> (`tools/bakeoff/`), and the GiantSteps key-bench harness (`tools/keybench/`). MuScriptor's
+> HuggingFace licence acceptance is Owen's and blocks only its own bake-off lane.
+>
+> **Outcome, end of the same day.** Phase 1 ran to completion and kept going: `ANALYSIS.md`
+> §5 steps 1 through 5 are built and measured. Six corpora, the four-engine bake-off, the
+> sidecar (service, C++ client, plugin integration, pedal to MIDI, pedal on the bench), and
+> separation sized. Every number is recorded at the end of `ANALYSIS.md` §4.0 and §4.2;
+> `docs/SIDECAR.md` and `docs/BENCH.md` are the operating manuals. Open after it: the mixes
+> front, tempo (M2), the key measurement behind `STATS.md` §4.3, and the library and batch
+> milestone of `STATS.md` §7.
+>
+> ---
+>
 > ## Status, 2026-08-17 — the analysis engine, and a reordering
 >
 > The milestone list below still describes the product build. This block records four

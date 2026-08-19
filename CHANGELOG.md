@@ -9,6 +9,38 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- feat: an out-of-process transcription sidecar, and the app can use it. Set
+  `QUARRY_SIDECAR_CMD` and every take transcribes through a separate Python process running a
+  real model (kong, transkun or muscriptor, chosen by `QUARRY_SIDECAR_ENGINE`), measured
+  through Quarry's own pipeline at onset F1 0.98, velocity F1 0.96+, and pedal F1 0.83 to
+  0.90 on real piano recordings, against the built-in engine's 0.775 / 0.275 / nothing. Basic
+  Pitch stays in-process as the default and the automatic per-take fallback, so an unset
+  variable means current behaviour byte for byte, and a sidecar failure costs one take, not
+  the session. Out of process is also the licence boundary: non-commercial weights never
+  enter Quarry's binary. `docs/SIDECAR.md` is the manual; `tools/sidecar/PROTOCOL.md` is the
+  wire format; `Lib/Sidecar/SidecarClient` is the client, on native pipes because
+  `juce::ChildProcess` cannot write a child's stdin.
+- feat: sustain pedal exists. Sidecar takes carry CC64 into exported MIDI through
+  `MidiFileWriter`, and the bench grew a `pedal` column: span-level F1 at the 200 ms
+  tolerance the literature uses, against ground truth that now includes each window's CC64
+  stream, mid-window pedal state included. No Quarry export has ever contained a pedal event
+  before this.
+- feat: the bench measures real material, and answers to mir_eval. Five new corpora beside
+  the synthetic one: rendered MAESTRO performances, the same 22 windows as real recordings,
+  SMD's Disklavier recordings, BabySlakh mixes, and a stratified render of the local GM MIDI
+  collection, all deterministic, all gitignored, all rebuilt by pinned-and-hashed fetch
+  scripts (`docs/BENCH.md`). `--dump-notes` exports what the engine heard;
+  `tools/bakeoff/crosscheck_mir_eval.py` matched the bench's onset arithmetic against
+  `mir_eval` exactly, so the numbers are literature-comparable; `--sidecar`/`--engine` run
+  any external model through identical scoring. What it found is recorded in `ANALYSIS.md`
+  §4.0 and §4.2, starting with: the synthetic corpus flattered the engine by 15 points, and
+  pedal density predicts almost all of the damage.
+- feat: a key bench, waiting on its measurement. `tools/keybench/` fetches the GiantSteps Key
+  dataset (604 labelled EDM excerpts, labels committed so the harness survives upstream),
+  rebuilds `KeyEstimate`'s exact histogram from bench dumps, and scores four key-profile sets
+  by accuracy and the MIREX weighted score. Its self-test proves the relative major/minor
+  blind spot `STATS.md` predicted. No key rework ships ahead of this number.
+
 - feat: exported velocity is measured from the audio instead of taken from the model. The number
   written into every `.mid` Quarry has produced was `Notes::Event::amplitude`, the mean note
   posteriorgram over the note, which is the model's confidence and says nothing about how hard a

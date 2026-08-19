@@ -42,6 +42,8 @@ acoustic chain wants and it costs nothing to produce. Two caveats: it is 16-bit,
 for everything in §6 and not for noise-floor work; and it goes onto `mFilesToDelete`
 (`SourceAudioManager.cpp:175`), so it is a temp file, not the durable take directory of
 `DESIGN.md:499`. The acoustic chain must either run before cleanup or the file has to be kept.
+Decided 2026-08-18: the file is kept, written as 32-bit float, in the take directory. The
+acoustic chain should not inherit its noise floor from a temp-file format choice.
 
 There is a second consequence of the downmix worth naming, because it is an EDM problem
 specifically: a wide stereo supersaw partially cancels when summed to mono, so the model sees
@@ -192,6 +194,19 @@ score 0.84 against C minor.
    should report low global confidence *for a good reason*, distinguishable from a take that
    is simply ambiguous.
 
+### 4.3 The key bench, which blocks all of it
+
+Added 2026-08-18. Every item in §4.2 is currently unmeasurable: there is no labelled set, only
+the behavioural cases in `Tests/key_estimate_test.h`. **GiantSteps Key** (about 600 two-minute
+key-labelled Beatport excerpts, free) is exactly the EDM half of the material, and the profile
+misfit of item 3 is precisely what it will expose; a small classical set covers the piano
+half. The harness stays cheap by splitting the work: the bench dumps each take's note events
+(`--dump-notes`), and `tools/keybench/score_keys.py` rebuilds the duration-times-velocity
+histogram and scores every profile set (Krumhansl-Kessler, Temperley-Kostka-Payne,
+Albrecht-Shanahan, and the modal set from `ScaleModes.h`) against the labels, so comparing
+profiles never needs a rebuild. Scoring is plain accuracy plus the MIREX weighted score
+(fifth 0.5, relative 0.3, parallel 0.2). Nothing in §4 ships ahead of its number here.
+
 ---
 
 ## 5. Chords, and the prior art next door
@@ -313,7 +328,32 @@ and the report should say so in those words rather than implying otherwise.
 
 ---
 
-## 7. Sequencing
+## 7. The library, and the batch answer
+
+Added 2026-08-18. Everything above reads one take. The stated goal includes the aggregate:
+what the library says, across every capture, about the keys, scales and tempos the material
+lives in. Nothing here or in `PLAN.md` covered it, and it is the cheapest large feature in
+the backlog, because the engine already lives in `Lib/` and the bench already proves headless
+transcription works.
+
+Three parts:
+
+- **`AnalysisReport` JSON, per take, durable.** Key, mode, confidence, runner-up, tempo,
+  timing deviation, the free statistics of §3, provenance. Written into the take directory
+  next to the MIDI, so the aggregate never re-derives what a take already knows.
+- **`quarry-cli`**: a folder in; per file, a `.mid` plus its report JSON. Batch is where long
+  files arrive, and `Features.cpp` currently runs one ONNX call over the whole buffer, so the
+  batch path needs chunked processing with overlap stitching. The interactive path does not.
+- **The aggregate report**: key and mode histogram across the library, tempo distribution,
+  loudness spread, lossy-provenance counts. One script over the report JSONs.
+
+Separation routing belongs here too, once `ANALYSIS.md` §4.3 lands: bass stem to a monophonic
+sub tracker (the sub-bass §2.2 already says the model cannot see), drums stem to onset and
+kick-spec extraction feeding §6, the remainder to the polyphonic model.
+
+---
+
+## 8. Sequencing
 
 `ANALYSIS.md` §4.0 asks for the bench before anything else, and profiles make that more true
 rather than less: once a profile changes decoding there are two axes to regress instead of
@@ -325,12 +365,14 @@ merely moved the damage elsewhere.
    that §2.3 needs.
 3. **Tempo and beat phase**. Chords, the bass histogram and beat-synchronous anything all
    block on it.
-4. **Key rework** (§4). The `ANALYSIS.md` §2.1 velocity fix has landed, so the re-measurement
-   is now the blocker and needs a labelled set to measure against; then profiles, then the bass
-   histogram, then the ribbon.
+4. **Key rework** (§4), behind its bench (§4.3): GiantSteps first, then profiles, then the
+   bass histogram, then the ribbon. Nothing in §4 ships ahead of its number.
 5. **Chords** (§5), porting from `../Keys` with the three changes in §5.3, and the shared-code
    location decided before the first copy.
 6. **Material profiles** (§2), once there is enough measurement to auto-propose one.
 7. **The acoustic chain** (§1, §3.4, §6). Independent of all of the above and can run in
    parallel with it, since it shares no code with the model path. Start with provenance and
    loudness, which are a few hours, before the sound-design work of §6.
+8. **The library and the batch answer** (§7). The report JSON can land any time after the
+   free statistics exist, the CLI blocks on nothing above it, and the aggregate report is the
+   cheapest deliverable in this document.
