@@ -1,0 +1,77 @@
+# What a pull request has to survive: the thing compiles, and the arithmetic still holds.
+#
+# Windows only, because that is what the project can currently build: run.py fetches
+# onnxruntime-<version>-windows-x86_64 by name, and there is no macOS or Linux path for it yet.
+# A matrix here would fail on the fetch, not on anything a reviewer could act on.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+# A second push to the same branch makes the first run's answer worthless. Cancelling it
+# frees the runner immediately, which matters more than a completed log nobody reads.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    env:
+      # run.py already knows how to keep the onnxruntime tarball out of the source tree.
+      # Pointing it at a cached directory is the whole speed story: the download is by far
+      # the longest step and the version only moves when someone bumps it deliberately.
+      OKSTUDIO_ONNXRUNTIME_CACHE: ${{ runner.temp }}/onnxruntime-cache
+
+    steps:
+      # fetch-depth 1 makes the submodules shallow too. JUCE's history is far larger than
+      # its working tree and no step here reads it.
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Keyed on the pinned version rather than a lockfile hash: ONNX_VERSION in run.py is
+      # the only thing that decides which tarball this needs.
+      - name: Read the pinned onnxruntime version
+        id: onnx
+        shell: bash
+        run: echo "version=$(python -c 'import run; print(run.ONNX_VERSION)')" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.OKSTUDIO_ONNXRUNTIME_CACHE }}
+          key: onnxruntime-${{ runner.os }}-${{ steps.onnx.outputs.version }}
+
+      # The same call run.py makes before a local build, so CI and a developer's machine
+      # cannot drift on how this dependency arrives.
+      - name: Fetch onnxruntime
+        shell: bash
+        run: python -c "import run, sys; sys.exit(0 if run.ensure_onnxruntime() else 1)"
+
+      # LTO off is not a shortcut: the prebuilt onnxruntime.lib is compiled with /GL by a
+      # specific MSVC version, so linking against it with LTO on fails outright (C1047).
+      - name: Configure
+        run: cmake -S . -B build -DLTO=OFF -DBUILD_UNIT_TESTS=ON
+
+      # Tests first. They build in well under a minute and catch the arithmetic, so a broken
+      # kernel reports as a failed test rather than as a slow plugin build that fails later.
+      - name: Build tests
+        run: cmake --build build --config Release --target UnitTests -- -m
+
+      # No ctest: Tests.cpp is its own runner and ORs its cases into the exit code, so the
+      # binary already reports what a test framework would.
+      - name: Run tests
+        run: ./build/Tests/UnitTests_artefacts/Release/UnitTests.exe
+
+      # The standalone links onnxruntime and the whole engine, which is where link-level
+      # breakage shows up. Nothing but a full build finds it.
+      - name: Build standalone
+        run: cmake --build build --config Release --target Quarry_Standalone -- -m
