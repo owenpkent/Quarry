@@ -1,0 +1,232 @@
+# Quarry — UI
+
+How the interface is put together: where the palette lives, what each token is for, and
+which component to reach for. The accessibility rules these have to satisfy are in
+[ACCESSIBILITY.md](ACCESSIBILITY.md); current conformance is in [UI_AUDIT.md](UI_AUDIT.md).
+
+---
+
+## Where things live
+
+| | |
+|---|---|
+| `ThirdParty/okstudio/include/okstudio/Obsidian.h` | **Owns the palette.** The look and feel, the accent API, the fonts, and the drawing primitives. Shared across the OK Studio line. |
+| `Lib/Components/UIDefines.h` | Quarry's aliases and the roles Obsidian does not cover. Aliases only, never redefinitions. |
+| `Lib/Components/` | Reusable widgets: `Knob`, `NumericTextEditor`, meters. |
+| `Quarry/Source/Components/` | Product components: the main view, piano roll, regions, playhead. |
+| `Quarry/Source/Components/Views/` | Screens and panels. `SamplePageView`, `TranscriptionSummary`, the options views. |
+
+**Obsidian is upstream.** It is vendored under `ThirdParty` and shared with Keys and the
+rest of the line. Changing a value there changes every product. If Quarry needs a colour
+that is Quarry's alone, it belongs in `UIDefines.h` with a comment saying why. If Quarry
+needs an Obsidian value changed, that is an upstream conversation, and `UPSTREAM.txt`
+records where the copy came from.
+
+---
+
+## The accent is per instance, not global
+
+A DAW loads every plugin instance into one process. A global accent would repaint every
+track's instance whenever any one of them changed colour.
+
+So each editor owns one `okstudio::obsidian::LookAndFeel`, picks a colour with
+`setAccent()`, and components read it back with:
+
+```cpp
+const auto accent = okstudio::obsidian::accentOf(*this);
+g.setColour(accent.base);
+```
+
+`accentOf` walks the look-and-feel chain JUCE already maintains up to the editor, so a
+component never needs to know who owns it. It falls back to cyan outside an
+Obsidian-skinned editor, which is what makes it safe in a unit test.
+
+**Never freeze the accent into a constant.** `UIDefines.h` deliberately has no accent
+token. Eight accents ship (`accentChoices()`); every one of them must work, so anything
+painted in the accent has to be legible across all eight.
+
+Each accent is a triple: `base` for lit states, `hot` for gradient highlights, `deep` for
+gradient shadows and for a surface that carries dark text.
+
+---
+
+## Surfaces
+
+Darkest to lightest. A control sits **on** a surface; the pairing determines what border
+it needs.
+
+| Token | Value | For |
+|---|---|---|
+| `VOID_BG` | `#0e0f12` | The window ground, and the waveform bed. |
+| `WELL_BG` | `#101216` | Inset grooves and value wells. Recessed, not raised. |
+| `PANEL_BOT` | `#1c1f24` | Bottom of a panel gradient. |
+| `PANEL_BG` | `#22252b` | Flat panel fill. |
+| `PANEL_TOP` | `#262a31` | Top of a panel gradient. |
+| `CONTROL_BG` | `#262a31` | A raised control chip. |
+
+Two notes on this table, both of which are the audit's findings and are stated here so
+nobody re-derives them:
+
+1. **`PANEL_TOP` and `CONTROL_BG` are the same value.** A control on the top of a panel
+   has no fill separation from it at all. Controls are therefore identified by their
+   **border**, not their fill (see below).
+2. **The whole ramp spans #0e0f12 to #262a31.** That is not enough range to carry
+   hierarchy by fill alone. Hierarchy comes from border, from the accent, and from
+   position, not from a lighter grey.
+
+Panels are drawn with `raisedFill`, which needs a top and a bottom for its gradient. A
+flat fill this close to the ground disappears.
+
+### Borders
+
+| Token | Value | For |
+|---|---|---|
+| `CONTROL_BORDER` | `#6e7381` | **The boundary of any interactive control.** The dimmest cool grey clearing 3:1 against every surface above. |
+| `HAIRLINE` | `#2a2e35` | Decorative rules and dividers only. **Never a control boundary** — it is 1.06:1 against `CONTROL_BG` and does not delimit anything. |
+
+This is the single most important rule in this document. In a dark theme a 3:1 *fill*
+would mean a light grey button, which is wrong for this product, so:
+
+> **A control is identified by its border, not its fill. Fill stays dark.**
+
+---
+
+## Text
+
+| Token | Value | For |
+|---|---|---|
+| `TEXT_MAIN` | `#e9ecf0` | Values, button labels, anything the user reads to make a decision. |
+| `TEXT_DIM` | `#8a919c` | Field labels, units, secondary copy. |
+
+**There is no third tier**, and the reason is recorded at `UIDefines.h:88-95`: a fainter
+tier was tried, every use of it turned out to be text, and text answers to 4.5:1. The
+faintest step clearing 4.5:1 against `PANEL_TOP` is #8a919b, which is `TEXT_DIM`. So the
+quiet tier and the dim tier are the same colour, and keeping two names for it only
+invited the next person to pick the failing one.
+
+If a label genuinely needs to recede further, **give it a darker plate, not a darker
+grey.** Obsidian's `textFaint` #5a6068 exists upstream but measures 2.42:1 on a panel and
+must not be used for text in Quarry.
+
+Do not dim text with alpha. On a dark theme an alpha-dimmed light foreground loses
+contrast faster than it looks like it should.
+
+### Fonts
+
+| Call | Use |
+|---|---|
+| `ui(h)` | Body and values. Segoe UI, falls back to the platform sans. |
+| `uiSemi(h)` | Emphasis, button labels. |
+| `micro(h = 10)` | Section labels. Tracked caps; **callers pass uppercase text**, the function does not uppercase for you. |
+
+Nothing is embedded. Text is never baked into an image, so everything scales with the
+resizable editor.
+
+---
+
+## Semantic colours
+
+| Token | Value | For |
+|---|---|---|
+| accent `base` | per instance | Lit, active, selected, focused. |
+| `RECORD_RED` | `#d84a60` | The record light. **Graphics only.** As text on a panel it is 3.71:1 and fails AA; use `#ff6b7f` (5.60:1) when it must be read. |
+| amber | `#d9a441` | Low-confidence bars. Must always be paired with a non-colour signal. |
+| `KEY_WHITE` / `KEY_BLACK` | `#c9ced6` / `#15181c` | Piano roll keys. Not an Obsidian role: a keyboard has to read as a keyboard. |
+
+---
+
+## Buttons
+
+The product currently has one button style. It needs four, because it has four kinds of
+action and no way to tell them apart.
+
+| Role | Fill | Border | Text | For |
+|---|---|---|---|---|
+| **Primary** | accent `base` | none needed | `VOID_BG` (9.15:1) | The one action a screen is for. *Save*. **At most one per screen.** |
+| **Secondary** | `CONTROL_BG` | `CONTROL_BORDER` | `TEXT_MAIN` | Ordinary actions. *show notes*, *SNAP TO IT*, *< SAMPLES*. The default. |
+| **Quiet** | transparent | none | `TEXT_DIM` | Tertiary, inside a dense row. Must sit next to something bordered so it still reads as a control. |
+| **Destructive** | `CONTROL_BG` | `#ff6b7f` | `#ff6b7f` | Discards user work. The trash / clear-take. |
+
+A primary button on an accent fill takes **dark** text, not white: white on #35c4d7 is
+2.09:1 and fails badly, while `VOID_BG` on it is 9.15:1.
+
+### States
+
+| State | How |
+|---|---|
+| Rest | As the table above. |
+| Hover | Lighten to >=3:1 against rest. `brighter(0.12f)` gives 1.40:1 and is not enough. |
+| Pressed | **Geometry, not colour.** The rest surface is near the floor, so no darker value reaches 3:1. Pass `false` for the catch-light in `raisedFill` so the chip seats. |
+| Toggled on | Accent fill or accent border, plus `glowRect`. |
+| Focused | 2px accent ring outside the boundary. Always, on every focusable control. |
+| Disabled | A dedicated dim border and text token. Not `beginTransparencyLayer`, which lands at 1.09:1. |
+
+Hover and focus are different states and must look different. A control that is both must
+still show the focus ring.
+
+---
+
+## Icon buttons
+
+Icon-only controls are `DrawableButton`s recoloured through `recolourIcon`. They carry
+two obligations the text buttons do not:
+
+- **A 24x24px minimum hit area**, even where the glyph is smaller. Extend the hit area,
+  do not grow the graphic.
+- **`setTitle()` with a real name.** There is no text to fall back on, so without it a
+  screen reader announces an unlabelled button. A tooltip does not substitute.
+
+The header row is seven of these in a row, which makes it the place where both rules
+matter most.
+
+---
+
+## Layout
+
+The shipped window is 1000x755 and resizable.
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ wordmark          [< SAMPLES]      transport icons      │  header
+├─────────────────────────────────────────────────────────┤
+│ DRIVER / INPUT / CHANNELS / LEVEL            hint text  │  device strip
+├───────────────────────┬─────────────────────────────────┤
+│ TRANSCRIPTION         │                                 │
+│   knobs, pitch bend   │      waveform                   │
+├───────────────────────┤                                 │
+│ SCALE QUANTIZE        ├─────────────────────────────────┤
+│   range, key, snap    │      drag strip                 │
+├───────────────────────┼─────────────────────────────────┤
+│ TIME QUANTIZE         │      summary + confidence bars  │
+│   division, tempo     │                                 │
+├───────────────────────┴─────────────────────────────────┤
+│ SAVE TO   path              next name    [Wav][Midi][Save] │  footer
+└─────────────────────────────────────────────────────────┘
+```
+
+- Left column is **settings**, main region is **what was heard**, footer is **output**.
+  A control that changes what the transcriber does belongs left; a control that acts on
+  the result belongs in the footer.
+- Sections are panels with a `micro()` caps label and an enable toggle in the label row.
+- `LEFT_SECTIONS_TOP_PAD` (24px) is the gap above each left-column section.
+- Corner radii: `radius` 6px for controls, `panelRadius` 8px for panels.
+- Reserve 2px around focusable controls so the focus ring is not clipped by a parent.
+
+Tab order follows this reading order: header, left column top to bottom, main region,
+footer. Where child creation order does not match, set it explicitly.
+
+---
+
+## Adding a component
+
+1. **Reach for an existing widget first.** `Knob`, `NumericTextEditor`, the meter helpers
+   in `SamplePageView.cpp`.
+2. **Take colours from the tokens.** No hex literals in component code. If a role is
+   missing, add it to `UIDefines.h` with a comment on why, rather than inlining a value.
+3. **Read the accent with `accentOf(*this)`**, never a constant.
+4. **Give every control a border, a focus ring, and a `setTitle()`.**
+5. **Set `setAccessible(false)`** on anything decorative.
+6. **Run `python tools/contrast_check.py`.** It runs in CI and fails the build on a
+   regression.
+7. **Tab through it, and desaturate a screenshot.** If you cannot tell two things apart
+   in greyscale, they were relying on hue alone.

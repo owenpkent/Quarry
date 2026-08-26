@@ -41,6 +41,13 @@ jobs:
         with:
           python-version: '3.12'
 
+      # Before the build, because it needs neither a compiler nor onnxruntime and it fails
+      # in about a second. A palette regression is cheap to catch and invisible in review:
+      # nothing about #262a31 next to #22252b looks wrong in a diff. Rules live in
+      # docs/ACCESSIBILITY.md, tokens in docs/UI.md.
+      - name: Check UI contrast
+        run: python tools/contrast_check.py
+
       # Keyed on the pinned version rather than a lockfile hash: ONNX_VERSION in run.py is
       # the only thing that decides which tarball this needs.
       - name: Read the pinned onnxruntime version

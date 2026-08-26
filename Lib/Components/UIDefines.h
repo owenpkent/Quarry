@@ -82,6 +82,20 @@ static const Colour PANEL_BOT(static_cast<uint8>(0x1c), static_cast<uint8>(0x1f)
 static const Colour CONTROL_BG(static_cast<uint8>(0x26), static_cast<uint8>(0x2a), static_cast<uint8>(0x31));
 static const Colour HAIRLINE(static_cast<uint8>(0x2a), static_cast<uint8>(0x2e), static_cast<uint8>(0x35));
 
+// The boundary of an interactive control, and the answer to WCAG SC 1.4.11.
+//
+// CONTROL_BG and PANEL_TOP are the same value, so a button drawn on the top of a panel
+// has no fill separation from it whatsoever. The whole surface ramp spans #0e0f12 to
+// #262a31, which is not enough range to carry a 3:1 boundary by fill: reaching it would
+// mean a light grey button, which is not what this product looks like. So a control is
+// identified by its border and its fill stays dark.
+//
+// This is the dimmest cool grey clearing 3:1 against every surface a control can sit on
+// (3.04 on CONTROL_BG, 3.24 on PANEL_BG, 3.96 on WELL_BG, 4.05 on VOID_BG). Do not reach
+// for HAIRLINE here: it is 1.06:1 against CONTROL_BG and delimits nothing. Do not draw
+// this with alpha, which would put it back under 3:1.
+static const Colour CONTROL_BORDER(static_cast<uint8>(0x6e), static_cast<uint8>(0x73), static_cast<uint8>(0x81));
+
 // Text, brightest to dimmest.
 static const Colour TEXT_MAIN(static_cast<uint8>(0xe9), static_cast<uint8>(0xec), static_cast<uint8>(0xf0));
 static const Colour TEXT_DIM(static_cast<uint8>(0x8a), static_cast<uint8>(0x91), static_cast<uint8>(0x9c));
