@@ -29,9 +29,13 @@ public:
     void mouseExit(const MouseEvent& event) override;
 
 private:
-    QuarryAudioProcessor* mProcessor;
+    /** The folder saved takes go to, so a dragged transcription lands beside the take it
+        came from. Shares SampleFolderId with the sample bar rather than holding its own:
+        one folder chosen once is the whole point of the setting.
+    */
+    juce::File _folder() const;
 
-    juce::File mTempDirectory = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("quarry");
+    QuarryAudioProcessor* mProcessor;
 
     MidiFileWriter mMidiFileWriter;
 };

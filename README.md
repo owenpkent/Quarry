@@ -47,7 +47,9 @@ The workflow is very simple:
     - Play with the different settings to adjust the transcription, even while listening to it
     - Individually adjust the level of the source audio and of the synthesized transcription
 - Once you're satisfied, keep it: drag the MIDI straight into a track, or use the **SAVE TO** bar along the
-  bottom to write the audio and the transcription to a folder.
+  bottom to write the audio and the transcription to a folder. Both write to the same place, the folder named
+  in **SAVE TO**, so a dragged transcription stays there afterwards rather than vanishing with the session. It
+  defaults to `Quarry Samples` under your music folder; change it once in **SAVE TO** and the drag follows.
 
 ### Recording from an audio input
 
