@@ -24,7 +24,10 @@ jobs:
       # run.py already knows how to keep the onnxruntime tarball out of the source tree.
       # Pointing it at a cached directory is the whole speed story: the download is by far
       # the longest step and the version only moves when someone bumps it deliberately.
-      OKSTUDIO_ONNXRUNTIME_CACHE: ${{ runner.temp }}/onnxruntime-cache
+      #
+      # github.workspace rather than runner.temp: the runner context is not available to a
+      # job-level env block, and using it here fails the whole workflow at parse time.
+      OKSTUDIO_ONNXRUNTIME_CACHE: ${{ github.workspace }}/.onnxruntime-cache
 
     steps:
       # fetch-depth 1 makes the submodules shallow too. JUCE's history is far larger than
