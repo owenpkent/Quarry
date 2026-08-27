@@ -77,6 +77,28 @@ nobody re-derives them:
 Panels are drawn with `raisedFill`, which needs a top and a bottom for its gradient. A
 flat fill this close to the ground disappears.
 
+### List rows
+
+| Token | Value | For |
+|---|---|---|
+| `PANEL_BOT` | `#1c1f24` | The list ground, and every even row. |
+| `ROW_ALT` | `#222429` | Every odd row. 1.06:1 against the ground. |
+
+Both lists go through `quarry::lnf::listRowBackground`, which owns the stripe phase and
+the selection together. Do not paint a row background by hand: two lists striping out of
+phase, or selecting differently, is worse than neither.
+
+**Selection is the accent bar, not the fill**, and that is forced rather than chosen.
+`TEXT_DIM` is drawn on selected rows (the *source guessed* caption keeps it even when the
+row is chosen), which caps any row fill at about `CONTROL_BG` before `TEXT_DIM` drops
+under 4.5:1. At that cap the selected fill measures 1.15:1 against the ground and 1.07:1
+against the stripe, which is nothing. So a 3px accent bar down the left edge carries it at
+7.89:1, and the fill only warms the row.
+
+That also settles SC 1.4.1 for free: the selection is a shape as well as a colour, so it
+survives greyscale and colour blindness. The stripe stays faint on purpose. One strong
+enough to read as a state would be indistinguishable from a selected row.
+
 ### Borders
 
 | Token | Value | For |

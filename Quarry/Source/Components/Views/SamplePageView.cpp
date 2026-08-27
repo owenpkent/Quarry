@@ -878,13 +878,15 @@ void SamplePageView::paintListBoxItem(int row, Graphics& g, int width, int heigh
                           : _shownSource(row - 1).processId == mSelectedPid
                                 && _shownSource(row - 1).windowHandle == mSelectedWindow;
 
-    auto bounds = juce::Rectangle<int>(0, 0, width, height).reduced(2, 1);
+    const auto fullRow = juce::Rectangle<int>(0, 0, width, height);
+    quarry::lnf::listRowBackground(g, fullRow, row, chosen, okstudio::obsidian::accentOf(*this).base);
 
-    if (chosen)
-    {
-        g.setColour(CONTROL_BG);
-        g.fillRoundedRectangle(bounds.toFloat(), 3.0f);
-    }
+    auto bounds = fullRow.reduced(2, 1);
+
+    // The accent bar takes the left three pixels of a selected row, so the text starts
+    // after it rather than under it. Unselected rows keep the same indent so nothing
+    // shifts sideways as the selection moves.
+    bounds.removeFromLeft(3);
 
     g.setColour(chosen ? TEXT_MAIN : TEXT_DIM);
     g.setFont(UIDefines::LABEL_FONT());
@@ -1174,7 +1176,17 @@ void SamplePageView::LibraryModel::paintListBoxItem(int row, Graphics& g, int wi
     if (! isPositiveAndBelow(row, getNumRows()))
         return;
 
-    auto bounds = juce::Rectangle<int>(0, 0, width, height).reduced(2, 1);
+    // Only a take can be the selection; the way back up and the folders are somewhere to
+    // go, so they stripe like everything else but never take the accent bar.
+    const auto entryRowForSelection = row - ups - folders;
+    const auto rowIsChosen = entryRowForSelection >= 0 && entryRowForSelection == owner.mSelectedEntryRow;
+
+    const auto fullRow = juce::Rectangle<int>(0, 0, width, height);
+    quarry::lnf::listRowBackground(g, fullRow, row, rowIsChosen,
+                                   okstudio::obsidian::accentOf(owner).base);
+
+    auto bounds = fullRow.reduced(2, 1);
+    bounds.removeFromLeft(3);
 
     g.setFont(UIDefines::LABEL_FONT());
 
@@ -1214,11 +1226,8 @@ void SamplePageView::LibraryModel::paintListBoxItem(int row, Graphics& g, int wi
     const auto& entry = owner.mShownEntries[(size_t) entryRow];
     const auto chosen = entryRow == owner.mSelectedEntryRow;
 
-    if (chosen)
-    {
-        g.setColour(CONTROL_BG);
-        g.fillRoundedRectangle(bounds.toFloat(), 3.0f);
-    }
+    // The fill and the accent bar are already down: listRowBackground drew them at the top
+    // of this function, where it also knows the stripe phase.
 
     auto text = bounds.reduced(8, 0);
 

@@ -93,6 +93,45 @@ inline void focusRing(juce::Graphics& g, juce::Rectangle<float> r, float cornerR
     g.drawRoundedRectangle(r.expanded(2.0f), cornerRadius + 2.0f, 2.0f);
 }
 
+// The background of one list row: the alternating stripe, and the selection on top of it.
+//
+// Shared because Quarry has two lists (sources and library) with two unrelated
+// ListBoxModels, and a stripe that restarts its phase or a selection drawn differently
+// between them is worse than neither.
+//
+// Selection cannot be carried by fill here, and the reason is worth keeping. TEXT_DIM is
+// drawn on selected rows - the "source guessed" caption keeps it even when the row is
+// chosen - which caps any row fill at about CONTROL_BG before TEXT_DIM drops under 4.5:1.
+// At that cap the selected fill is 1.15:1 against the ground and 1.07:1 against the
+// stripe, which is nothing. So the accent bar down the left edge is the signal, at 7.89:1,
+// and the fill is only there to warm the row. That also satisfies SC 1.4.1: the selection
+// is a shape as well as a colour, so it survives being colour blind or greyscale.
+//
+// inRowIndex is the model's row number, so the stripe phase follows the data rather than
+// the scroll position.
+inline void listRowBackground(juce::Graphics& g, juce::Rectangle<int> inRow, int inRowIndex,
+                              bool inSelected, juce::Colour inAccent)
+{
+    const auto body = inRow.reduced(2, 1).toFloat();
+
+    if (inRowIndex % 2 == 1)
+    {
+        g.setColour(ROW_ALT);
+        g.fillRoundedRectangle(body, 3.0f);
+    }
+
+    if (! inSelected)
+        return;
+
+    g.setColour(CONTROL_BG);
+    g.fillRoundedRectangle(body, 3.0f);
+
+    // The bar sits inside the row's rounded corners rather than outside them, so a selected
+    // row at the top or bottom of the viewport is not clipped to a stub.
+    g.setColour(inAccent);
+    g.fillRoundedRectangle(body.withWidth(3.0f), 1.5f);
+}
+
 // hasKeyboardFocus(false): this component itself, not a child. JUCE has no
 // :focus-visible equivalent, so a control focused by a click shows the ring too. That is
 // the safe direction to err in - a ring that appears once on click is noise, a ring that

@@ -165,6 +165,16 @@ PAIRINGS = [
     ("DISABLED_TEXT", "CONTROL_BG", 2.5, "disabled text"),
     ("DISABLED_TEXT", "PANEL_BG", 2.5, "disabled text"),
 
+    # -- list rows ----------------------------------------------------------
+    # The stripe is decorative, so it has no minimum of its own; what matters is that
+    # text stays legible on it, and that the accent bar carrying selection stands out
+    # against every row colour it can land on.
+    ("TEXT_DIM", "ROW_ALT", 4.5, "text"),
+    ("TEXT_MAIN", "ROW_ALT", 4.5, "text"),
+    ("cyanAccent", "ROW_ALT", 3.0, "selection bar"),
+    ("cyanAccent", "PANEL_BOT", 3.0, "selection bar"),
+    ("cyanAccent", "CONTROL_BG", 3.0, "selection bar"),
+
     # -- piano roll keys must read as keys ----------------------------------
     ("KEY_WHITE", "KEY_BLACK", 3.0, "boundary"),
 ]

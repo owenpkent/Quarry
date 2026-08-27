@@ -96,6 +96,16 @@ static const Colour HAIRLINE(static_cast<uint8>(0x2a), static_cast<uint8>(0x2e),
 // this with alpha, which would put it back under 3:1.
 static const Colour CONTROL_BORDER(static_cast<uint8>(0x6e), static_cast<uint8>(0x73), static_cast<uint8>(0x81));
 
+// Every other row in a list, over the PANEL_BOT the list is drawn on. Its only job is to
+// let the eye carry across a wide row without losing the line, so it is deliberately faint:
+// 1.06:1 against the ground.
+//
+// It cannot be any lighter. TEXT_DIM is drawn on these rows and clears 4.5:1 against this
+// by 0.39; the next step up the ramp puts it under. A stripe strong enough to read as a
+// state would also be indistinguishable from a selected row, which is the thing that has
+// to stand out.
+static const Colour ROW_ALT(static_cast<uint8>(0x22), static_cast<uint8>(0x24), static_cast<uint8>(0x29));
+
 // Text, brightest to dimmest.
 static const Colour TEXT_MAIN(static_cast<uint8>(0xe9), static_cast<uint8>(0xec), static_cast<uint8>(0xf0));
 static const Colour TEXT_DIM(static_cast<uint8>(0x8a), static_cast<uint8>(0x91), static_cast<uint8>(0x9c));
