@@ -93,6 +93,17 @@ inline void focusRing(juce::Graphics& g, juce::Rectangle<float> r, float cornerR
     g.drawRoundedRectangle(r.expanded(2.0f), cornerRadius + 2.0f, 2.0f);
 }
 
+// Half the void left between one band and the next. Taken off the top of a band's first row
+// and the bottom of its last, so a band of one row loses twice this and still centres.
+constexpr int bandGap = 4;
+
+// Where a row sits in its band. Both true is a band of one row, which is what a flat list
+// passes and what a single-window application gets.
+struct BandEdges
+{
+    bool first = true, last = true;
+};
+
 // The background of one list row: the alternating band, and the selection on top of it.
 //
 // inBandIndex is what alternates, and it is deliberately not the row number. The band has
@@ -110,11 +121,26 @@ inline void focusRing(juce::Graphics& g, juce::Rectangle<float> r, float cornerR
 // fill is only there to warm the row. That also satisfies SC 1.4.1: the selection is a
 // shape as well as a colour, so it survives being colour blind or greyscale.
 inline void listRowBackground(juce::Graphics& g, juce::Rectangle<int> inRow, int inBandIndex,
-                              bool inSelected, juce::Colour inAccent)
+                              bool inSelected, juce::Colour inAccent, BandEdges inEdges = {})
 {
     // Square, and the full row width. A band spans several rows, so rounded corners on each
     // would scallop its edges and undo the run the band exists to make.
-    const auto body = inRow.toFloat();
+    auto body = inRow.toFloat();
+
+    // The gap between one application and the next, and the most important few pixels here.
+    //
+    // Nielsen Norman: proximity "can overpower competing visual cues such as similarity of
+    // color or shape". Until this went in, every row sat exactly rowHeight from the next
+    // whatever it belonged to, so the strongest grouping signal available was the one not
+    // being used, and the band and the rule were left doing a job they are worse at.
+    //
+    // JUCE's ListBox rows are a fixed height, so the gap has to come out of the band rather
+    // than out of the spacing between rows. Insetting the band's first and last row leaves
+    // a real void between one common region and the next, which is the part the eye reads.
+    if (inEdges.first)
+        body.removeFromTop((float) bandGap);
+    if (inEdges.last)
+        body.removeFromBottom((float) bandGap);
 
     if (inBandIndex % 2 == 1)
     {
@@ -138,10 +164,19 @@ inline void listRowBackground(juce::Graphics& g, juce::Rectangle<int> inRow, int
 // CONTROL_BORDER because this carries grouping, which is information: HAIRLINE is 1.06:1
 // against the row and would draw nothing. The band is the primary signal and this
 // reinforces it, which is the pair SC 1.4.1 wants - never one channel alone.
-inline void listGroupRule(juce::Graphics& g, juce::Rectangle<int> inRow, int inX)
+inline void listGroupRule(juce::Graphics& g, juce::Rectangle<int> inRow, int inX, BandEdges inEdges = {})
 {
+    auto span = inRow;
+
+    // Stop where the band stops. A rule that ran into the gap would bridge the very void
+    // that separates one application from the next.
+    if (inEdges.first)
+        span.removeFromTop(bandGap);
+    if (inEdges.last)
+        span.removeFromBottom(bandGap);
+
     g.setColour(CONTROL_BORDER);
-    g.fillRect(inX, inRow.getY(), 1, inRow.getHeight());
+    g.fillRect(inX, span.getY(), 1, span.getHeight());
 }
 
 // hasKeyboardFocus(false): this component itself, not a child. JUCE has no

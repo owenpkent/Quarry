@@ -67,6 +67,14 @@ constexpr int appGutterWidth = 78;
     margin rather than as an underline for the text beside it. */
 constexpr int appGutterRuleInset = 6;
 
+/** The level meter's column in a source row.
+
+    It was 80, which is a quarter of the rail spent on a bar that is empty on most rows,
+    while the window title next to it had about 150px and was truncating to nothing. The
+    meter only has to show that something is playing and roughly how loud; the title has to
+    be read. */
+constexpr int meterColumnWidth = 44;
+
 /** Two lines of it, because the one about an unsupported Windows is a sentence. */
 constexpr int statusHeight = 34;
 
@@ -896,6 +904,20 @@ int SamplePageView::_sourceBandIndex(int inRow) const
     return band;
 }
 
+quarry::lnf::BandEdges SamplePageView::_sourceBandEdges(int inRow) const
+{
+    // Row zero is "everything", a band of one: it opens and closes itself.
+    if (inRow <= 0)
+        return {};
+
+    const auto index = inRow - 1;
+    const auto last = (int) mShownSources.size() - 1;
+    const auto pid = _shownSource(index).processId;
+
+    return { index == 0 || _shownSource(index - 1).processId != pid,
+             index >= last || _shownSource(index + 1).processId != pid };
+}
+
 void SamplePageView::paintListBoxItem(int row, Graphics& g, int width, int height, bool)
 {
     if (! isPositiveAndBelow(row, getNumRows()))
@@ -908,10 +930,12 @@ void SamplePageView::paintListBoxItem(int row, Graphics& g, int width, int heigh
                                 && _shownSource(row - 1).windowHandle == mSelectedWindow;
 
     const auto fullRow = juce::Rectangle<int>(0, 0, width, height);
+    const auto edges = _sourceBandEdges(row);
 
-    // The band is one application, not one row. See listRowBackground for why.
+    // The band is one application, not one row, and the gap at its edges is what actually
+    // separates one application from the next. See listRowBackground.
     quarry::lnf::listRowBackground(g, fullRow, _sourceBandIndex(row), chosen,
-                                   okstudio::obsidian::accentOf(*this).base);
+                                   okstudio::obsidian::accentOf(*this).base, edges);
 
     auto bounds = fullRow.reduced(2, 1);
 
@@ -921,7 +945,7 @@ void SamplePageView::paintListBoxItem(int row, Graphics& g, int width, int heigh
     bounds.removeFromLeft(3);
 
     g.setColour(TEXT_MAIN);
-    g.setFont(UIDefines::LABEL_FONT());
+    g.setFont(UIDefines::ROW_TITLE_FONT());
 
     if (isEverything)
     {
@@ -936,6 +960,7 @@ void SamplePageView::paintListBoxItem(int row, Graphics& g, int width, int heigh
         // "guessed", not a sentence about it: the rail is narrow, and this is the same word
         // the library puts on the captures that come out of this choice.
         g.setColour(TEXT_DIM);
+        g.setFont(UIDefines::ROW_META_FONT());
         g.drawText("source guessed", text, Justification::centredLeft, true);
         return;
     }
@@ -943,7 +968,7 @@ void SamplePageView::paintListBoxItem(int row, Graphics& g, int width, int heigh
     const auto& source = _shownSource(row - 1);
 
     auto text = bounds.reduced(8, 0);
-    auto meter = text.removeFromRight(80).withSizeKeepingCentre(80, 6);
+    auto meter = text.removeFromRight(meterColumnWidth).withSizeKeepingCentre(meterColumnWidth, 6);
     text.removeFromRight(10);
 
     // The volume the app is set to is baked into anything captured from it, so it is said
@@ -951,6 +976,7 @@ void SamplePageView::paintListBoxItem(int row, Graphics& g, int width, int heigh
     if (source.hasAudioSession && source.volume < 0.999f)
     {
         auto warning = text.removeFromRight(70);
+        g.setFont(UIDefines::ROW_META_FONT());
         g.setColour(Colours::orange);
         g.drawText(String(roundToInt(source.volume * 100.0f)) + "%", warning,
                    Justification::centredRight, false);
@@ -994,12 +1020,14 @@ void SamplePageView::paintListBoxItem(int row, Graphics& g, int width, int heigh
     if (firstOfGroup)
     {
         g.setColour(TEXT_DIM);
+        g.setFont(UIDefines::ROW_META_FONT());
         g.drawText(appLabel(source.name), label, Justification::centredLeft, true);
     }
 
-    quarry::lnf::listGroupRule(g, fullRow, text.getX() - appGutterRuleInset);
+    quarry::lnf::listGroupRule(g, fullRow, text.getX() - appGutterRuleInset, edges);
 
     g.setColour(TEXT_MAIN);
+    g.setFont(UIDefines::ROW_TITLE_FONT());
     g.drawText(source.windowTitle, text, Justification::centredLeft, true);
 
     paintMeter(meter);
@@ -1230,7 +1258,7 @@ void SamplePageView::LibraryModel::paintListBoxItem(int row, Graphics& g, int wi
     auto bounds = fullRow.reduced(2, 1);
     bounds.removeFromLeft(3);
 
-    g.setFont(UIDefines::LABEL_FONT());
+    g.setFont(UIDefines::ROW_TITLE_FONT());
 
     // The way back up, and the folders inside this one, both read as somewhere to go. Only the
     // takes below them are something to play, so only they can be the selection.
@@ -1242,6 +1270,7 @@ void SamplePageView::LibraryModel::paintListBoxItem(int row, Graphics& g, int wi
 
         if (row < ups)
         {
+            g.setFont(UIDefines::ROW_META_FONT());
             g.drawText("..", text.removeFromLeft(whenWidth), Justification::centredLeft, false);
             text.removeFromLeft(10);
             g.drawText("back to " + owner.mBrowseFolder.getParentDirectory().getFileName(), text,
@@ -1252,6 +1281,7 @@ void SamplePageView::LibraryModel::paintListBoxItem(int row, Graphics& g, int wi
         const auto index = (size_t) (row - ups);
         const auto held = owner.mBrowseCounts[index];
 
+        g.setFont(UIDefines::ROW_META_FONT());
         g.drawText(String(held) + (held == 1 ? " take" : " takes"),
                    text.removeFromRight(lengthWidth + 30), Justification::centredRight, false);
         text.removeFromRight(10);
@@ -1260,6 +1290,7 @@ void SamplePageView::LibraryModel::paintListBoxItem(int row, Graphics& g, int wi
         text.removeFromLeft(10);
 
         g.setColour(TEXT_MAIN);
+        g.setFont(UIDefines::ROW_TITLE_FONT());
         g.drawText(owner.mBrowseFolders[index].getFileName(), text, Justification::centredLeft, true);
         return;
     }
@@ -1275,6 +1306,7 @@ void SamplePageView::LibraryModel::paintListBoxItem(int row, Graphics& g, int wi
 
     // Right to left, so the numbers line up down the list however long the names are.
     g.setColour(TEXT_DIM);
+    g.setFont(UIDefines::ROW_META_FONT());
     g.drawText(String(entry.durationSec, 1) + " s", text.removeFromRight(lengthWidth),
                Justification::centredRight, false);
     text.removeFromRight(10);
@@ -1289,7 +1321,8 @@ void SamplePageView::LibraryModel::paintListBoxItem(int row, Graphics& g, int wi
     // from it and reads like one; it stays the name on disk and in search, not on the row.
     const auto name = entry.windowTitle.isNotEmpty() ? entry.windowTitle : entry.displayName();
 
-    g.setColour(chosen ? TEXT_MAIN : TEXT_DIM);
+    g.setColour(TEXT_MAIN);
+    g.setFont(UIDefines::ROW_TITLE_FONT());
     g.drawText(name, text, Justification::centredLeft, true);
 }
 

@@ -10,6 +10,7 @@
 #include "PluginProcessor.h"
 #include "Sampler/SampleLibrary.h"
 #include "UIDefines.h"
+#include "QuarryLookAndFeel.h"
 
 #if JUCE_WINDOWS
 
@@ -147,6 +148,10 @@ private:
         One band is one application, not one row, so every window of an application shares a
         tint and the next application flips. Row zero ("everything") is its own band. */
     int _sourceBandIndex(int inRow) const;
+
+    /** Whether a source row opens or closes its application's band, which is what decides
+        where the gap between one application and the next is drawn. */
+    quarry::lnf::BandEdges _sourceBandEdges(int inRow) const;
 
     void _updateEnablements();
 

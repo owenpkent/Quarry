@@ -60,6 +60,28 @@ inline Font BUTTON_FONT()
     static const auto font = Font(FontOptions(MONTSERRAT_BOLD())).withPointHeight(12.0f);
     return font;
 }
+
+/** A list row's primary text: the window title, or the name of an application that has only
+    one window. The thing being chosen between.
+
+    It exists because the lists had no type scale at all. Every string in them was
+    LABEL_FONT at 10pt, so the only lever left for hierarchy was colour, and colour on its
+    own is the weakest of the three. Size and weight do most of the work here now, which is
+    what lets the secondary text get quieter without disappearing. */
+inline Font ROW_TITLE_FONT()
+{
+    static const auto font = Font(FontOptions(MONTSERRAT_SEMIBOLD())).withPointHeight(12.5f);
+    return font;
+}
+
+/** A list row's secondary text: the application a window belongs to, the timestamps, the
+    counts. Smaller, lighter and dimmer than the title, which is three levers rather than
+    one, so none of them has to be pushed far. */
+inline Font ROW_META_FONT()
+{
+    static const auto font = Font(FontOptions(MONTSERRAT_REGULAR())).withPointHeight(9.5f);
+    return font;
+}
 } // namespace Fonts
 
 // Colors

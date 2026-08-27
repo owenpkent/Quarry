@@ -166,6 +166,14 @@ contrast faster than it looks like it should.
 | `ui(h)` | Body and values. Segoe UI, falls back to the platform sans. |
 | `uiSemi(h)` | Emphasis, button labels. |
 | `micro(h = 10)` | Section labels. Tracked caps; **callers pass uppercase text**, the function does not uppercase for you. |
+| `UIDefines::ROW_TITLE_FONT()` | 12.5pt semibold. A list row's primary text: the window title, or the name of a single-window application. |
+| `UIDefines::ROW_META_FONT()` | 9.5pt regular. A list row's secondary text: the application name, timestamps, counts. |
+
+**Hierarchy is size, weight and colour together, never colour alone.** The lists used to be
+a single 10pt `LABEL_FONT` throughout, which left colour as the only lever and made every
+row read the same. `ROW_TITLE_FONT` and `ROW_META_FONT` are the two ends of that scale.
+Refactoring UI's framing is the useful one: emphasise by de-emphasising, so the secondary
+text gets smaller, lighter and dimmer rather than the primary getting louder.
 
 Nothing is embedded. Text is never baked into an image, so everything scales with the
 resizable editor.
