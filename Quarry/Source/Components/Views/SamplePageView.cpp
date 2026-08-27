@@ -55,6 +55,18 @@ constexpr int narrowWidth = 300;
 constexpr int whenWidth = 52;
 constexpr int lengthWidth = 56;
 
+/** The gutter an application's name sits in, to the left of its windows' titles.
+
+    Wide enough for the names that actually turn up. It was 64, which truncated
+    "wallpaper32" to "wallpaper..." and left a three-window group labelled with an
+    ellipsis, which is the one thing the gutter exists to say. The titles pay for the
+    extra, and they are already the wider column. */
+constexpr int appGutterWidth = 78;
+
+/** Where the group rule sits inside that gutter: far enough off the title to read as a
+    margin rather than as an underline for the text beside it. */
+constexpr int appGutterRuleInset = 6;
+
 /** Two lines of it, because the one about an unsupported Windows is a sentence. */
 constexpr int statusHeight = 34;
 
@@ -867,6 +879,23 @@ int SamplePageView::getNumRows()
     return (int) mShownSources.size() + 1;
 }
 
+int SamplePageView::_sourceBandIndex(int inRow) const
+{
+    // Row zero is "everything", which belongs to no application and takes band zero. The
+    // rest count a new band each time the process changes, walking from the top so the
+    // phase follows the data and not wherever the viewport happens to start.
+    if (inRow <= 0)
+        return 0;
+
+    auto band = 1;
+
+    for (auto i = 1; i < inRow; ++i)
+        if (_shownSource(i).processId != _shownSource(i - 1).processId)
+            ++band;
+
+    return band;
+}
+
 void SamplePageView::paintListBoxItem(int row, Graphics& g, int width, int height, bool)
 {
     if (! isPositiveAndBelow(row, getNumRows()))
@@ -879,7 +908,10 @@ void SamplePageView::paintListBoxItem(int row, Graphics& g, int width, int heigh
                                 && _shownSource(row - 1).windowHandle == mSelectedWindow;
 
     const auto fullRow = juce::Rectangle<int>(0, 0, width, height);
-    quarry::lnf::listRowBackground(g, fullRow, row, chosen, okstudio::obsidian::accentOf(*this).base);
+
+    // The band is one application, not one row. See listRowBackground for why.
+    quarry::lnf::listRowBackground(g, fullRow, _sourceBandIndex(row), chosen,
+                                   okstudio::obsidian::accentOf(*this).base);
 
     auto bounds = fullRow.reduced(2, 1);
 
@@ -888,7 +920,7 @@ void SamplePageView::paintListBoxItem(int row, Graphics& g, int width, int heigh
     // shifts sideways as the selection moves.
     bounds.removeFromLeft(3);
 
-    g.setColour(chosen ? TEXT_MAIN : TEXT_DIM);
+    g.setColour(TEXT_MAIN);
     g.setFont(UIDefines::LABEL_FONT());
 
     if (isEverything)
@@ -935,21 +967,29 @@ void SamplePageView::paintListBoxItem(int row, Graphics& g, int width, int heigh
             drawMeter(g, inBounds, source.shownPeak, accent);
     };
 
+    // One window, so the application is the row. Its name is the thing being picked, so it
+    // takes TEXT_MAIN like a title would, and there is no gutter to rule off.
     if (! source.oneOfSeveral)
     {
+        g.setColour(TEXT_MAIN);
         g.drawText(appLabel(source.name), text, Justification::centredLeft, true);
         paintMeter(meter);
         return;
     }
 
     // Several rows, one application. The title is the only thing that says which is which, so
-    // it gets the room; the name is printed once, against the first of its windows, and left
-    // off the rest. Repeated down every row it was a column of identical cells, which costs a
-    // read and settles nothing.
+    // it gets the room and it gets TEXT_MAIN; the name is printed once, against the first of
+    // its windows, and left off the rest. Repeated down every row it was a column of
+    // identical cells, which costs a read and settles nothing.
+    //
+    // What was missing was anything holding the group together, which left every row after
+    // the first as an orphan with an empty column where the name would be. The band behind
+    // the whole application and the rule down its gutter are that, and the name column keeps
+    // its width on every row so the titles still line up.
     const auto index = row - 1;
     const auto firstOfGroup = index == 0 || _shownSource(index - 1).processId != source.processId;
 
-    auto label = text.removeFromLeft(64);
+    auto label = text.removeFromLeft(appGutterWidth);
 
     if (firstOfGroup)
     {
@@ -957,7 +997,9 @@ void SamplePageView::paintListBoxItem(int row, Graphics& g, int width, int heigh
         g.drawText(appLabel(source.name), label, Justification::centredLeft, true);
     }
 
-    g.setColour(chosen ? TEXT_MAIN : TEXT_DIM);
+    quarry::lnf::listGroupRule(g, fullRow, text.getX() - appGutterRuleInset);
+
+    g.setColour(TEXT_MAIN);
     g.drawText(source.windowTitle, text, Justification::centredLeft, true);
 
     paintMeter(meter);

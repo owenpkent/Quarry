@@ -81,23 +81,49 @@ flat fill this close to the ground disappears.
 
 | Token | Value | For |
 |---|---|---|
-| `PANEL_BOT` | `#1c1f24` | The list ground, and every even row. |
-| `ROW_ALT` | `#222429` | Every odd row. 1.06:1 against the ground. |
+| `PANEL_BOT` | `#1c1f24` | The list ground, and every even band. |
+| `ROW_ALT` | `#222429` | Every odd band. 1.06:1 against the ground. |
+| `CONTROL_BORDER` | `#6e7381` | The rule down a group's gutter. |
 
-Both lists go through `quarry::lnf::listRowBackground`, which owns the stripe phase and
-the selection together. Do not paint a row background by hand: two lists striping out of
-phase, or selecting differently, is worse than neither.
+Both lists go through `quarry::lnf::listRowBackground`. Do not paint a row background by
+hand: two lists selecting differently is worse than neither.
+
+**The band follows the structure of the list, not the row number.** This is the whole
+rule, and getting it wrong is what made the sources list unreadable:
+
+- **Sources** is grouped by application, so one band is one application. Every window of
+  Chrome shares a tint and the next application flips. Pass `_sourceBandIndex(row)`.
+- **Library** is flat, so one band is one row. Pass the row number.
+
+An every-other-row stripe in the sources list cut straight through the groups and split
+each application into striped and unstriped halves. A band that fights the structure is
+worse than no band.
+
+Bands are drawn square and full width. Rounded corners on each row would scallop the edges
+of a multi-row band and undo the run it exists to make.
+
+**A window belongs to an application by three signals**, because one was not enough:
+
+1. The shared band behind the whole group.
+2. A `CONTROL_BORDER` rule down the gutter, drawn full row height so consecutive rows join
+   into one unbroken line (`listGroupRule`).
+3. The `appGutterWidth` name column, which keeps its width on every row of the group even
+   though the name is printed only on the first, so the titles stay aligned.
+
+Before those, rows two onward of a group were orphans with an empty column where the name
+would be, and nothing said which application they belonged to.
+
+**The window title is `TEXT_MAIN`; the application name is `TEXT_DIM`.** The title is what
+is being chosen between, so it is the primary text. A single-window application has no
+title to show, so its name takes `TEXT_MAIN` instead: that row *is* the thing being picked.
 
 **Selection is the accent bar, not the fill**, and that is forced rather than chosen.
-`TEXT_DIM` is drawn on selected rows (the *source guessed* caption keeps it even when the
-row is chosen), which caps any row fill at about `CONTROL_BG` before `TEXT_DIM` drops
-under 4.5:1. At that cap the selected fill measures 1.15:1 against the ground and 1.07:1
-against the stripe, which is nothing. So a 3px accent bar down the left edge carries it at
-7.89:1, and the fill only warms the row.
-
-That also settles SC 1.4.1 for free: the selection is a shape as well as a colour, so it
-survives greyscale and colour blindness. The stripe stays faint on purpose. One strong
-enough to read as a state would be indistinguishable from a selected row.
+`TEXT_DIM` is drawn on selected rows (the *source guessed* caption, and the gutter name),
+which caps any row fill at about `CONTROL_BG` before `TEXT_DIM` drops under 4.5:1. At that
+cap the selected fill measures 1.15:1 against the ground and 1.07:1 against the band,
+which is nothing. So a 3px accent bar down the left edge carries it at 7.89:1, and the
+fill only warms the row. That also settles SC 1.4.1: the selection is a shape as well as a
+colour, so it survives greyscale and colour blindness.
 
 ### Borders
 
