@@ -155,9 +155,9 @@ A primary button on an accent fill takes **dark** text, not white: white on #35c
 | State | How |
 |---|---|
 | Rest | As the table above. |
-| Hover | Lighten to >=3:1 against rest. `brighter(0.12f)` gives 1.40:1 and is not enough. |
+| Hover | Lift the fill **and** brighten the border to `TEXT_MAIN`. Hover is feedback, not information, so it is not held to 3:1 (see ACCESSIBILITY.md 1.3); it does have to be obvious, and `brighter(0.12f)` alone at 1.40:1 is not. |
 | Pressed | **Geometry, not colour.** The rest surface is near the floor, so no darker value reaches 3:1. Pass `false` for the catch-light in `raisedFill` so the chip seats. |
-| Toggled on | Accent fill or accent border, plus `glowRect`. |
+| Toggled on | Accent fill or accent border, plus `glowRect`. This one **is** information and must clear 3:1 against the off state. The accent does, at 6.88:1. |
 | Focused | 2px accent ring outside the boundary. Always, on every focusable control. |
 | Disabled | A dedicated dim border and text token. Not `beginTransparencyLayer`, which lands at 1.09:1. |
 
@@ -171,8 +171,8 @@ still show the focus ring.
 Icon-only controls are `DrawableButton`s recoloured through `recolourIcon`. They carry
 two obligations the text buttons do not:
 
-- **A 24x24px minimum hit area**, even where the glyph is smaller. Extend the hit area,
-  do not grow the graphic.
+- **A 34x34px minimum hit area** (`okstudio::ui::minHitPx`), even where the glyph is
+  smaller. Extend the hit area, do not grow the graphic.
 - **`setTitle()` with a real name.** There is no text to fall back on, so without it a
   screen reader announces an unlabelled button. A tooltip does not substitute.
 
@@ -212,8 +212,10 @@ The shipped window is 1000x755 and resizable.
 - Corner radii: `radius` 6px for controls, `panelRadius` 8px for panels.
 - Reserve 2px around focusable controls so the focus ring is not clipped by a parent.
 
-Tab order follows this reading order: header, left column top to bottom, main region,
-footer. Where child creation order does not match, set it explicitly.
+Everything must be reachable and operable by pointer alone: that is the line-wide
+contract in `okstudio/MouseOnly.h` and it comes before anything about the keyboard.
+Where the keyboard does apply (see ACCESSIBILITY.md section 2.2), tab order follows this
+same reading order, set explicitly where child creation order does not match.
 
 ---
 

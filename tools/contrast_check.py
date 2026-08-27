@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """Check Quarry's palette against the contrast rules in docs/ACCESSIBILITY.md.
 
-The palette is not hardcoded here. It is parsed out of the two files that own it,
+The palette is not hardcoded here. It is parsed out of the three files that own it,
 so the checker cannot drift from the product:
 
-    Lib/Components/UIDefines.h                        Quarry's tokens
-    ThirdParty/okstudio/include/okstudio/Obsidian.h   the shared Obsidian palette
+    Lib/Components/UIDefines.h            Quarry's surface and text tokens
+    Lib/Components/QuarryLookAndFeel.h    the role tokens (destructive, disabled)
+    ThirdParty/okstudio/.../Obsidian.h    the shared Obsidian palette
 
-Every pairing below is one the product actually paints. Adding a token to either
-header does not create a check; a pairing has to be declared in PAIRINGS, because
-only a person knows what ends up next to what.
+Every pairing below is one the product actually paints. Adding a token to one of
+those headers does not create a check; a pairing has to be declared in PAIRINGS,
+because only a person knows what ends up next to what.
 
 Exit code is the number of failures, so CI fails on a regression. --verbose prints
 the passing rows too, which is what you want when picking a new value.
@@ -25,6 +26,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 UIDEFINES = ROOT / "Lib" / "Components" / "UIDefines.h"
+QUARRY_LNF = ROOT / "Lib" / "Components" / "QuarryLookAndFeel.h"
 OBSIDIAN = ROOT / "ThirdParty" / "okstudio" / "include" / "okstudio" / "Obsidian.h"
 
 
@@ -56,6 +58,16 @@ _CAST_FORM = re.compile(
     r"static_cast<uint8>\(0x([0-9a-fA-F]{2})\)\s*\)"
 )
 
+# static const juce::Colour NAME(static_cast<juce::uint8>(0xNN), ...) - the form used
+# inside a namespace, where there is no JuceHeader.h "using namespace juce" in scope.
+_QUALIFIED_CAST_FORM = re.compile(
+    r"static\s+const\s+juce::Colour\s+(\w+)\s*\(\s*"
+    r"static_cast<juce::uint8>\(0x([0-9a-fA-F]{2})\)\s*,\s*"
+    r"static_cast<juce::uint8>\(0x([0-9a-fA-F]{2})\)\s*,\s*"
+    r"static_cast<juce::uint8>\(0x([0-9a-fA-F]{2})\)\s*\)",
+    re.S,
+)
+
 # static const Colour NAME(216, 74, 96) - the decimal form.
 _DECIMAL_FORM = re.compile(
     r"static\s+const\s+Colour\s+(\w+)\s*\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*\)"
@@ -71,7 +83,9 @@ def parse_palette():
     """Pull every named colour out of both headers into {name: 'rrggbb'}."""
     palette = {}
 
-    for path, patterns in ((UIDEFINES, (_CAST_FORM, _DECIMAL_FORM)), (OBSIDIAN, (_ARGB_FORM,))):
+    for path, patterns in ((UIDEFINES, (_CAST_FORM, _DECIMAL_FORM)),
+                           (QUARRY_LNF, (_QUALIFIED_CAST_FORM,)),
+                           (OBSIDIAN, (_ARGB_FORM,))):
         if not path.exists():
             sys.exit(f"palette source missing: {path}")
         text = path.read_text(encoding="utf-8", errors="replace")
@@ -79,7 +93,9 @@ def parse_palette():
         for pattern in patterns:
             for match in pattern.finditer(text):
                 name = match.group(1)
-                if pattern is _ARGB_FORM:
+                if pattern is _QUALIFIED_CAST_FORM:
+                    palette.setdefault(name, "".join(match.group(i).lower() for i in (2, 3, 4)))
+                elif pattern is _ARGB_FORM:
                     palette.setdefault(name, match.group(2).lower())
                 elif pattern is _DECIMAL_FORM:
                     channels = [int(match.group(i)) for i in (2, 3, 4)]
@@ -121,8 +137,6 @@ PAIRINGS = [
     ("cyanAccent", "VOID_BG", 4.5, "text"),
 
     # -- control boundaries, SC 1.4.11 --------------------------------------
-    # CONTROL_BORDER is what docs/UI.md specifies; it does not exist in the header
-    # yet, so these rows report as missing until it lands. That is the point.
     ("CONTROL_BORDER", "CONTROL_BG", 3.0, "boundary"),
     ("CONTROL_BORDER", "PANEL_BG", 3.0, "boundary"),
     ("CONTROL_BORDER", "PANEL_TOP", 3.0, "boundary"),
@@ -135,6 +149,21 @@ PAIRINGS = [
     ("cyanAccent", "PANEL_BG", 3.0, "focus ring"),
     ("cyanAccent", "PANEL_TOP", 3.0, "focus ring"),
     ("cyanAccent", "VOID_BG", 3.0, "focus ring"),
+
+    # -- primary button: dark text on an accent fill, never white -----------
+    ("VOID_BG", "cyanAccent", 4.5, "text"),
+
+    # -- destructive role: border is a boundary, label is text --------------
+    ("DESTRUCTIVE", "CONTROL_BG", 4.5, "text"),
+    ("DESTRUCTIVE", "PANEL_BG", 4.5, "text"),
+    ("DESTRUCTIVE", "VOID_BG", 4.5, "text"),
+
+    # -- disabled: exempt from AA, but must still read as a control ---------
+    # Thresholds are the Quarry product rule in docs/ACCESSIBILITY.md 1.4, not WCAG.
+    ("DISABLED_BORDER", "CONTROL_BG", 1.5, "disabled boundary"),
+    ("DISABLED_BORDER", "PANEL_BG", 1.5, "disabled boundary"),
+    ("DISABLED_TEXT", "CONTROL_BG", 2.5, "disabled text"),
+    ("DISABLED_TEXT", "PANEL_BG", 2.5, "disabled text"),
 
     # -- piano roll keys must read as keys ----------------------------------
     ("KEY_WHITE", "KEY_BLACK", 3.0, "boundary"),
@@ -156,7 +185,8 @@ def main():
     args = parser.parse_args()
 
     palette = parse_palette()
-    print(f"parsed {len(palette)} colours from UIDefines.h and Obsidian.h\n")
+    print(f"parsed {len(palette)} colours from UIDefines.h, "
+          f"QuarryLookAndFeel.h and Obsidian.h\n")
 
     failures, missing, checked = [], [], 0
 

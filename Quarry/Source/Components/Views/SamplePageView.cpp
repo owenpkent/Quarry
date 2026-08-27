@@ -4,6 +4,8 @@
 
 #include "SamplePageView.h"
 
+#include "QuarryLookAndFeel.h"
+
 #if JUCE_WINDOWS
 
 #include "NnId.h"
@@ -182,12 +184,13 @@ SamplePageView::SamplePageView(QuarryAudioProcessor& inProcessor)
     addChildComponent(*mSourceChooser);
 
     mRecordButton = std::make_unique<TextButton>("RECORD");
-    mRecordButton->setColour(TextButton::buttonColourId, CONTROL_BG);
-    mRecordButton->setColour(TextButton::textColourOffId, TEXT_MAIN);
+    quarry::lnf::setRole(*mRecordButton, quarry::lnf::Role::primary);
+    mRecordButton->setTitle("Record");
     mRecordButton->onClick = [this]() { _toggleRecording(); };
     addAndMakeVisible(*mRecordButton);
 
     mFixVolumeButton = std::make_unique<TextButton>("SET TO 100%");
+    mFixVolumeButton->setTitle("Set volume to 100%");
     mFixVolumeButton->setColour(TextButton::buttonColourId, CONTROL_BG);
     mFixVolumeButton->setColour(TextButton::textColourOffId, TEXT_MAIN);
     mFixVolumeButton->onClick = [this]() { _fixSelectedVolume(); };
@@ -197,8 +200,8 @@ SamplePageView::SamplePageView(QuarryAudioProcessor& inProcessor)
     // the same visual weight as the list it describes. The path is on the tooltip, which is
     // where a fact you need once belongs.
     mFolderButton = std::make_unique<TextButton>("change folder");
-    mFolderButton->setColour(TextButton::buttonColourId, Colours::transparentBlack);
-    mFolderButton->setColour(TextButton::textColourOffId, TEXT_DIM);
+    quarry::lnf::setRole(*mFolderButton, quarry::lnf::Role::quiet);
+    mFolderButton->setTitle("Change folder");
     mFolderButton->onClick = [this]() { _chooseFolder(); };
     addAndMakeVisible(*mFolderButton);
 
@@ -236,8 +239,8 @@ SamplePageView::SamplePageView(QuarryAudioProcessor& inProcessor)
     // Quiet, like the folder control beside it: showing the captures at all is a preference,
     // not part of the job the page is doing.
     mCapturesButton = std::make_unique<TextButton>("hide captures");
-    mCapturesButton->setColour(TextButton::buttonColourId, Colours::transparentBlack);
-    mCapturesButton->setColour(TextButton::textColourOffId, TEXT_DIM);
+    quarry::lnf::setRole(*mCapturesButton, quarry::lnf::Role::quiet);
+    mCapturesButton->setTitle("Show or hide captures");
     mCapturesButton->onClick = [this]() { _setCapturesVisible(! mShowCaptures); };
     addAndMakeVisible(*mCapturesButton);
 
@@ -554,12 +557,11 @@ void SamplePageView::_paintSelection(Graphics& g)
 
 void SamplePageView::lookAndFeelChanged()
 {
-    // The accent belongs to the editor's look and feel and the user can change it, so it is
-    // read here rather than frozen in the constructor, and re-read whenever it moves.
-    const auto accent = okstudio::obsidian::accentOf(*this).base;
-
-    mRecordButton->setColour(TextButton::buttonColourId, accent);
-    mRecordButton->setColour(TextButton::textColourOffId, accent.contrasting(0.9f));
+    // Nothing to do any more. The accent used to be pushed onto the record button here so
+    // that changing it repainted the page; Role::primary now resolves both the fill and the
+    // text through accentOf() at paint time, which re-reads it on every repaint anyway.
+    //
+    // The override stays because a future colour that is not role-derived would go here.
 }
 
 //==============================================================================

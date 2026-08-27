@@ -65,14 +65,22 @@ grid rules.
 
 ### 1.3 States — SC 1.4.11
 
-A state change that is the only signal of what happened must itself reach **3:1 against
-the state it replaced**.
+SC 1.4.11 covers visual information required to identify a component **and its states**.
+The distinction that matters in practice:
+
+- A state that carries **information** - checked, selected, armed, disabled - must reach
+  **3:1 against the state it replaced**, because a user who cannot see the difference
+  cannot read the value.
+- A state that is only **feedback** - hover, pressed - is not held to 3:1. Nothing about
+  the control's meaning is lost if it is missed, and forcing 3:1 on hover in a dark theme
+  means a near-white button, which trades a real design for no conformance gain. It still
+  has to be plainly visible.
 
 | State | Rule |
 |---|---|
-| Hover | >=3:1 against rest. `brighter(0.12f)` gives 1.40:1 and is not enough. |
+| Hover | Feedback, not information: no 3:1 requirement, but it must be obvious. Lift the fill and brighten the border. `brighter(0.12f)` alone gives 1.40:1 and is too subtle. |
 | Pressed | **Cannot be achieved by darkening.** The rest surface is near the floor. Signal it with geometry: pass `false` for the catch-light in `raisedFill` so the chip seats, and invert the seat line. Contrast is not the mechanism here. |
-| Selected / toggled on | Accent fill or accent border. #35c4d7 is 6.88:1 on a control. |
+| Selected / toggled on | Information: **must** clear 3:1 against the off state. Accent fill or accent border; #35c4d7 is 6.88:1 on a control. |
 | Focused | See section 3. |
 | Disabled | See 1.4. |
 
@@ -104,13 +112,43 @@ itself must say what went wrong.
 
 ---
 
-## 2. Keyboard — SC 2.1.1, 2.1.2, 2.4.3
+## 2. Pointer and keyboard — SC 2.1.1, 2.1.2, 2.4.3, 2.5.8
 
-**Every control that can be operated with a mouse must be operable from the keyboard.**
+### 2.1 The mouse-only contract comes first
 
-- Do not call `setWantsKeyboardFocus(false)` on an interactive control. If a parent needs
-  a key for a shortcut, take it in the parent's `keyPressed` and return `true`; that does
-  not require removing the children from the tab order.
+`ThirdParty/okstudio/include/okstudio/MouseOnly.h` is the line-wide contract, and it
+outranks the rest of this section:
+
+> Every interaction must work with a single left-click, a drag, or a scroll. No keyboard
+> requirement, no double-click, no modifier keys, no fine-precision gestures.
+
+So, as a hard rule and one that WCAG agrees with:
+
+- **Everything must be fully operable by pointer alone.** No action may require the
+  keyboard, a modifier, a double-click, or a precision gesture. This is stricter than
+  WCAG, and it is the product.
+- **Minimum hit target 34px** per `okstudio::ui::minHitPx`, not the 24px of SC 2.5.8.
+  The kit's number is more generous; use the kit's. Extend the hit area rather than
+  growing the graphic.
+- Right-click may exist only as an optional accelerator, never as the only route.
+
+### 2.2 Keyboard, where it applies
+
+WCAG SC 2.1.1 wants the converse too: anything operable by mouse should also be operable
+by keyboard. Quarry does not currently meet that, and the reason is real rather than an
+oversight: a plugin that takes keyboard focus takes the spacebar away from the host and
+stops the DAW transport.
+
+The two builds therefore have different obligations:
+
+- **Plugin.** Deferring the keyboard to the host is the correct behaviour. Use
+  `okstudio::ui::makeMouseOnly()`. Do not take focus.
+- **Standalone.** There is no host to defer to, so nothing else will handle the keyboard
+  and SC 2.1.1 applies in full. This is an open item, tracked in
+  [UI_AUDIT.md](UI_AUDIT.md) section 5, and is a product decision rather than a patch.
+
+Where keyboard operation does apply:
+
 - Tab order follows visual reading order: header transport, then the left column top to
   bottom, then the main region, then the footer. Use `setExplicitFocusOrder` where the
   child creation order does not match the layout.
@@ -120,7 +158,9 @@ itself must say what went wrong.
 - A shortcut that is a single unmodified character must not fire while a text field has
   focus.
 
-Anything reachable by Tab must be visibly focused. See section 3.
+Anything that can be focused at all must be visibly focused. See section 3. That holds
+regardless of how section 2.2 is resolved, because a ring costs nothing on a control that
+is never focused.
 
 ---
 
@@ -189,8 +229,8 @@ Further rules:
 
 ## 6. Targets and layout — SC 2.5.8, 1.4.10, 1.4.4
 
-- **Minimum pointer target 24x24px**, per SC 2.5.8 Level AA. Where a control is drawn
-  smaller, extend its hit area to 24px rather than growing the graphic.
+- **Minimum pointer target 34x34px**, per `okstudio::ui::minHitPx`. That exceeds the
+  24px SC 2.5.8 asks for; the kit's number wins. See section 2.1.
 - Quarry has a resizable editor. Layout must survive the full supported range without
   clipping text or overlapping controls.
 - Text must not be baked into images. Everything is drawn with `ui()`, `uiSemi()` or

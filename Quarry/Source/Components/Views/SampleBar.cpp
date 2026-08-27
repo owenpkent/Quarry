@@ -4,6 +4,8 @@
 
 #include "SampleBar.h"
 
+#include "QuarryLookAndFeel.h"
+
 #include "AudioUtils.h"
 
 #include <okstudio/Obsidian.h>
@@ -89,6 +91,11 @@ SampleBar::SampleBar(QuarryAudioProcessor& inProcessor)
     addAndMakeVisible(*mMidiToggle);
 
     mSaveButton = std::make_unique<TextButton>("Save");
+    // The one action this bar exists for, and the only primary button on the page.
+    // The role carries the accent fill and the dark-on-accent text; setting the colour
+    // by hand here is what produced a Save that looked like "show notes".
+    quarry::lnf::setRole(*mSaveButton, quarry::lnf::Role::primary);
+    mSaveButton->setTitle("Save");
     mSaveButton->setTooltip("Write this take to the folder on the left.");
     mSaveButton->onClick = [this]() { _save(); };
     addAndMakeVisible(*mSaveButton);
@@ -394,7 +401,10 @@ void SampleBar::_finishSave(const StringArray& written, const StringArray& probl
 void SampleBar::_setStatus(const String& inText, bool inIsError)
 {
     mShowingResult = true;
-    mStatusLabel->setColour(Label::textColourId, inIsError ? RECORD_RED : okstudio::obsidian::accentOf(*this).base);
+    // RECORD_RED is a graphic colour: 3.71:1 on a panel is fine for the record light but
+    // under the 4.5:1 this label owes as text. DESTRUCTIVE is the same hue at 5.60:1.
+    mStatusLabel->setColour(Label::textColourId,
+                            inIsError ? quarry::lnf::DESTRUCTIVE : okstudio::obsidian::accentOf(*this).base);
     mStatusLabel->setText(inText, dontSendNotification);
 }
 
