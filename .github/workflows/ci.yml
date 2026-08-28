@@ -12,13 +12,24 @@ on:
 
 # A second push to the same branch makes the first run's answer worthless. Cancelling it
 # frees the runner immediately, which matters more than a completed log nobody reads.
+#
+# Pull requests only. A run on master is the record of what a landed commit did, and the
+# next merge arriving is no reason to throw that away.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Nothing here writes anything back. The default token is broader than that.
+permissions:
+  contents: read
 
 jobs:
   build:
     runs-on: windows-latest
+
+    # Roughly four times the honest run. Long enough that a slow runner is not a red X,
+    # short enough that a hung link is not six hours of one.
+    timeout-minutes: 40
 
     env:
       # run.py already knows how to keep the onnxruntime tarball out of the source tree.
@@ -48,7 +59,13 @@ jobs:
         shell: bash
         run: echo "version=$(python -c 'import run; print(run.ONNX_VERSION)')" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/cache@v4
+      # Restore and save are split rather than actions/cache in one piece, because that
+      # action declares post-if: success() and so saves nothing when the job fails. The
+      # download is the expensive step and it succeeds long before a build breaks, so the
+      # one-piece version re-fetched 2.8 GB on every push to a red branch, which is exactly
+      # when the runs are most frequent.
+      - uses: actions/cache/restore@v4
+        id: onnx-cache
         with:
           path: ${{ env.OKSTUDIO_ONNXRUNTIME_CACHE }}
           key: onnxruntime-${{ runner.os }}-${{ steps.onnx.outputs.version }}
@@ -58,6 +75,14 @@ jobs:
       - name: Fetch onnxruntime
         shell: bash
         run: python -c "import run, sys; sys.exit(0 if run.ensure_onnxruntime() else 1)"
+
+      # Immediately after the fetch and before anything that can fail, so a broken build
+      # still leaves the tarball cached for the push that fixes it.
+      - uses: actions/cache/save@v4
+        if: steps.onnx-cache.outputs.cache-hit != 'true'
+        with:
+          path: ${{ env.OKSTUDIO_ONNXRUNTIME_CACHE }}
+          key: onnxruntime-${{ runner.os }}-${{ steps.onnx.outputs.version }}
 
       # LTO off is not a shortcut: the prebuilt onnxruntime.lib is compiled with /GL by a
       # specific MSVC version, so linking against it with LTO on fails outright (C1047).
