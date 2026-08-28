@@ -5,33 +5,13 @@
 #include "SampleBar.h"
 
 #include "AudioUtils.h"
+#include "TakeNaming.h"
 
 #include <okstudio/Obsidian.h>
 
 namespace
 {
 constexpr int kMaxTakeNumber = 9999;
-constexpr int kMaxStemAttempts = 999;
-
-/** A stem free for every extension this save writes, so the pair cannot drift apart.
-    Empty when every candidate is taken, which the caller has to report rather than
-    write over somebody's take.
-*/
-String freeStem(const File& inFolder, const String& inBase, const StringArray& inExtensions)
-{
-    for (int attempt = 1; attempt <= kMaxStemAttempts; attempt++) {
-        const auto stem = attempt == 1 ? inBase : inBase + " (" + String(attempt) + ")";
-        bool taken = false;
-
-        for (const auto& extension: inExtensions)
-            taken = taken || inFolder.getChildFile(stem + extension).existsAsFile();
-
-        if (!taken)
-            return stem;
-    }
-
-    return {};
-}
 
 /** Opens a wav writer on inDestination, leaving nothing behind if it cannot. */
 std::unique_ptr<AudioFormatWriter>
@@ -114,12 +94,7 @@ SampleBar::~SampleBar()
 
 File SampleBar::_folder() const
 {
-    const String stored = mProcessor.getValueTree().getProperty(NnId::SampleFolderId, String());
-
-    if (stored.isNotEmpty())
-        return File(stored);
-
-    return File::getSpecialLocation(File::userMusicDirectory).getChildFile("Quarry Samples");
+    return TakeNaming::folder(mProcessor.getValueTree());
 }
 
 String SampleBar::_nextBaseName(const File& inFolder) const
@@ -328,7 +303,7 @@ void SampleBar::_save()
 
     // One stem cleared against every extension at once. Resolving them separately is how a take
     // ends up as loop(2).wav beside loop.mid, which is not the pair this feature exists to make.
-    request.stem = freeStem(folder, _nextBaseName(folder), extensions);
+    request.stem = TakeNaming::freeStem(folder, _nextBaseName(folder), extensions);
 
     if (request.stem.isEmpty()) {
         _setStatus("No free name left in " + folder.getFileName(), true);
