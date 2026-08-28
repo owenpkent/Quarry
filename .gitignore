@@ -70,3 +70,4 @@ tools/bakeoff/checkpoints/
 
 # The key bench's note dumps: reproducible from the commands in BENCH.md §4.
 tools/keybench/out/
+.onnxruntime-cache/
