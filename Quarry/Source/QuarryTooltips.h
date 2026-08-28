@@ -66,7 +66,7 @@ const String back = "Go to start | Shift + Space";
 
 const String center = "Center playhead | c";
 
-const String settings = "Settings";
+const String settings = "Settings | ,";
 
 const String mute = "Mute / Unmute input | m";
 

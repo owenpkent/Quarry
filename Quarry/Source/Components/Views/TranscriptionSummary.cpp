@@ -4,6 +4,8 @@
 
 #include "TranscriptionSummary.h"
 
+#include "QuarryLookAndFeel.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -34,18 +36,59 @@ String asClock(double inSeconds)
 /** Accent through amber to red, against two cut points worked out from the take's own middle.
     Colour is how a slump is found at a glance; which bar it is comes off the ruler under the
     strip and off the sentence below it, so nothing here is carried by hue alone. */
-Colour tierColour(double inConfidence, double inUnsureBelow, double inShakyBelow, Colour inAccent)
+// Which tier a bar falls in. Named rather than returning a colour directly because the
+// tier now drives two channels, not one: see tierColour and tierTopInset.
+enum class Tier
+{
+    empty,   // no notes here to be sure or unsure about
+    sure,
+    unsure,
+    shaky
+};
+
+Tier tierOf(double inConfidence, double inUnsureBelow, double inShakyBelow)
 {
     if (inConfidence < 0.0)
-        return CONTROL_BG; // Nothing here to be sure or unsure about.
-
+        return Tier::empty;
     if (inConfidence >= inUnsureBelow)
-        return inAccent;
-
+        return Tier::sure;
     if (inConfidence >= inShakyBelow)
-        return Colour(0xffd9a441);
+        return Tier::unsure;
+    return Tier::shaky;
+}
 
-    return RECORD_RED;
+Colour tierColour(Tier inTier, Colour inAccent)
+{
+    switch (inTier)
+    {
+        case Tier::sure:   return inAccent;
+        case Tier::unsure: return Colour(0xffd9a441);
+        case Tier::shaky:  return RECORD_RED;
+        case Tier::empty:
+        default:           return CONTROL_BG;
+    }
+}
+
+// The second channel, and the reason this is not a colour lookup any more.
+//
+// Cyan against amber against red is invisible to a red-green colour deficient user, which
+// is WCAG SC 1.4.1: hue was the only thing saying which bars to go and look at. Height is
+// the cheapest honest fix here - it reads as a level meter, it means the right thing (a
+// shorter bar is less confidence), and it survives a greyscale screenshot, which is the
+// check in docs/ACCESSIBILITY.md 7.
+//
+// Proportion of the strip height taken off the top, so the bars stay seated on a common
+// baseline and the eye reads the dips.
+float tierTopInset(Tier inTier)
+{
+    switch (inTier)
+    {
+        case Tier::unsure: return 0.28f;
+        case Tier::shaky:  return 0.48f;
+        case Tier::sure:
+        case Tier::empty:
+        default:           return 0.0f;
+    }
 }
 } // namespace
 
@@ -73,6 +116,7 @@ TranscriptionSummary::TranscriptionSummary(QuarryAudioProcessor& inProcessor)
     addAndMakeVisible(*mTempo);
 
     mUseKeyButton = std::make_unique<TextButton>("SNAP TO IT");
+    mUseKeyButton->setTitle("Snap to detected key");
     mUseKeyButton->setColour(TextButton::buttonColourId, CONTROL_BG);
     mUseKeyButton->setColour(TextButton::textColourOffId, TEXT_MAIN);
     mUseKeyButton->setTooltip(QuarryTooltips::use_detected_key);
@@ -80,6 +124,7 @@ TranscriptionSummary::TranscriptionSummary(QuarryAudioProcessor& inProcessor)
     addAndMakeVisible(*mUseKeyButton);
 
     mNextShakyButton = std::make_unique<TextButton>("NEXT SHAKY BAR");
+    mNextShakyButton->setTitle("Go to next shaky bar");
     mNextShakyButton->setColour(TextButton::buttonColourId, CONTROL_BG);
     mNextShakyButton->setColour(TextButton::textColourOffId, TEXT_MAIN);
     mNextShakyButton->setTooltip("Move the playhead to the next bar the model was least sure of.");
@@ -88,6 +133,7 @@ TranscriptionSummary::TranscriptionSummary(QuarryAudioProcessor& inProcessor)
 
     mRollButton = std::make_unique<TextButton>("show notes");
     mRollButton->setColour(TextButton::buttonColourId, Colours::transparentBlack);
+    quarry::lnf::setRole(*mRollButton, quarry::lnf::Role::quiet);
     mRollButton->setColour(TextButton::textColourOffId, TEXT_DIM);
     mRollButton->setTooltip("Show the notes themselves, under the waveform.");
     mRollButton->onClick = [this]() {
@@ -206,7 +252,10 @@ void TranscriptionSummary::_paintReadout(Graphics& g)
         g.drawText(inValue, column.removeFromTop(22), Justification::topLeft, true);
     };
 
-    const auto accent = okstudio::obsidian::accentOf(*this).base;
+    // .hot, not .base: this column is read, and the accent base fails 4.5:1 on four of the
+    // eight accents against this panel. The strip below uses .base, which is right there
+    // because a bar is a graphic and owes 3:1. See docs/UI.md.
+    const auto accent = okstudio::obsidian::accentOf(*this).hot;
 
     if (! mHasReading)
     {
@@ -297,11 +346,16 @@ void TranscriptionSummary::_paintStrip(Graphics& g)
                                         (double) mStripBounds.getHeight())
                           .toFloat();
 
-        g.setColour(tierColour(anyNotes ? worst : -1.0,
-                               mMedianConfidence * kUnsureBelowMedian,
-                               mMedianConfidence * kShakyBelowMedian,
-                               accent));
-        g.fillRoundedRectangle(bounds, 2.0f);
+        const auto tier = tierOf(anyNotes ? worst : -1.0,
+                                 mMedianConfidence * kUnsureBelowMedian,
+                                 mMedianConfidence * kShakyBelowMedian);
+
+        // The full-height cell is still the hover and hit target; only the drawn bar is
+        // shortened, so a low-confidence cell does not become harder to point at.
+        auto bar = bounds.withTrimmedTop(bounds.getHeight() * tierTopInset(tier));
+
+        g.setColour(tierColour(tier, accent));
+        g.fillRoundedRectangle(bar, 2.0f);
 
         if (mHoveredBar >= 0 && mHoveredBar / mBarsPerCell == cell)
         {
@@ -400,7 +454,9 @@ void TranscriptionSummary::clear()
 void TranscriptionSummary::setRollVisible(bool inIsVisible)
 {
     mRollVisible = inIsVisible;
+    // The title moves with the text or it lies about the state. See the record button.
     mRollButton->setButtonText(inIsVisible ? "hide notes" : "show notes");
+    mRollButton->setTitle(inIsVisible ? "Hide notes" : "Show notes");
 }
 
 //==============================================================================

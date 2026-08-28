@@ -10,6 +10,7 @@
 #include "PluginProcessor.h"
 #include "Sampler/SampleLibrary.h"
 #include "UIDefines.h"
+#include "QuarryLookAndFeel.h"
 
 #if JUCE_WINDOWS
 
@@ -48,10 +49,6 @@ public:
     void resized() override;
 
     void paint(Graphics& g) override;
-
-    /** The accent is per editor and user-selectable, so anything tinted with it is re-tinted
-        here rather than set once at construction. */
-    void lookAndFeelChanged() override;
 
     void timerCallback() override;
 
@@ -141,6 +138,16 @@ private:
 
     /** The row at a list position, counting from zero past the "everything" row. */
     const SourceRow& _shownSource(int inListRow) const;
+
+    /** Which alternating band a source row belongs to.
+
+        One band is one application, not one row, so every window of an application shares a
+        tint and the next application flips. Row zero ("everything") is its own band. */
+    int _sourceBandIndex(int inRow) const;
+
+    /** Whether a source row opens or closes its application's band, which is what decides
+        where the gap between one application and the next is drawn. */
+    quarry::lnf::BandEdges _sourceBandEdges(int inRow) const;
 
     void _updateEnablements();
 

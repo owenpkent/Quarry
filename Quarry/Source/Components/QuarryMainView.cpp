@@ -4,6 +4,8 @@
 
 #include "QuarryMainView.h"
 
+#include "QuarryLookAndFeel.h"
+
 // Last, deliberately: this reaches the Windows audio stack, and windows.h defines a
 // Rectangle() that makes juce::Rectangle ambiguous in anything parsed after it.
 #if JUCE_WINDOWS
@@ -58,6 +60,8 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
     mRecordButton->setColour(DrawableButton::ColourIds::backgroundColourId, Colours::transparentBlack);
     mRecordButton->setColour(DrawableButton::ColourIds::backgroundOnColourId, Colours::transparentBlack);
     mRecordButton->setTooltip(QuarryTooltips::record);
+    mRecordButton->setTitle("Record");
+    mRecordButton->setHelpText(QuarryTooltips::record);
 
     auto record_off_drawable =
         Drawable::createFromImageData(BinaryData::recordingoff_svg, BinaryData::recordingoff_svgSize);
@@ -100,6 +104,8 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
     mClearButton->setColour(DrawableButton::ColourIds::backgroundColourId, Colours::transparentBlack);
     mClearButton->setColour(DrawableButton::ColourIds::backgroundOnColourId, Colours::transparentBlack);
     mClearButton->setTooltip(QuarryTooltips::clear);
+    mClearButton->setTitle("Clear audio and MIDI");
+    mClearButton->setHelpText(QuarryTooltips::clear);
 
     auto bin_drawable = Drawable::createFromImageData(BinaryData::deleteicon_svg, BinaryData::deleteicon_svgSize);
     recolourIcon(bin_drawable.get(), TEXT_MAIN);
@@ -126,6 +132,8 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
         mVisualizationPanel.getAudioMidiViewport().setViewPositionProportionately(0, 0);
     };
     mBackButton->setTooltip(QuarryTooltips::back);
+    mBackButton->setTitle("Go to start");
+    mBackButton->setHelpText(QuarryTooltips::back);
     addAndMakeVisible(*mBackButton);
 
     mPlayPauseButton = std::make_unique<DrawableButton>("PlayPauseButton", DrawableButton::ButtonStyle::ImageRaw);
@@ -147,10 +155,12 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
         }
     };
     mPlayPauseButton->setTooltip(QuarryTooltips::play_pause);
+    mPlayPauseButton->setTitle("Play / Pause");
+    mPlayPauseButton->setHelpText(QuarryTooltips::play_pause);
 
     addAndMakeVisible(*mPlayPauseButton);
 
-    mCenterButton = std::make_unique<DrawableButton>("PlayPauseButton", DrawableButton::ButtonStyle::ImageRaw);
+    mCenterButton = std::make_unique<DrawableButton>("CenterButton", DrawableButton::ButtonStyle::ImageRaw);
     mCenterButton->setClickingTogglesState(true);
     mCenterButton->setColour(DrawableButton::ColourIds::backgroundColourId, Colours::transparentBlack);
     mCenterButton->setColour(DrawableButton::ColourIds::backgroundOnColourId, Colours::transparentBlack);
@@ -169,6 +179,8 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
                              nullptr,
                              nullptr);
     mCenterButton->setTooltip(QuarryTooltips::center);
+    mCenterButton->setTitle("Center playhead");
+    mCenterButton->setHelpText(QuarryTooltips::center);
 
     mCenterButton->getToggleStateValue().referTo(
         mProcessor.getValueTree().getPropertyAsValue(NnId::PlayheadCenteredId, nullptr));
@@ -274,6 +286,8 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
         mute_off_drawable.get(), nullptr, nullptr, nullptr, mute_on_drawable.get(), nullptr, nullptr);
     mMuteButton->setClickingTogglesState(true);
     mMuteButton->setTooltip(QuarryTooltips::mute);
+    mMuteButton->setTitle("Mute input");
+    mMuteButton->setHelpText(QuarryTooltips::mute);
 
     mMuteButtonAttachment = std::make_unique<AudioProcessorValueTreeState::ButtonAttachment>(
         mProcessor.getAPVTS(), ParameterHelpers::getIdStr(ParameterHelpers::MuteId), *mMuteButton);
@@ -295,9 +309,12 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
     addChildComponent(*mSamplePage);
 
     mBackToSamplesButton = std::make_unique<TextButton>("< SAMPLES");
+    mBackToSamplesButton->setTooltip("Back to samples | Esc");
     mBackToSamplesButton->setColour(TextButton::buttonColourId, PANEL_BG);
     mBackToSamplesButton->setColour(TextButton::textColourOffId, TEXT_MAIN);
     mBackToSamplesButton->setWantsKeyboardFocus(false);
+    mBackToSamplesButton->setTitle("Back to samples");
+    quarry::lnf::setRole(*mBackToSamplesButton, quarry::lnf::Role::secondary);
     mBackToSamplesButton->onClick = [this]() { _showSamplePage(true); };
     addAndMakeVisible(*mBackToSamplesButton);
 
@@ -323,6 +340,8 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
     mCenterButton->setWantsKeyboardFocus(false);
     mSettingsButton->setWantsKeyboardFocus(false);
     mSettingsButton->setTooltip(QuarryTooltips::settings);
+    mSettingsButton->setTitle("Settings");
+    mSettingsButton->setHelpText(QuarryTooltips::settings);
 
     updateEnablements();
 
@@ -532,6 +551,23 @@ bool QuarryMainView::keyPressed(const KeyPress& key)
         mCenterButton->triggerClick();
         return true;
     }
+
+    if (key == KeyPress(',', juce::ModifierKeys::noModifiers, 0)) {
+        mSettingsButton->triggerClick();
+        return true;
+    }
+
+#if JUCE_WINDOWS
+    // Escape is free here and reads as "back out of this". The guard matches the one the
+    // button is built under, and the null check covers the window between construction of
+    // the view and of the sample page.
+    if (key == KeyPress(KeyPress::escapeKey) && mBackToSamplesButton != nullptr
+        && mBackToSamplesButton->isVisible())
+    {
+        mBackToSamplesButton->triggerClick();
+        return true;
+    }
+#endif
 
     return false;
 }

@@ -4,6 +4,8 @@
 
 #include "SamplePageView.h"
 
+#include "QuarryLookAndFeel.h"
+
 #if JUCE_WINDOWS
 
 #include "NnId.h"
@@ -52,6 +54,26 @@ constexpr int narrowWidth = 300;
     stay in the sidecar. */
 constexpr int whenWidth = 52;
 constexpr int lengthWidth = 56;
+
+/** The gutter an application's name sits in, to the left of its windows' titles.
+
+    Wide enough for the names that actually turn up. It was 64, which truncated
+    "wallpaper32" to "wallpaper..." and left a three-window group labelled with an
+    ellipsis, which is the one thing the gutter exists to say. The titles pay for the
+    extra, and they are already the wider column. */
+constexpr int appGutterWidth = 78;
+
+/** Where the group rule sits inside that gutter: far enough off the title to read as a
+    margin rather than as an underline for the text beside it. */
+constexpr int appGutterRuleInset = 6;
+
+/** The level meter's column in a source row.
+
+    It was 80, which is a quarter of the rail spent on a bar that is empty on most rows,
+    while the window title next to it had about 150px and was truncating to nothing. The
+    meter only has to show that something is playing and roughly how loud; the title has to
+    be read. */
+constexpr int meterColumnWidth = 44;
 
 /** Two lines of it, because the one about an unsupported Windows is a sentence. */
 constexpr int statusHeight = 34;
@@ -182,8 +204,7 @@ SamplePageView::SamplePageView(QuarryAudioProcessor& inProcessor)
     addChildComponent(*mSourceChooser);
 
     mRecordButton = std::make_unique<TextButton>("RECORD");
-    mRecordButton->setColour(TextButton::buttonColourId, CONTROL_BG);
-    mRecordButton->setColour(TextButton::textColourOffId, TEXT_MAIN);
+    quarry::lnf::setRole(*mRecordButton, quarry::lnf::Role::primary);
     mRecordButton->onClick = [this]() { _toggleRecording(); };
     addAndMakeVisible(*mRecordButton);
 
@@ -197,8 +218,8 @@ SamplePageView::SamplePageView(QuarryAudioProcessor& inProcessor)
     // the same visual weight as the list it describes. The path is on the tooltip, which is
     // where a fact you need once belongs.
     mFolderButton = std::make_unique<TextButton>("change folder");
-    mFolderButton->setColour(TextButton::buttonColourId, Colours::transparentBlack);
-    mFolderButton->setColour(TextButton::textColourOffId, TEXT_DIM);
+    quarry::lnf::setRole(*mFolderButton, quarry::lnf::Role::quiet);
+    mFolderButton->setTitle("Change folder");
     mFolderButton->onClick = [this]() { _chooseFolder(); };
     addAndMakeVisible(*mFolderButton);
 
@@ -236,8 +257,8 @@ SamplePageView::SamplePageView(QuarryAudioProcessor& inProcessor)
     // Quiet, like the folder control beside it: showing the captures at all is a preference,
     // not part of the job the page is doing.
     mCapturesButton = std::make_unique<TextButton>("hide captures");
-    mCapturesButton->setColour(TextButton::buttonColourId, Colours::transparentBlack);
-    mCapturesButton->setColour(TextButton::textColourOffId, TEXT_DIM);
+    quarry::lnf::setRole(*mCapturesButton, quarry::lnf::Role::quiet);
+    mCapturesButton->setTitle("Show or hide captures");
     mCapturesButton->onClick = [this]() { _setCapturesVisible(! mShowCaptures); };
     addAndMakeVisible(*mCapturesButton);
 
@@ -552,16 +573,6 @@ void SamplePageView::_paintSelection(Graphics& g)
     }
 }
 
-void SamplePageView::lookAndFeelChanged()
-{
-    // The accent belongs to the editor's look and feel and the user can change it, so it is
-    // read here rather than frozen in the constructor, and re-read whenever it moves.
-    const auto accent = okstudio::obsidian::accentOf(*this).base;
-
-    mRecordButton->setColour(TextButton::buttonColourId, accent);
-    mRecordButton->setColour(TextButton::textColourOffId, accent.contrasting(0.9f));
-}
-
 //==============================================================================
 void SamplePageView::timerCallback()
 {
@@ -865,6 +876,37 @@ int SamplePageView::getNumRows()
     return (int) mShownSources.size() + 1;
 }
 
+int SamplePageView::_sourceBandIndex(int inRow) const
+{
+    // Row zero is "everything", which belongs to no application and takes band zero. The
+    // rest count a new band each time the process changes, walking from the top so the
+    // phase follows the data and not wherever the viewport happens to start.
+    if (inRow <= 0)
+        return 0;
+
+    auto band = 1;
+
+    for (auto i = 1; i < inRow; ++i)
+        if (_shownSource(i).processId != _shownSource(i - 1).processId)
+            ++band;
+
+    return band;
+}
+
+quarry::lnf::BandEdges SamplePageView::_sourceBandEdges(int inRow) const
+{
+    // Row zero is "everything", a band of one: it opens and closes itself.
+    if (inRow <= 0)
+        return {};
+
+    const auto index = inRow - 1;
+    const auto last = (int) mShownSources.size() - 1;
+    const auto pid = _shownSource(index).processId;
+
+    return { index == 0 || _shownSource(index - 1).processId != pid,
+             index >= last || _shownSource(index + 1).processId != pid };
+}
+
 void SamplePageView::paintListBoxItem(int row, Graphics& g, int width, int height, bool)
 {
     if (! isPositiveAndBelow(row, getNumRows()))
@@ -876,16 +918,23 @@ void SamplePageView::paintListBoxItem(int row, Graphics& g, int width, int heigh
                           : _shownSource(row - 1).processId == mSelectedPid
                                 && _shownSource(row - 1).windowHandle == mSelectedWindow;
 
-    auto bounds = juce::Rectangle<int>(0, 0, width, height).reduced(2, 1);
+    const auto fullRow = juce::Rectangle<int>(0, 0, width, height);
+    const auto edges = _sourceBandEdges(row);
 
-    if (chosen)
-    {
-        g.setColour(CONTROL_BG);
-        g.fillRoundedRectangle(bounds.toFloat(), 3.0f);
-    }
+    // The band is one application, not one row, and the gap at its edges is what actually
+    // separates one application from the next. See listRowBackground.
+    quarry::lnf::listRowBackground(g, fullRow, _sourceBandIndex(row), chosen,
+                                   okstudio::obsidian::accentOf(*this).base, edges);
 
-    g.setColour(chosen ? TEXT_MAIN : TEXT_DIM);
-    g.setFont(UIDefines::LABEL_FONT());
+    auto bounds = fullRow.reduced(2, 1);
+
+    // The accent bar takes the left three pixels of a selected row, so the text starts
+    // after it rather than under it. Unselected rows keep the same indent so nothing
+    // shifts sideways as the selection moves.
+    bounds.removeFromLeft(3);
+
+    g.setColour(TEXT_MAIN);
+    g.setFont(UIDefines::ROW_TITLE_FONT());
 
     if (isEverything)
     {
@@ -900,6 +949,7 @@ void SamplePageView::paintListBoxItem(int row, Graphics& g, int width, int heigh
         // "guessed", not a sentence about it: the rail is narrow, and this is the same word
         // the library puts on the captures that come out of this choice.
         g.setColour(TEXT_DIM);
+        g.setFont(UIDefines::ROW_META_FONT());
         g.drawText("source guessed", text, Justification::centredLeft, true);
         return;
     }
@@ -907,7 +957,7 @@ void SamplePageView::paintListBoxItem(int row, Graphics& g, int width, int heigh
     const auto& source = _shownSource(row - 1);
 
     auto text = bounds.reduced(8, 0);
-    auto meter = text.removeFromRight(80).withSizeKeepingCentre(80, 6);
+    auto meter = text.removeFromRight(meterColumnWidth).withSizeKeepingCentre(meterColumnWidth, 6);
     text.removeFromRight(10);
 
     // The volume the app is set to is baked into anything captured from it, so it is said
@@ -915,6 +965,7 @@ void SamplePageView::paintListBoxItem(int row, Graphics& g, int width, int heigh
     if (source.hasAudioSession && source.volume < 0.999f)
     {
         auto warning = text.removeFromRight(70);
+        g.setFont(UIDefines::ROW_META_FONT());
         g.setColour(Colours::orange);
         g.drawText(String(roundToInt(source.volume * 100.0f)) + "%", warning,
                    Justification::centredRight, false);
@@ -931,29 +982,41 @@ void SamplePageView::paintListBoxItem(int row, Graphics& g, int width, int heigh
             drawMeter(g, inBounds, source.shownPeak, accent);
     };
 
+    // One window, so the application is the row. Its name is the thing being picked, so it
+    // takes TEXT_MAIN like a title would, and there is no gutter to rule off.
     if (! source.oneOfSeveral)
     {
+        g.setColour(TEXT_MAIN);
         g.drawText(appLabel(source.name), text, Justification::centredLeft, true);
         paintMeter(meter);
         return;
     }
 
     // Several rows, one application. The title is the only thing that says which is which, so
-    // it gets the room; the name is printed once, against the first of its windows, and left
-    // off the rest. Repeated down every row it was a column of identical cells, which costs a
-    // read and settles nothing.
+    // it gets the room and it gets TEXT_MAIN; the name is printed once, against the first of
+    // its windows, and left off the rest. Repeated down every row it was a column of
+    // identical cells, which costs a read and settles nothing.
+    //
+    // What was missing was anything holding the group together, which left every row after
+    // the first as an orphan with an empty column where the name would be. The band behind
+    // the whole application and the rule down its gutter are that, and the name column keeps
+    // its width on every row so the titles still line up.
     const auto index = row - 1;
     const auto firstOfGroup = index == 0 || _shownSource(index - 1).processId != source.processId;
 
-    auto label = text.removeFromLeft(64);
+    auto label = text.removeFromLeft(appGutterWidth);
 
     if (firstOfGroup)
     {
         g.setColour(TEXT_DIM);
+        g.setFont(UIDefines::ROW_META_FONT());
         g.drawText(appLabel(source.name), label, Justification::centredLeft, true);
     }
 
-    g.setColour(chosen ? TEXT_MAIN : TEXT_DIM);
+    quarry::lnf::listGroupRule(g, fullRow, text.getX() - appGutterRuleInset, edges);
+
+    g.setColour(TEXT_MAIN);
+    g.setFont(UIDefines::ROW_TITLE_FONT());
     g.drawText(source.windowTitle, text, Justification::centredLeft, true);
 
     paintMeter(meter);
@@ -1034,7 +1097,12 @@ void SamplePageView::_updateEnablements()
     const auto* source = _selectedSource();
     const auto everything = mSelectedPid == everythingPid;
 
+    // Title alongside text, not instead of it. JUCE's button handler returns the component
+    // title when there is one and only falls back to the button text when there is not, so
+    // a title set once at construction announces "Record" to a screen reader while the
+    // button says STOP. Either both move or neither is set.
     mRecordButton->setButtonText(recording ? "STOP" : "RECORD");
+    mRecordButton->setTitle(recording ? "Stop recording" : "Record");
 
     // Only on screen when it has something to fix. A permanent button for a rare problem is
     // a control that is dead almost always, which teaches you to stop looking at that corner
@@ -1049,6 +1117,7 @@ void SamplePageView::_updateEnablements()
 
     if (quiet)
         mFixVolumeButton->setButtonText("TURN " + appLabel(source->name).toUpperCase() + " UP TO 100%");
+        mFixVolumeButton->setTitle("Turn " + appLabel(source->name) + " up to 100%");
 
     // Everything is always recordable: it is the path that does not need process loopback,
     // and so the one that still works on a Windows too old for the rest of this page.
@@ -1172,9 +1241,19 @@ void SamplePageView::LibraryModel::paintListBoxItem(int row, Graphics& g, int wi
     if (! isPositiveAndBelow(row, getNumRows()))
         return;
 
-    auto bounds = juce::Rectangle<int>(0, 0, width, height).reduced(2, 1);
+    // Only a take can be the selection; the way back up and the folders are somewhere to
+    // go, so they stripe like everything else but never take the accent bar.
+    const auto entryRowForSelection = row - ups - folders;
+    const auto rowIsChosen = entryRowForSelection >= 0 && entryRowForSelection == owner.mSelectedEntryRow;
 
-    g.setFont(UIDefines::LABEL_FONT());
+    const auto fullRow = juce::Rectangle<int>(0, 0, width, height);
+    quarry::lnf::listRowBackground(g, fullRow, row, rowIsChosen,
+                                   okstudio::obsidian::accentOf(owner).base);
+
+    auto bounds = fullRow.reduced(2, 1);
+    bounds.removeFromLeft(3);
+
+    g.setFont(UIDefines::ROW_TITLE_FONT());
 
     // The way back up, and the folders inside this one, both read as somewhere to go. Only the
     // takes below them are something to play, so only they can be the selection.
@@ -1186,6 +1265,7 @@ void SamplePageView::LibraryModel::paintListBoxItem(int row, Graphics& g, int wi
 
         if (row < ups)
         {
+            g.setFont(UIDefines::ROW_META_FONT());
             g.drawText("..", text.removeFromLeft(whenWidth), Justification::centredLeft, false);
             text.removeFromLeft(10);
             g.drawText("back to " + owner.mBrowseFolder.getParentDirectory().getFileName(), text,
@@ -1196,6 +1276,7 @@ void SamplePageView::LibraryModel::paintListBoxItem(int row, Graphics& g, int wi
         const auto index = (size_t) (row - ups);
         const auto held = owner.mBrowseCounts[index];
 
+        g.setFont(UIDefines::ROW_META_FONT());
         g.drawText(String(held) + (held == 1 ? " take" : " takes"),
                    text.removeFromRight(lengthWidth + 30), Justification::centredRight, false);
         text.removeFromRight(10);
@@ -1204,24 +1285,22 @@ void SamplePageView::LibraryModel::paintListBoxItem(int row, Graphics& g, int wi
         text.removeFromLeft(10);
 
         g.setColour(TEXT_MAIN);
+        g.setFont(UIDefines::ROW_TITLE_FONT());
         g.drawText(owner.mBrowseFolders[index].getFileName(), text, Justification::centredLeft, true);
         return;
     }
 
-    const auto entryRow = row - ups - folders;
-    const auto& entry = owner.mShownEntries[(size_t) entryRow];
-    const auto chosen = entryRow == owner.mSelectedEntryRow;
+    const auto& entry = owner.mShownEntries[(size_t) entryRowForSelection];
 
-    if (chosen)
-    {
-        g.setColour(CONTROL_BG);
-        g.fillRoundedRectangle(bounds.toFloat(), 3.0f);
-    }
+    // The fill and the accent bar are already down: listRowBackground drew them at the top
+    // of this function, where it also knows the stripe phase, so there is no second
+    // selection test to make here.
 
     auto text = bounds.reduced(8, 0);
 
     // Right to left, so the numbers line up down the list however long the names are.
     g.setColour(TEXT_DIM);
+    g.setFont(UIDefines::ROW_META_FONT());
     g.drawText(String(entry.durationSec, 1) + " s", text.removeFromRight(lengthWidth),
                Justification::centredRight, false);
     text.removeFromRight(10);
@@ -1236,7 +1315,8 @@ void SamplePageView::LibraryModel::paintListBoxItem(int row, Graphics& g, int wi
     // from it and reads like one; it stays the name on disk and in search, not on the row.
     const auto name = entry.windowTitle.isNotEmpty() ? entry.windowTitle : entry.displayName();
 
-    g.setColour(chosen ? TEXT_MAIN : TEXT_DIM);
+    g.setColour(TEXT_MAIN);
+    g.setFont(UIDefines::ROW_TITLE_FONT());
     g.drawText(name, text, Justification::centredLeft, true);
 }
 
@@ -1365,6 +1445,7 @@ void SamplePageView::_setCapturesVisible(bool shouldShow)
     mProcessor.getValueTree().setProperty(NnId::CaptureBrowserVisibleId, shouldShow, nullptr);
 
     mCapturesButton->setButtonText(shouldShow ? "hide captures" : "captures");
+    mCapturesButton->setTitle(shouldShow ? "Hide captures" : "Show captures");
 
     for (auto* part : { static_cast<Component*>(mLibraryList.get()),
                         static_cast<Component*>(mSearchBox.get()),
