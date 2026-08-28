@@ -94,12 +94,7 @@ SampleBar::~SampleBar()
 
 File SampleBar::_folder() const
 {
-    const String stored = mProcessor.getValueTree().getProperty(NnId::SampleFolderId, String());
-
-    if (stored.isNotEmpty())
-        return File(stored);
-
-    return File::getSpecialLocation(File::userMusicDirectory).getChildFile("Quarry Samples");
+    return TakeNaming::folder(mProcessor.getValueTree());
 }
 
 String SampleBar::_nextBaseName(const File& inFolder) const

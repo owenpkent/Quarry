@@ -35,6 +35,13 @@ private:
     */
     juce::File _folder() const;
 
+    /** What the last drag of this session wrote, and the name it was written for. A repeat
+        drag of the same take rewrites this file rather than adding another copy beside it;
+        see mouseDown for why nothing here can tell a dropped drag from an abandoned one.
+    */
+    juce::File mLastExport;
+    juce::String mLastBase;
+
     QuarryAudioProcessor* mProcessor;
 
     MidiFileWriter mMidiFileWriter;
