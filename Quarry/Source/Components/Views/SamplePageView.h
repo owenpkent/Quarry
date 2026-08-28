@@ -50,10 +50,6 @@ public:
 
     void paint(Graphics& g) override;
 
-    /** The accent is per editor and user-selectable, so anything tinted with it is re-tinted
-        here rather than set once at construction. */
-    void lookAndFeelChanged() override;
-
     void timerCallback() override;
 
     //==========================================================================

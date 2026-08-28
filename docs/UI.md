@@ -48,6 +48,20 @@ painted in the accent has to be legible across all eight.
 Each accent is a triple: `base` for lit states, `hot` for gradient highlights, `deep` for
 gradient shadows and for a surface that carries dark text.
 
+**Which of `base` and `hot` you take is decided by whether the thing is read.**
+
+| Painting | Take | Owes | Worst of the eight |
+|---|---|---|---|
+| A graphic: lit fill, focus ring, selection bar, meter, confidence bar | `base` | 3:1 | 3.59:1, magenta on a control |
+| Text: a status line, a readout value, a label | `hot` | 4.5:1 | 6.52:1, magenta on a control |
+
+This is not a stylistic preference. Accent `base` as text fails 4.5:1 on four of the eight
+accents (magenta 3.59, rose 3.68, violet 4.00, orange 4.49 against `CONTROL_BG`), and it
+was shipping that way in the sample bar's status line and the key readout. `hot` is the
+same hue and clears 4.5:1 on every accent and every surface. `tools/contrast_check.py`
+checks all eight; an earlier version checked only cyan, which is the second *brightest*,
+and so passed everything.
+
 ---
 
 ## Surfaces
@@ -184,7 +198,8 @@ resizable editor.
 
 | Token | Value | For |
 |---|---|---|
-| accent `base` | per instance | Lit, active, selected, focused. |
+| accent `base` | per instance | Lit, active, selected, focused. **Graphics only** — see above. |
+| accent `hot` | per instance | The accent when it is text. A status line, a readout value. |
 | `RECORD_RED` | `#d84a60` | The record light. **Graphics only.** As text on a panel it is 3.71:1 and fails AA; use `#ff6b7f` (5.60:1) when it must be read. |
 | amber | `#d9a441` | Low-confidence bars. Must always be paired with a non-colour signal. |
 | `KEY_WHITE` / `KEY_BLACK` | `#c9ced6` / `#15181c` | Piano roll keys. Not an Obsidian role: a keyboard has to read as a keyboard. |
@@ -213,8 +228,8 @@ A primary button on an accent fill takes **dark** text, not white: white on #35c
 | Rest | As the table above. |
 | Hover | Lift the fill **and** brighten the border to `TEXT_MAIN`. Hover is feedback, not information, so it is not held to 3:1 (see ACCESSIBILITY.md 1.3); it does have to be obvious, and `brighter(0.12f)` alone at 1.40:1 is not. |
 | Pressed | **Geometry, not colour.** The rest surface is near the floor, so no darker value reaches 3:1. Pass `false` for the catch-light in `raisedFill` so the chip seats. |
-| Toggled on | Accent fill or accent border, plus `glowRect`. This one **is** information and must clear 3:1 against the off state. The accent does, at 6.88:1. |
-| Focused | 2px accent ring outside the boundary. Always, on every focusable control. |
+| Toggled on | Accent fill or accent border, plus `glowRect`. This one **is** information and must clear 3:1 against the off state. Every accent does; the worst, magenta, is 3.59:1. |
+| Focused | 2px accent ring just **inside** the boundary. Always, on every focusable control. Inside because JUCE clips a component's painting to its own bounds, so a ring drawn outward is a ring nobody sees. |
 | Disabled | A dedicated dim border and text token. Not `beginTransparencyLayer`, which lands at 1.09:1. |
 
 Hover and focus are different states and must look different. A control that is both must

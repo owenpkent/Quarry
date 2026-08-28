@@ -134,7 +134,6 @@ TranscriptionSummary::TranscriptionSummary(QuarryAudioProcessor& inProcessor)
     mRollButton = std::make_unique<TextButton>("show notes");
     mRollButton->setColour(TextButton::buttonColourId, Colours::transparentBlack);
     quarry::lnf::setRole(*mRollButton, quarry::lnf::Role::quiet);
-    mRollButton->setTitle("Show notes");
     mRollButton->setColour(TextButton::textColourOffId, TEXT_DIM);
     mRollButton->setTooltip("Show the notes themselves, under the waveform.");
     mRollButton->onClick = [this]() {
@@ -253,7 +252,10 @@ void TranscriptionSummary::_paintReadout(Graphics& g)
         g.drawText(inValue, column.removeFromTop(22), Justification::topLeft, true);
     };
 
-    const auto accent = okstudio::obsidian::accentOf(*this).base;
+    // .hot, not .base: this column is read, and the accent base fails 4.5:1 on four of the
+    // eight accents against this panel. The strip below uses .base, which is right there
+    // because a bar is a graphic and owes 3:1. See docs/UI.md.
+    const auto accent = okstudio::obsidian::accentOf(*this).hot;
 
     if (! mHasReading)
     {
@@ -452,7 +454,9 @@ void TranscriptionSummary::clear()
 void TranscriptionSummary::setRollVisible(bool inIsVisible)
 {
     mRollVisible = inIsVisible;
+    // The title moves with the text or it lies about the state. See the record button.
     mRollButton->setButtonText(inIsVisible ? "hide notes" : "show notes");
+    mRollButton->setTitle(inIsVisible ? "Hide notes" : "Show notes");
 }
 
 //==============================================================================

@@ -403,8 +403,13 @@ void SampleBar::_setStatus(const String& inText, bool inIsError)
     mShowingResult = true;
     // RECORD_RED is a graphic colour: 3.71:1 on a panel is fine for the record light but
     // under the 4.5:1 this label owes as text. DESTRUCTIVE is the same hue at 5.60:1.
+    //
+    // .hot rather than .base for the same reason. The accent is a graphic colour too, and
+    // four of the eight the user can pick (magenta, rose, violet, orange) sit between 3.59
+    // and 4.49 against a panel or a control. .hot is the same hue and clears 4.5:1 on every
+    // accent, worst case 6.52. See docs/UI.md.
     mStatusLabel->setColour(Label::textColourId,
-                            inIsError ? quarry::lnf::DESTRUCTIVE : okstudio::obsidian::accentOf(*this).base);
+                            inIsError ? quarry::lnf::DESTRUCTIVE : okstudio::obsidian::accentOf(*this).hot);
     mStatusLabel->setText(inText, dontSendNotification);
 }
 
@@ -418,7 +423,10 @@ void SampleBar::_updateEnablements()
     mSaveButton->setEnabled(has_take && any_format && !mSaveInFlight);
 
     const auto folder = _folder();
+    // The button says the path, which is the fact you want on screen but a poor name to
+    // hear read out. The title says what the control does; the tooltip already has the path.
     mFolderButton->setButtonText(folder.getFullPathName());
+    mFolderButton->setTitle("Change folder");
     mFolderButton->setTooltip(folder.getFullPathName());
 
     if (mShowingResult)

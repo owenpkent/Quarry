@@ -86,7 +86,12 @@ combo box, or the toggle. Nothing in the product ever draws a focus ring.
 
 This fails **SC 2.4.7 Focus Visible** outright, and **SC 2.4.11 Focus Appearance**
 (WCAG 2.2), which wants a 3:1 indicator. The accent is right there and would work:
-#35c4d7 measures 6.88:1 on a control and 7.33:1 on a panel.
+#35c4d7 measures 6.88:1 on a control and 7.33:1 on a panel. Cyan is only the default,
+however, and the audit's first pass took it for the worst case when it is the second
+brightest of the eight. Measured across all of them the accent clears 3:1 as a graphic
+everywhere (magenta, the dimmest, is 3.59:1 on a control) but **fails 4.5:1 as text on
+four of the eight**, which is why anything read in the accent takes `hot` rather than
+`base`. See docs/UI.md.
 
 ## 5. Two controls have no keyboard route (not six)
 

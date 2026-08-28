@@ -80,17 +80,26 @@ inline Role roleOf(const juce::Component& c)
     return static_cast<Role>(static_cast<int>(v));
 }
 
-// The focus ring: 2px of accent just outside the control, per docs/ACCESSIBILITY.md 3.
-// Drawn outside rather than inside so it never eats the control's own border, which is
-// what identifies it; the two would otherwise fight for the same pixel.
+// The focus ring: 2px of accent just inside the control, per docs/ACCESSIBILITY.md 3.
 //
-// Layout has to leave room for this. Where a parent clips it, the ring is still drawn,
-// just cropped, which is why the standard asks for 2px of padding around controls.
+// Inside, and this is the whole of why the first version of this drew nothing at all.
+// JUCE clips a component's painting to its own bounds unless it opts out with
+// setPaintingIsUnclipped, which nothing here does (juce_Component.cpp, paintComponentAndChildren).
+// Callers pass the control's paint rect, which is the local bounds less a pixel, so a ring
+// expanded outwards from it landed one to three pixels beyond the component and was
+// clipped away in its entirety. Every control in the product was focusable and none of
+// them ever showed it.
+//
+// Drawing inward costs half a pixel of overlap with the control's own border, which is
+// cheap and reads correctly: a focused control shows its outline with an accent ring
+// seated just inside it. The alternative, reserving two pixels of padding around every
+// control so the ring has somewhere to go, would have shrunk every control in the
+// product to fix a ring nobody had seen yet.
 inline void focusRing(juce::Graphics& g, juce::Rectangle<float> r, float cornerRadius,
                       juce::Colour accent)
 {
     g.setColour(accent);
-    g.drawRoundedRectangle(r.expanded(2.0f), cornerRadius + 2.0f, 2.0f);
+    g.drawRoundedRectangle(r.reduced(1.0f), juce::jmax(0.0f, cornerRadius - 1.0f), 2.0f);
 }
 
 // Half the void left between one band and the next. Taken off the top of a band's first row
@@ -353,11 +362,13 @@ public:
 
         if (shouldShowFocus(slider))
         {
-            // Round the ring to the knob, which is the square inscribed in the bounds.
+            // Round the ring to the knob, which is the square inscribed in the bounds. The
+            // radius is that of the rect actually handed over, so the ring stays a circle
+            // rather than a rounded square a pixel too generous at the corners.
             const auto side = (float) juce::jmin(width, height);
             const auto knob = juce::Rectangle<float>(side, side)
                                   .withCentre({ (float) x + width * 0.5f, (float) y + height * 0.5f });
-            focusRing(g, knob.reduced(1.0f), side * 0.5f, ob::accentOf(slider).base);
+            focusRing(g, knob.reduced(1.0f), side * 0.5f - 1.0f, ob::accentOf(slider).base);
         }
     }
 

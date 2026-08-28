@@ -205,12 +205,10 @@ SamplePageView::SamplePageView(QuarryAudioProcessor& inProcessor)
 
     mRecordButton = std::make_unique<TextButton>("RECORD");
     quarry::lnf::setRole(*mRecordButton, quarry::lnf::Role::primary);
-    mRecordButton->setTitle("Record");
     mRecordButton->onClick = [this]() { _toggleRecording(); };
     addAndMakeVisible(*mRecordButton);
 
     mFixVolumeButton = std::make_unique<TextButton>("SET TO 100%");
-    mFixVolumeButton->setTitle("Set volume to 100%");
     mFixVolumeButton->setColour(TextButton::buttonColourId, CONTROL_BG);
     mFixVolumeButton->setColour(TextButton::textColourOffId, TEXT_MAIN);
     mFixVolumeButton->onClick = [this]() { _fixSelectedVolume(); };
@@ -573,15 +571,6 @@ void SamplePageView::_paintSelection(Graphics& g)
         g.drawText("silent for now, records when it plays", area.removeFromTop(18),
                    Justification::topLeft, true);
     }
-}
-
-void SamplePageView::lookAndFeelChanged()
-{
-    // Nothing to do any more. The accent used to be pushed onto the record button here so
-    // that changing it repainted the page; Role::primary now resolves both the fill and the
-    // text through accentOf() at paint time, which re-reads it on every repaint anyway.
-    //
-    // The override stays because a future colour that is not role-derived would go here.
 }
 
 //==============================================================================
@@ -1108,7 +1097,12 @@ void SamplePageView::_updateEnablements()
     const auto* source = _selectedSource();
     const auto everything = mSelectedPid == everythingPid;
 
+    // Title alongside text, not instead of it. JUCE's button handler returns the component
+    // title when there is one and only falls back to the button text when there is not, so
+    // a title set once at construction announces "Record" to a screen reader while the
+    // button says STOP. Either both move or neither is set.
     mRecordButton->setButtonText(recording ? "STOP" : "RECORD");
+    mRecordButton->setTitle(recording ? "Stop recording" : "Record");
 
     // Only on screen when it has something to fix. A permanent button for a rare problem is
     // a control that is dead almost always, which teaches you to stop looking at that corner
@@ -1123,6 +1117,7 @@ void SamplePageView::_updateEnablements()
 
     if (quiet)
         mFixVolumeButton->setButtonText("TURN " + appLabel(source->name).toUpperCase() + " UP TO 100%");
+        mFixVolumeButton->setTitle("Turn " + appLabel(source->name) + " up to 100%");
 
     // Everything is always recordable: it is the path that does not need process loopback,
     // and so the one that still works on a Windows too old for the rest of this page.
@@ -1295,12 +1290,11 @@ void SamplePageView::LibraryModel::paintListBoxItem(int row, Graphics& g, int wi
         return;
     }
 
-    const auto entryRow = row - ups - folders;
-    const auto& entry = owner.mShownEntries[(size_t) entryRow];
-    const auto chosen = entryRow == owner.mSelectedEntryRow;
+    const auto& entry = owner.mShownEntries[(size_t) entryRowForSelection];
 
     // The fill and the accent bar are already down: listRowBackground drew them at the top
-    // of this function, where it also knows the stripe phase.
+    // of this function, where it also knows the stripe phase, so there is no second
+    // selection test to make here.
 
     auto text = bounds.reduced(8, 0);
 
@@ -1451,6 +1445,7 @@ void SamplePageView::_setCapturesVisible(bool shouldShow)
     mProcessor.getValueTree().setProperty(NnId::CaptureBrowserVisibleId, shouldShow, nullptr);
 
     mCapturesButton->setButtonText(shouldShow ? "hide captures" : "captures");
+    mCapturesButton->setTitle(shouldShow ? "Hide captures" : "Show captures");
 
     for (auto* part : { static_cast<Component*>(mLibraryList.get()),
                         static_cast<Component*>(mSearchBox.get()),

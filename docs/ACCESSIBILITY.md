@@ -80,7 +80,7 @@ The distinction that matters in practice:
 |---|---|
 | Hover | Feedback, not information: no 3:1 requirement, but it must be obvious. Lift the fill and brighten the border. `brighter(0.12f)` alone gives 1.40:1 and is too subtle. |
 | Pressed | **Cannot be achieved by darkening.** The rest surface is near the floor. Signal it with geometry: pass `false` for the catch-light in `raisedFill` so the chip seats, and invert the seat line. Contrast is not the mechanism here. |
-| Selected / toggled on | Information: **must** clear 3:1 against the off state. Accent fill or accent border; #35c4d7 is 6.88:1 on a control. |
+| Selected / toggled on | Information: **must** clear 3:1 against the off state. Accent fill or accent border, checked on all eight accents; the worst, magenta, is 3.59:1 on a control. |
 | Focused | See section 3. |
 | Disabled | See 1.4. |
 
@@ -170,13 +170,22 @@ is never focused.
 
 The Quarry focus indicator:
 
-- The accent at full opacity, 2px, drawn just outside the control's boundary.
-- At least **3:1 against both** the control and the surrounding background. The accent
-  measures 6.88:1 on a control and 7.33:1 on a panel, so it clears with margin.
+- The accent at full opacity, 2px, drawn just **inside** the control's boundary.
+- At least **3:1 against both** the control and the surrounding background. Checked across
+  all eight accents; the worst, magenta, is 3.59:1 on a control.
 - Never the only difference between focused and unfocused, where that difference is a
   colour a user may not perceive: the indicator has thickness, so it also changes shape.
-- Not clipped by a parent. Reserve 2px of padding around controls in layout, or draw the
-  ring on a sibling overlay.
+
+**Inside, not outside, and this is the trap.** JUCE clips a component's painting to its own
+bounds unless it calls `setPaintingIsUnclipped` (`juce_Component.cpp`,
+`paintComponentAndChildren`). The first version of Quarry's ring expanded outwards from the
+control's paint rect, which put a 2px stroke one to three pixels beyond the component, and
+every pixel of it was clipped. Every control was focusable, every one drew a ring, and not
+one of them was visible. Nothing about that shows up in a contrast table, which is worth
+remembering about contrast tables: the ring passed 3:1 the whole time it was invisible.
+
+If a ring must sit outside a control, the control's own paint rect has to be inset to make
+room for it. Do not rely on a parent leaving space.
 
 Focus must not be obscured by a popup, tooltip, or panel that opens over it (SC 2.4.11).
 
