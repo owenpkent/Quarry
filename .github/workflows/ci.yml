@@ -43,12 +43,12 @@ jobs:
     steps:
       # fetch-depth 1 makes the submodules shallow too. JUCE's history is far larger than
       # its working tree and no step here reads it.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
           fetch-depth: 1
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
@@ -71,7 +71,7 @@ jobs:
       # download is the expensive step and it succeeds long before a build breaks, so the
       # one-piece version re-fetched 2.8 GB on every push to a red branch, which is exactly
       # when the runs are most frequent.
-      - uses: actions/cache/restore@v4
+      - uses: actions/cache/restore@v6
         id: onnx-cache
         with:
           path: ${{ env.OKSTUDIO_ONNXRUNTIME_CACHE }}
@@ -85,7 +85,7 @@ jobs:
 
       # Immediately after the fetch and before anything that can fail, so a broken build
       # still leaves the tarball cached for the push that fixes it.
-      - uses: actions/cache/save@v4
+      - uses: actions/cache/save@v6
         if: steps.onnx-cache.outputs.cache-hit != 'true'
         with:
           path: ${{ env.OKSTUDIO_ONNXRUNTIME_CACHE }}
