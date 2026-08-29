@@ -179,10 +179,15 @@ The Quarry focus indicator:
 **Inside, not outside, and this is the trap.** JUCE clips a component's painting to its own
 bounds unless it calls `setPaintingIsUnclipped` (`juce_Component.cpp`,
 `paintComponentAndChildren`). The first version of Quarry's ring expanded outwards from the
-control's paint rect, which put a 2px stroke one to three pixels beyond the component, and
-every pixel of it was clipped. Every control was focusable, every one drew a ring, and not
-one of them was visible. Nothing about that shows up in a contrast table, which is worth
-remembering about contrast tables: the ring passed 3:1 the whole time it was invisible.
+control's paint rect, which put a 2px stroke one to three pixels beyond the component. Every
+straight edge of it was clipped; only fragments of the rounded corners, which curve back
+inside, survived, at 72 pixels of 632. Every control was focusable, every one drew a ring,
+and what reached the screen was four specks in the corners.
+
+Nothing about that shows up in a contrast table, which is worth remembering about contrast
+tables: the ring passed 3:1 the whole time it was invisible. `Tests/focus_ring_test.h`
+renders the ring and measures what survives the clip, because that is a question about
+geometry and no question about colour can answer it.
 
 If a ring must sit outside a control, the control's own paint rect has to be inset to make
 room for it. Do not rely on a parent leaving space.
@@ -279,3 +284,22 @@ Stated so the gaps are deliberate rather than forgotten:
 
 If any of those become requirements, they need their own pass, not an extrapolation from
 this one.
+
+### What the checks cover, and where they stop
+
+Three layers, each catching what the one before it structurally cannot:
+
+| Layer | Where | Catches | Blind to |
+|---|---|---|---|
+| Palette ratios | `tools/contrast_check.py` PAIRINGS | A token pair that fails its minimum, on any of the eight accents | Whether the product paints that pair at all |
+| Usage audit | `tools/contrast_check.py` `audit_text_usage` | A token drawn as text that no pairing cleared as text; accent `base` used where `hot` is owed | A colour reaching `drawText` through a variable or a function argument |
+| Render test | `Tests/focus_ring_test.h` | Geometry: a ring that does not survive the clip it is drawn into | Everything not rendered by a test, which is most of the interface |
+
+The middle layer exists because the first one passed for the whole life of the branch that
+introduced accent-as-text, and the third because the first two would both still pass on a
+focus ring drawn a thousand pixels off-screen.
+
+**The honest limit is the third row.** One render test covers one function. The interface is
+not pixel-verified and this document should not be read as claiming it is. What a green
+check means is: the values are right, they are used in roles they were measured for, and the
+one piece of geometry that has already been wrong once is still right.

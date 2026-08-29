@@ -86,9 +86,11 @@ inline Role roleOf(const juce::Component& c)
 // JUCE clips a component's painting to its own bounds unless it opts out with
 // setPaintingIsUnclipped, which nothing here does (juce_Component.cpp, paintComponentAndChildren).
 // Callers pass the control's paint rect, which is the local bounds less a pixel, so a ring
-// expanded outwards from it landed one to three pixels beyond the component and was
-// clipped away in its entirety. Every control in the product was focusable and none of
-// them ever showed it.
+// expanded outwards from it landed one to three pixels beyond the component. Every straight
+// edge of it was clipped away; only fragments of the rounded corners, which curve back
+// inside, survived. Tests/focus_ring_test.h measures it at 72 pixels of 632. Every control
+// in the product was focusable, every one drew a ring, and what reached the screen was four
+// specks in the corners.
 //
 // Drawing inward costs half a pixel of overlap with the control's own border, which is
 // cheap and reads correctly: a focused control shows its outline with an accent ring

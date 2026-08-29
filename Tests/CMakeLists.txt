@@ -25,6 +25,10 @@ target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../
 # audio stack.
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../Quarry/Source)
 
+# The vendored Obsidian header, which QuarryLookAndFeel.h subclasses. Needed so the focus
+# ring can be rendered and measured here rather than only looked at.
+target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../ThirdParty/okstudio/include)
+
 file(GLOB_RECURSE lib_sources LIST_DIRECTORIES true ${CMAKE_CURRENT_LIST_DIR}/../Lib/*)
 
 foreach (dir ${lib_sources})
