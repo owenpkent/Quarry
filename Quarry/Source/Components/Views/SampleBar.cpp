@@ -7,6 +7,7 @@
 #include "QuarryLookAndFeel.h"
 
 #include "AudioUtils.h"
+#include "QuarryTooltips.h"
 #include "TakeNaming.h"
 
 #include <okstudio/Obsidian.h>
@@ -69,6 +70,18 @@ SampleBar::SampleBar(QuarryAudioProcessor& inProcessor)
         mProcessor.getValueTree().getPropertyAsValue(NnId::SampleWriteMidiId, nullptr));
     mMidiToggle->setTooltip("Write the transcription.");
     addAndMakeVisible(*mMidiToggle);
+
+    mPitchBend = std::make_unique<ComboBox>("PitchBend");
+    mPitchBend->setEditableText(false);
+    mPitchBend->setJustificationType(Justification::centredLeft);
+    // Shorter than the parameter's own choice names, which read as a sentence in a column and
+    // as clutter in a bar. The attachment maps by index, so the words here are free.
+    mPitchBend->addItemList({"No bend", "Single bend"}, 1);
+    mPitchBend->setTooltip(QuarryTooltips::to_pitch_bend);
+    mPitchBend->setTitle("Pitch bend mode");
+    mPitchBendAttachment = std::make_unique<ComboBoxParameterAttachment>(
+        *mProcessor.getParams()[ParameterHelpers::PitchBendModeId], *mPitchBend);
+    addAndMakeVisible(*mPitchBend);
 
     mSaveButton = std::make_unique<TextButton>("Save");
     // The one action this bar exists for, and the only primary button on the page.
@@ -442,6 +455,10 @@ void SampleBar::paint(Graphics& g)
     g.setColour(TEXT_DIM);
     g.setFont(UIDefines::LABEL_FONT());
     g.drawText("SAVE TO", 14, 0, 70, getHeight(), Justification::centredLeft);
+
+    if (!mPitchBendLabelBounds.isEmpty()) {
+        g.drawText("PITCH BEND", mPitchBendLabelBounds, Justification::centredRight);
+    }
 }
 
 void SampleBar::resized()
@@ -453,6 +470,11 @@ void SampleBar::resized()
     area.removeFromRight(10);
     mMidiToggle->setBounds(area.removeFromRight(66));
     mWavToggle->setBounds(area.removeFromRight(64));
+    area.removeFromRight(14);
+
+    mPitchBend->setBounds(area.removeFromRight(104).withSizeKeepingCentre(104, 20));
+    area.removeFromRight(8);
+    mPitchBendLabelBounds = area.removeFromRight(72);
     area.removeFromRight(10);
 
     // The folder needs the room; the status takes what is left of the middle.

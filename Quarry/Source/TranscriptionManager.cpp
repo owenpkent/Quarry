@@ -25,8 +25,32 @@ TranscriptionManager::TranscriptionManager(QuarryAudioProcessor* inProcessor)
                                                   SystemStats::getEnvironmentVariable("QUARRY_SIDECAR_ENGINE", {}));
 
     mJobLambda = [this] { _runModel(); };
+    mProbeLambda = [this] { _probeSidecar(); };
+
+    {
+        const ScopedLock lock(mSidecarStatusLock);
+        mSidecarStatus.configured = mSidecarActivation.active;
+    }
+
+    // QUARRY_SIDECAR_ENGINE now names the engine to *start on*, not the engine to use forever.
+    // The parameter is the source of truth from here, so a session restored a moment after this
+    // runs overrides it, which is the right way round: the environment is a default belonging to
+    // a machine and the session is a decision someone made about a piece of music. Only the
+    // command line still has to come from the environment, because it is a path to a Python
+    // interpreter and there is nowhere in the UI yet for a person to type one.
+    if (mSidecarActivation.active) {
+        const auto index = EngineCatalog::indexForWireName(mSidecarActivation.engine);
+
+        if (index != EngineCatalog::BuiltIn) {
+            auto* engine_param = mProcessor->getParams()[ParameterHelpers::EngineId];
+            engine_param->setValueNotifyingHost(
+                engine_param->getNormalisableRange().convertTo0to1(static_cast<float>(index)));
+        }
+    }
 
     auto& apvts = mProcessor->getAPVTS();
+
+    apvts.addParameterListener(ParameterHelpers::getIdStr(ParameterHelpers::EngineId), this);
 
     apvts.addParameterListener(ParameterHelpers::getIdStr(ParameterHelpers::NoteSensitivityId), this);
     apvts.addParameterListener(ParameterHelpers::getIdStr(ParameterHelpers::SplitSensitivityId), this);
@@ -55,6 +79,10 @@ void TranscriptionManager::timerCallback()
 {
     if (mTimeQuantizeOptions.checkInfoUpdated()) {
         mTimeQuantizeOptions.saveStateToValueTree(true);
+    }
+
+    if (mShouldProbeSidecar.exchange(false)) {
+        mThreadPool.addJob(mProbeLambda);
     }
 
     if (mShouldRunNewTranscription) {
@@ -110,33 +138,114 @@ void TranscriptionManager::parameterChanged(const String& parameterID, float new
         } else if (parameterID == ParameterHelpers::getIdStr(ParameterHelpers::PitchBendModeId)) {
             mProcessor->getAPVTS().getRawParameterValue(parameterID)->store(newValue);
             mShouldRepaintPianoRoll = true;
+
+        } else if (parameterID == ParameterHelpers::getIdStr(ParameterHelpers::EngineId)) {
+            mProcessor->getAPVTS().getRawParameterValue(parameterID)->store(newValue);
+            // The third bucket, and the only one that goes all the way back to the model. A
+            // different engine is a different reading of the audio, not a different treatment of
+            // the same notes, so neither of the other two paths can serve it: _updateTranscription
+            // re-decodes what BasicPitch already heard, and _updatePostProcessing does not even
+            // do that.
+            setLaunchNewTranscription();
         }
     }
 }
 
-bool TranscriptionManager::_tryTranscribeWithSidecar(const juce::File& inSourceFile,
-                                                      std::vector<Notes::Event>& outNotes,
-                                                      std::vector<SidecarPedalEvent>& outPedal)
+bool TranscriptionManager::_ensureSidecarStarted(juce::String& outError)
 {
+    if (mSidecarClient != nullptr) {
+        return true;
+    }
+
+    auto client = std::make_unique<SidecarClient>(mSidecarActivation.commandLine);
+
+    if (!client->start(outError)) {
+        _registerSidecarFailure();
+        _recordSidecarStatus(nullptr, outError);
+        return false;
+    }
+
+    mSidecarClient = std::move(client);
+    _recordSidecarStatus(mSidecarClient.get(), {});
+
+    return true;
+}
+
+void TranscriptionManager::_probeSidecar()
+{
+    if (mSidecarUnavailable) {
+        _recordSidecarStatus(nullptr, "gave up on the sidecar after repeated failures");
+        return;
+    }
+
     juce::String error;
 
-    if (mSidecarClient == nullptr) {
-        mSidecarClient = std::make_unique<SidecarClient>(mSidecarActivation.commandLine);
+    if (!_ensureSidecarStarted(error)) {
+        DBG("Sidecar probe failed: " << error);
+    }
+}
 
-        if (!mSidecarClient->start(error)) {
-            DBG("Sidecar failed to start (" << mSidecarActivation.commandLine << "): " << error);
-            mSidecarClient.reset();
-            _registerSidecarFailure();
-            return false;
-        }
+void TranscriptionManager::_recordSidecarStatus(const SidecarClient* inClient, const juce::String& inError)
+{
+    const ScopedLock lock(mSidecarStatusLock);
+
+    mSidecarStatus.configured = mSidecarActivation.active;
+    mSidecarStatus.probed = true;
+    mSidecarStatus.error = inError;
+
+    if (inClient != nullptr) {
+        mSidecarStatus.engines = inClient->getAvailableEngines();
+        mSidecarStatus.device = inClient->getDevice();
+    } else {
+        mSidecarStatus.engines.clear();
+        mSidecarStatus.device.clear();
+    }
+}
+
+bool TranscriptionManager::_tryTranscribeWithSidecar(const juce::File& inSourceFile,
+                                                      int inEngineIndex,
+                                                      std::vector<Notes::Event>& outNotes,
+                                                      std::vector<SidecarPedalEvent>& outPedal,
+                                                      EngineFallback& outFallback)
+{
+    if (!mSidecarActivation.active) {
+        outFallback = EngineFallback::SidecarNotConfigured;
+        return false;
+    }
+
+    if (mSidecarUnavailable) {
+        outFallback = EngineFallback::SidecarStartFailed;
+        return false;
+    }
+
+    juce::String error;
+
+    if (!_ensureSidecarStarted(error)) {
+        DBG("Sidecar failed to start (" << mSidecarActivation.commandLine << "): " << error);
+        outFallback = EngineFallback::SidecarStartFailed;
+        return false;
+    }
+
+    const juce::String wire_name(EngineCatalog::get(inEngineIndex).wireName);
+
+    // The ready line already said which engines this interpreter can import, so asking for one
+    // that is not on it is a round trip to be told what we were told at startup. Worse, a failed
+    // transcribe counts against the session-wide give-up below, which would let one missing
+    // package take the whole tier down with it.
+    if (!mSidecarClient->getAvailableEngines().contains(wire_name)) {
+        DBG("Sidecar has no engine named " << wire_name);
+        outFallback = EngineFallback::EngineNotInstalled;
+        return false;
     }
 
     std::vector<SidecarNote> sidecar_notes;
 
-    if (!mSidecarClient->transcribe(inSourceFile, mSidecarActivation.engine, sidecar_notes, outPedal, error)) {
+    if (!mSidecarClient->transcribe(inSourceFile, wire_name, sidecar_notes, outPedal, error)) {
         DBG("Sidecar transcription failed: " << error);
         mSidecarClient.reset();
+        _recordSidecarStatus(nullptr, error);
         _registerSidecarFailure();
+        outFallback = EngineFallback::TranscribeFailed;
         return false;
     }
 
@@ -159,6 +268,7 @@ bool TranscriptionManager::_tryTranscribeWithSidecar(const juce::File& inSourceF
     }
 
     mSidecarFailureCount = 0;
+    outFallback = EngineFallback::None;
 
     return true;
 }
@@ -182,7 +292,13 @@ void TranscriptionManager::_runModel()
 {
     mUsingSidecarForCurrentTake = false;
 
-    if (mSidecarActivation.active && !mSidecarUnavailable) {
+    const int requested_engine = jlimit(0,
+                                        EngineCatalog::NumEngines - 1,
+                                        static_cast<int>(mProcessor->getParameterValue(ParameterHelpers::EngineId)));
+
+    auto fallback = EngineFallback::None;
+
+    if (EngineCatalog::isSidecar(requested_engine)) {
         // The best audio available, not the 22.05 kHz mono wav BasicPitch reads: the original file
         // dropped by the user, or the native-sample-rate wav a recording was captured to. Both
         // outlive the take (see SourceAudioManager::getSourceFile) so they are guaranteed to exist
@@ -192,12 +308,19 @@ void TranscriptionManager::_runModel()
         std::vector<Notes::Event> sidecar_notes;
         std::vector<SidecarPedalEvent> sidecar_pedal;
 
-        if (_tryTranscribeWithSidecar(source_file, sidecar_notes, sidecar_pedal)) {
+        if (_tryTranscribeWithSidecar(source_file, requested_engine, sidecar_notes, sidecar_pedal, fallback)) {
             mSidecarNoteEvents = std::move(sidecar_notes);
             mSidecarPedalEvents = std::move(sidecar_pedal);
             mUsingSidecarForCurrentTake = true;
         }
     }
+
+    // Written before the decode rather than after it, so a reader catching this take mid-flight
+    // sees the engine producing it and not the one that produced the last.
+    mEngineRunRequested.store(requested_engine);
+    mEngineRunActual.store(mUsingSidecarForCurrentTake ? requested_engine : EngineCatalog::BuiltIn);
+    mEngineRunFallback.store(static_cast<int>(mUsingSidecarForCurrentTake ? EngineFallback::None : fallback));
+    mEngineRunHasRun.store(true);
 
     if (!mUsingSidecarForCurrentTake) {
         mSidecarPedalEvents.clear();
@@ -237,6 +360,8 @@ void TranscriptionManager::_runModel()
     mProcessor->getPlayer()->getSynthController()->setNewMidiEventsVectorToUse(single_events);
 
     mProcessor->setStateToPopulatedAudioAndMidiRegions();
+
+    mTranscribeJobsInFlight.fetch_sub(1);
 }
 
 void TranscriptionManager::_updateTranscription()
@@ -302,7 +427,40 @@ void TranscriptionManager::_updatePostProcessing()
 
 bool TranscriptionManager::isJobRunningOrQueued() const
 {
-    return mThreadPool.getNumJobs() > 0;
+    // Not mThreadPool.getNumJobs(): the sidecar probe shares that pool (deliberately, so it
+    // cannot race a take for the client) and is not a transcription.
+    return mTranscribeJobsInFlight.load() > 0;
+}
+
+TranscriptionManager::EngineRun TranscriptionManager::getEngineRun() const
+{
+    EngineRun run;
+
+    run.hasRun = mEngineRunHasRun.load();
+    run.requestedEngine = mEngineRunRequested.load();
+    run.actualEngine = mEngineRunActual.load();
+    run.fallback = static_cast<EngineFallback>(mEngineRunFallback.load());
+
+    return run;
+}
+
+TranscriptionManager::SidecarStatus TranscriptionManager::getSidecarStatus() const
+{
+    const ScopedLock lock(mSidecarStatusLock);
+    return mSidecarStatus;
+}
+
+void TranscriptionManager::requestSidecarProbe()
+{
+    if (!mSidecarActivation.active) {
+        // Nothing to ask, and the answer is already known. Recorded as probed anyway, so the
+        // picker can say "not configured" rather than sitting on "checking" for a process that
+        // is never going to start.
+        _recordSidecarStatus(nullptr, "QUARRY_SIDECAR_CMD is not set");
+        return;
+    }
+
+    mShouldProbeSidecar = true;
 }
 
 const std::vector<Notes::Event>& TranscriptionManager::getNoteEventVector() const
@@ -345,6 +503,12 @@ void TranscriptionManager::clear()
     mSidecarNoteEvents.clear();
     mSidecarPedalEvents.clear();
     mUsingSidecarForCurrentTake = false;
+
+    // Which engine read the take goes with the take. The summary already stops drawing it once
+    // there is no reading, but leaving the record standing would have the next reader of
+    // getEngineRun() told about a take that no longer exists.
+    mEngineRunHasRun.store(false);
+    mEngineRunFallback.store(static_cast<int>(EngineFallback::None));
 }
 
 void TranscriptionManager::launchTranscribeJob()
@@ -354,6 +518,7 @@ void TranscriptionManager::launchTranscribeJob()
 
     // Have at least one second to transcribe
     if (mProcessor->getSourceAudioManager()->getNumSamplesDownAcquired() >= 1 * AUDIO_SAMPLE_RATE) {
+        mTranscribeJobsInFlight.fetch_add(1);
         mThreadPool.addJob(mJobLambda);
     } else {
         mProcessor->clear();

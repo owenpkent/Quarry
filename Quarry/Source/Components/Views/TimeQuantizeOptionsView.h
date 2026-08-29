@@ -13,6 +13,7 @@
 #include "QuantizeForceSlider.h"
 #include "NumericTextEditor.h"
 #include "QuarryTooltips.h"
+#include "LeftColumnLayout.h"
 
 class QuarryMainView;
 
@@ -28,6 +29,16 @@ public:
     void resized() override;
 
     void paint(Graphics& g) override;
+
+    /**
+     * The panel's height for the state it is in: full when time quantization is on, its own
+     * label row when it is off. See NoteOptionsView::preferredHeight for why a section that
+     * defaults to off does not get to keep its space.
+     */
+    int preferredHeight() const;
+
+    /** Called when preferredHeight() has changed and the left column needs re-stacking. */
+    std::function<void()> onPreferredHeightChanged;
 
 private:
     void parameterValueChanged(int parameterIndex, float newValue) override;

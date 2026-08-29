@@ -9,6 +9,16 @@
 
 namespace QuarryTooltips
 {
+// Model
+const String mo_engine =
+    "Which model listens to the take. The built-in one ships with Quarry and always works; the "
+    "rest run in the Python sidecar and are greyed out when it cannot import them. A different "
+    "model is a different reading of the audio, so choosing one re-transcribes.";
+
+const String mo_advanced =
+    "The built-in decoder's own settings. They belong to that decoder alone: a take read by a "
+    "sidecar model never reaches it, which is why they are not shown for one.";
+
 // Transcription options
 const String to_note_sensitivity = "Set note sensitivity\n"
                                    "Higher values will detect more notes";

@@ -262,24 +262,38 @@ The shipped window is 1000x755 and resizable.
 ├─────────────────────────────────────────────────────────┤
 │ DRIVER / INPUT / CHANNELS / LEVEL            hint text  │  device strip
 ├───────────────────────┬─────────────────────────────────┤
-│ TRANSCRIPTION         │                                 │
-│   knobs, pitch bend   │      waveform                   │
-├───────────────────────┤                                 │
-│ SCALE QUANTIZE        ├─────────────────────────────────┤
-│   range, key, snap    │      drag strip                 │
+│ MODEL                 │                                 │
+│   engine, what it is  │      waveform                   │
+│   for, whether it can ├─────────────────────────────────┤
+│   be reached, ADVANCED│      drag strip                 │
 ├───────────────────────┼─────────────────────────────────┤
-│ TIME QUANTIZE         │      summary + confidence bars  │
-│   division, tempo     │                                 │
+│ SCALE QUANTIZE     ⏻  │      summary + confidence bars  │
+├───────────────────────┤      (and which engine read it) │
+│ TIME QUANTIZE      ⏻  │                                 │
 ├───────────────────────┴─────────────────────────────────┤
-│ SAVE TO   path              next name    [Wav][Midi][Save] │  footer
+│ SAVE TO  path   next name  PITCH BEND [Wav][Midi][Save] │  footer
 └─────────────────────────────────────────────────────────┘
 ```
 
 - Left column is **settings**, main region is **what was heard**, footer is **output**.
   A control that changes what the transcriber does belongs left; a control that acts on
-  the result belongs in the footer.
+  the result belongs in the footer. Pitch bend is in the footer for exactly that reason:
+  it changes the MIDI written out and nothing about what the model heard.
 - Sections are panels with a `micro()` caps label and an enable toggle in the label row.
-- `LEFT_SECTIONS_TOP_PAD` (24px) is the gap above each left-column section.
+- **A section collapses to its label row when its toggle is off.** Both quantize sections
+  default to off, and 254 px of the most prominent column in the window used to be spent
+  showing controls that did nothing until someone switched them on. MODEL never collapses,
+  because there is no state in which no model runs, but it has three heights of its own:
+  the built-in engine's decoder rotaries exist only for the engine that owns them, and only
+  when ADVANCED asks for them.
+- Because of that the column is **stacked, not placed**. `QuarryMainView::_layoutLeftColumn`
+  asks each section for `preferredHeight()` and walks down; a section whose height changes
+  calls `onPreferredHeightChanged`. The geometry is in `LeftColumnLayout.h`, each section's
+  internal grid is tied to it with a `static_assert`, and `Tests/left_column_test.h` checks
+  that all twelve combinations of section states still clear the footer. Nothing about that
+  is visible until the one state that overflows, which is why it is a test and not an eye.
+- `LEFT_SECTIONS_TOP_PAD` (24px) is the gap above each left-column section, and also what a
+  collapsed section stands at: the label row alone.
 - Corner radii: `radius` 6px for controls, `panelRadius` 8px for panels.
 - Reserve 2px around focusable controls so the focus ring is not clipped by a parent.
 

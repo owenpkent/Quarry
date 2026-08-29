@@ -9,6 +9,7 @@
 #include "NoteUtils.h"
 #include "TimeQuantizeUtils.h"
 #include "NnId.h"
+#include "EngineCatalog.h"
 
 namespace ParameterHelpers
 {
@@ -32,6 +33,10 @@ enum ParamIdEnum {
     EnableTimeQuantizationId,
     TimeDivisionId,
     QuantizationForceId,
+    // Appended rather than filed with the other transcription parameters, which is where it
+    // belongs by meaning: the enum index is the host's automation index, and inserting one in
+    // the middle would silently renumber every parameter after it in sessions already saved.
+    EngineId,
     TotalNumParams
 };
 
@@ -50,7 +55,8 @@ static const StringArray ParamIdStr {"MUTE",
                                      "KEY_SNAP_MODE",
                                      "ENABLE_TIME_QUANTIZATION",
                                      "TIME_DIVISION",
-                                     "QUANTIZATION_FORCE"};
+                                     "QUANTIZATION_FORCE",
+                                     "ENGINE"};
 
 inline String toName(ParamIdEnum id)
 {
@@ -87,6 +93,8 @@ inline String toName(ParamIdEnum id)
             return "Time Division";
         case QuantizationForceId:
             return "Quantization Force";
+        case EngineId:
+            return "Engine";
         default:
             jassertfalse;
             return "Unknown";
@@ -164,6 +172,15 @@ inline std::unique_ptr<RangedAudioParameter> getRangedAudioParamForID(ParamIdEnu
                 toJuceParameterID(id), toName(id), TimeQuantizeUtils::TimeDivisionsStr, 5);
         case QuantizationForceId:
             return std::make_unique<AudioParameterFloat>(toJuceParameterID(id), toName(id), 0.0f, 1.0f, 0.f);
+        // The list is closed and comes from EngineCatalog, so an index means the same engine
+        // everywhere, including on a machine where most of them are not installed. Availability
+        // is a property of the machine and greys a row out in the picker; it does not change
+        // what the parameter can hold. Defaults to the built-in tier because that is the one
+        // engine that is always there -- QUARRY_SIDECAR_ENGINE moves it at construction when a
+        // sidecar is configured (see TranscriptionManager).
+        case EngineId:
+            return std::make_unique<AudioParameterChoice>(
+                toJuceParameterID(id), toName(id), EngineCatalog::displayNames(), EngineCatalog::BuiltIn);
 
         default:
             jassertfalse;

@@ -9,6 +9,7 @@
 
 #include <JuceHeader.h>
 #include "BasicPitch.h"
+#include "EngineCatalog.h"
 #include "NoteOptions.h"
 #include "SidecarActivation.h"
 #include "SidecarTypes.h"
@@ -47,6 +48,60 @@ public:
     void parameterChanged(const juce::String& parameterID, float newValue) override;
 
     bool isJobRunningOrQueued() const;
+
+    /** Why a take did not run on the engine it was asked to run on. */
+    enum class EngineFallback {
+        None = 0,
+        /** QUARRY_SIDECAR_CMD is unset, so there is no out-of-process tier to reach at all. */
+        SidecarNotConfigured,
+        /** The sidecar process would not start, or has been given up on for this session. */
+        SidecarStartFailed,
+        /** The sidecar is up, but its interpreter cannot import that engine. */
+        EngineNotInstalled,
+        /** The sidecar took the request and failed it. */
+        TranscribeFailed,
+    };
+
+    /**
+     * Which engine was asked for and which one answered, for the current take.
+     *
+     * These differ more often than is comfortable -- an unset command line, a missing package, a
+     * dead child -- and until this existed the difference was invisible: the take came back, the
+     * notes looked plausible, and nothing said they had come from somewhere else. Reported in
+     * TranscriptionSummary beside the rest of what describes a take.
+     */
+    struct EngineRun {
+        bool hasRun = false;
+        int requestedEngine = EngineCatalog::BuiltIn;
+        int actualEngine = EngineCatalog::BuiltIn;
+        EngineFallback fallback = EngineFallback::None;
+    };
+
+    EngineRun getEngineRun() const;
+
+    /** What the sidecar tier can currently offer, as of the last time it was asked. */
+    struct SidecarStatus {
+        /** QUARRY_SIDECAR_CMD is set. Known without talking to anything. */
+        bool configured = false;
+        /** A start has been attempted, so engines/device/error mean something. */
+        bool probed = false;
+        /** Wire names from the ready line: what this interpreter can import. */
+        juce::StringArray engines;
+        /** "cuda" or "cpu". */
+        juce::String device;
+        /** Why the last attempt failed, empty when it did not. */
+        juce::String error;
+    };
+
+    SidecarStatus getSidecarStatus() const;
+
+    /**
+     * Ask the sidecar what it can do without transcribing anything, so the picker can grey out
+     * engines before the first take rather than after the first failure. Returns immediately;
+     * the work happens on the transcription thread, because starting the child can take a
+     * minute and loads a model's worth of memory, and doing it twice at once would load two.
+     */
+    void requestSidecarProbe();
 
     const std::vector<Notes::Event>& getNoteEventVector() const;
 
@@ -92,8 +147,19 @@ private:
      * validate here.
      */
     bool _tryTranscribeWithSidecar(const juce::File& inSourceFile,
+                                   int inEngineIndex,
                                    std::vector<Notes::Event>& outNotes,
-                                   std::vector<SidecarPedalEvent>& outPedal);
+                                   std::vector<SidecarPedalEvent>& outPedal,
+                                   EngineFallback& outFallback);
+
+    /** Starts mSidecarClient if it is not up, and records the result either way. */
+    bool _ensureSidecarStarted(juce::String& outError);
+
+    /** The body of requestSidecarProbe(), on the transcription thread. */
+    void _probeSidecar();
+
+    /** Copies the ready line's answer into mSidecarStatus, under its lock. Null means "not up". */
+    void _recordSidecarStatus(const SidecarClient* inClient, const juce::String& inError);
 
     /** Records one sidecar failure; the second in a row (with no success in between) gives up on
      * the sidecar tier for the rest of this session. */
@@ -122,6 +188,25 @@ private:
     int mSidecarFailureCount = 0;
     bool mSidecarUnavailable = false;
 
+    // Read on the message thread by the picker, written on the transcription thread where the
+    // client lives. Copied out under the lock rather than handing out a pointer to the client,
+    // which the transcription thread is free to destroy between any two of the reader's lines.
+    mutable juce::CriticalSection mSidecarStatusLock;
+    SidecarStatus mSidecarStatus;
+
+    // Four plain atomics rather than one locked struct: the reader is a paint routine, this is
+    // the only writer, and a torn read here would at worst name the wrong engine for one frame.
+    std::atomic<bool> mEngineRunHasRun {false};
+    std::atomic<int> mEngineRunRequested {EngineCatalog::BuiltIn};
+    std::atomic<int> mEngineRunActual {EngineCatalog::BuiltIn};
+    std::atomic<int> mEngineRunFallback {0};
+
+    std::atomic<bool> mShouldProbeSidecar {false};
+
+    // The probe shares the transcription pool so it cannot run alongside a take and race the
+    // client, but it is not a transcription, so it is counted separately from one.
+    std::atomic<int> mTranscribeJobsInFlight {0};
+
     // This take's sidecar results, valid only while mUsingSidecarForCurrentTake is true.
     std::vector<Notes::Event> mSidecarNoteEvents;
     std::vector<SidecarPedalEvent> mSidecarPedalEvents;
@@ -138,6 +223,7 @@ private:
 
     ThreadPool mThreadPool;
     std::function<void()> mJobLambda;
+    std::function<void()> mProbeLambda;
 };
 
 #endif //TranscriptionManager_h

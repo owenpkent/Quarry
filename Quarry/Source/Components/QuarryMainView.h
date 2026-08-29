@@ -11,7 +11,7 @@
 #include "Knob.h"
 #include "NoteOptionsView.h"
 #include "TimeQuantizeOptionsView.h"
-#include "TranscriptionOptionsView.h"
+#include "ModelOptionsView.h"
 #include "VisualizationPanel.h"
 #include "AudioInputView.h"
 #include "SampleBar.h"
@@ -69,12 +69,21 @@ private:
         asks for anything but the full width; Transcribe's layout is absolute and assumes it. */
     void _applyWindowSize();
 
+    /**
+     * Stacks the three left-hand sections top down, asking each how tall it wants to be.
+     *
+     * Absolute coordinates do not survive this column any more. Two of the three sections
+     * collapse to their label row when their toggle is off, which is the state they are both in
+     * by default, and the one above them grows when ADVANCED opens.
+     */
+    void _layoutLeftColumn();
+
     QuarryAudioProcessor& mProcessor;
 
     State mPrevState = EmptyAudioAndMidiRegions;
 
     VisualizationPanel mVisualizationPanel;
-    TranscriptionOptionsView mTranscriptionOptions;
+    ModelOptionsView mModelOptions;
     NoteOptionsView mNoteOptions;
     TimeQuantizeOptionsView mQuantizePanel;
 
