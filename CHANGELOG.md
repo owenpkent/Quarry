@@ -9,6 +9,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- fix: the app starts again. `SamplePageView::_updateEnablements` set the fix-volume button's
+  title outside the `if` that guards it, on a `source` that is null until something is picked, so
+  Quarry took an access violation building its own first window and never drew one. One pair of
+  braces.
 - fix: a bake-off sweep survives its cases. `run_bakeoff.py` aborted the whole engine run
   when one case threw, which is exactly how two engines each silently lost ~50 of 90 real
   takes in one day; a failing case is now recorded and skipped, the failures are listed at
