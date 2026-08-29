@@ -296,6 +296,66 @@ def find_banned_text_uses():
     return hits
 
 
+# ---------------------------------------------------------------- usage rules
+#
+# Everything above is a fact about two colours. None of it says the product actually paints
+# that pair, and the gap is where the real bugs live: accent `base` was declared a graphic
+# colour and painted as text in two places for the life of the branch that declared it.
+#
+# So the pairings are also read as a whitelist. A token drawn as text has to be one the
+# rules above cleared as text. Anything else is a token nobody measured in the role it is
+# being used in, which is the state the product was already in.
+
+# setColour(X) ... drawText - a token reaching the screen as text. Deliberately shallow:
+# it catches the direct form, which is the one that gets written, and does not pretend to
+# follow a colour through a variable or a function argument.
+_TEXT_PAINT_ANY = re.compile(
+    r"setColour\s*\(\s*(?:[\w:]*::)?([\w.]+)\s*\)"
+    r"(?:[^;]*;){0,3}?[^;]*?"
+    r"(?:drawText|drawFittedText|drawSingleLineText|drawMultiLineText)"
+)
+
+# accentOf(...).base handed straight to setColour. Its own rule because the fix is not "pick
+# another token" but "take the other half of the same accent", and because the accent is
+# resolved per instance and so never appears in the palette under its own name.
+_ACCENT_BASE_AS_TEXT = re.compile(
+    r"setColour\s*\(\s*[^;)]*accentOf\s*\([^)]*\)\s*\.\s*base\s*\)"
+    r"(?:[^;]*;){0,3}?[^;]*?"
+    r"(?:drawText|drawFittedText|drawSingleLineText|drawMultiLineText)"
+)
+
+# Tokens that are legitimately drawn as text without being a palette token in their own
+# right, or whose text pairing is asserted elsewhere.
+TEXT_EXEMPT = {"inValueColour", "inColour", "c", "colour", "textColour"}
+
+# Filled from the parsed palette in main, so the audit can tell a token from a local.
+PALETTE_NAMES = set()
+
+
+def audit_text_usage(text_foregrounds):
+    """Tokens painted as text that no pairing above cleared as text."""
+    undeclared, accent_base = [], []
+
+    for glob in SOURCE_GLOBS:
+        for path in sorted(ROOT.glob(glob)):
+            body = path.read_text(encoding="utf-8", errors="replace")
+            rel = path.relative_to(ROOT).as_posix()
+
+            for match in _ACCENT_BASE_AS_TEXT.finditer(body):
+                accent_base.append((rel, body.count("\n", 0, match.start()) + 1))
+
+            for match in _TEXT_PAINT_ANY.finditer(body):
+                token = match.group(1)
+                if token in TEXT_EXEMPT or token in BANNED_AS_TEXT:
+                    continue                      # banned tokens are reported separately
+                if token not in PALETTE_NAMES:
+                    continue                      # a local variable, not a token
+                if token not in text_foregrounds:
+                    undeclared.append((rel, body.count("\n", 0, match.start()) + 1, token))
+
+    return undeclared, accent_base
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -304,6 +364,7 @@ def main():
     args = parser.parse_args()
 
     palette, accents, collisions = parse_palette()
+    PALETTE_NAMES.update(palette)
     print(f"parsed {len(palette)} colours and {len(accents)} accents from UIDefines.h, "
           f"QuarryLookAndFeel.h and Obsidian.h\n")
 
@@ -341,6 +402,12 @@ def main():
 
     banned = find_banned_text_uses()
 
+    # Which tokens the rules above actually cleared as text, which is the whitelist the
+    # usage audit checks the source against.
+    text_foregrounds = {fg for fg, _, need, kind in PAIRINGS
+                        if kind in ("text", "accent text") and need >= 4.5}
+    undeclared, accent_base = audit_text_usage(text_foregrounds)
+
     if collisions:
         # Two headers, one name, two values: one of them is being checked and the other
         # is being painted, and the checker cannot tell you which.
@@ -372,10 +439,21 @@ def main():
             short = need - ratio
             print(f"  {fg} on {bg}: {ratio:.2f}:1, short of {need:.1f} by {short:.2f} ({kind})")
 
-    if failures or missing or banned or collisions:
+    if accent_base:
+        print("\naccent base drawn as text (use .hot, the same hue at 4.5:1+):")
+        for path, line in accent_base:
+            print(f"  {path}:{line}")
+
+    if undeclared:
+        print("\ndrawn as text but never measured as text:")
+        for path, line, token in undeclared:
+            print(f"  {path}:{line}  {token} has no pairing at 4.5:1 in PAIRINGS")
+
+    if failures or missing or banned or collisions or undeclared or accent_base:
         print("\nrules: docs/ACCESSIBILITY.md   tokens: docs/UI.md")
 
-    return len(failures) + len(missing) + len(banned) + len(collisions)
+    return (len(failures) + len(missing) + len(banned) + len(collisions)
+            + len(undeclared) + len(accent_base))
 
 
 if __name__ == "__main__":

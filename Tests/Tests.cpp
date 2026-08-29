@@ -10,6 +10,7 @@
 #include "key_estimate_test.h"
 #include "sampler_test.h"
 #include "sidecar_integration_test.h"
+#include "focus_ring_test.h"
 
 int main()
 {
@@ -35,6 +36,9 @@ int main()
 
     std::cout << std::endl << "SIDECAR INTEGRATION TEST" << std::endl;
     result |= !sidecar_integration_test();
+
+    std::cout << std::endl << "FOCUS RING TEST" << std::endl;
+    result |= !focus_ring_test();
 
     return result;
 }
