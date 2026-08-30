@@ -1,5 +1,5 @@
 //
-// Which model listens, and what it is for.
+// Which model listens, what it is for, and when to reach for it.
 //
 
 #include "ModelOptionsView.h"
@@ -13,7 +13,7 @@ namespace
 // LEFT_SECTIONS_TOP_PAD is the title row, which sits outside the raised fill.
 constexpr int kPickerY = 38;
 constexpr int kPickerH = 20;
-constexpr int kTraitY = 64;
+constexpr int kWhenY = 64;
 constexpr int kStatusY = 80;
 constexpr int kTextH = 14;
 constexpr int kAdvancedY = 100;
@@ -23,7 +23,7 @@ constexpr int kKnobH = 89;
 constexpr int kBottomPad = 10;
 
 constexpr int kLeftMargin = 18;
-constexpr int kRowWidth = 238;
+constexpr int kRowWidth = LeftColumnLayout::MODEL_ROW_WIDTH;
 
 // The column stacks against these three numbers and cannot see this grid, so moving a control
 // in here either updates LeftColumnLayout or stops compiling.
@@ -38,12 +38,16 @@ static_assert(kKnobY + kKnobH + kBottomPad == LeftColumnLayout::MODEL_ADVANCED_O
 ModelOptionsView::ModelOptionsView(QuarryAudioProcessor& inProcessor)
     : mProcessor(inProcessor)
 {
+    mEngineAvailable.fill(true);
+
     mEnginePicker = std::make_unique<ComboBox>("EnginePicker");
     mEnginePicker->setEditableText(false);
     mEnginePicker->setJustificationType(Justification::centredLeft);
-    mEnginePicker->addItemList(EngineCatalog::displayNames(), 1);
-    mEnginePicker->setTooltip(QuarryTooltips::mo_engine);
     mEnginePicker->setTitle("Engine");
+
+    // Before the attachment, which selects by position and so needs the items to exist.
+    _buildMenu();
+
     mEnginePickerAttachment = std::make_unique<ComboBoxParameterAttachment>(
         *mProcessor.getParams()[ParameterHelpers::EngineId], *mEnginePicker);
     addAndMakeVisible(mEnginePicker.get());
@@ -108,6 +112,37 @@ int ModelOptionsView::_selectedEngine() const
         0, EngineCatalog::NumEngines - 1, static_cast<int>(mProcessor.getParameterValue(ParameterHelpers::EngineId)));
 }
 
+void ModelOptionsView::_buildMenu()
+{
+    auto* menu = mEnginePicker->getRootMenu();
+
+    // PopupMenu::clear, not ComboBox::clear. The second one deselects, which on a rebuild
+    // triggered by a probe landing would silently move the parameter.
+    menu->clear();
+
+    String open_group;
+
+    for (int i = 0; i < EngineCatalog::NumEngines; ++i) {
+        const auto group = EngineCatalog::groupOf(i);
+
+        if (group != open_group) {
+            open_group = group;
+            menu->addSectionHeader(group);
+        }
+
+        PopupMenu::Item item(EngineCatalog::get(i).displayName);
+        item.itemID = i + 1;
+        item.isEnabled = mEngineAvailable[static_cast<size_t>(i)];
+
+        // The right-hand column. JUCE calls this the shortcut description and draws it dim and
+        // right-aligned, which is the shape wanted here and is already sized for by the look
+        // and feel, so it costs no custom item component.
+        item.shortcutKeyDescription = item.isEnabled ? EngineCatalog::reportsLine(i) : mUnavailableReason;
+
+        menu->addItem(std::move(item));
+    }
+}
+
 void ModelOptionsView::resized()
 {
     mEnginePicker->setBounds(kLeftMargin, kPickerY, kRowWidth, kPickerH);
@@ -142,7 +177,7 @@ void ModelOptionsView::paint(Graphics& g)
     g.setFont(UIDefines::LABEL_FONT());
 
     g.setColour(TEXT_DIM.withAlpha(alpha));
-    g.drawText(mTraitLine, Rectangle<int>(kLeftMargin + 1, kTraitY, kRowWidth, kTextH), Justification::centredLeft);
+    g.drawText(mWhenLine, Rectangle<int>(kLeftMargin + 1, kWhenY, kRowWidth, kTextH), Justification::centredLeft);
 
     // A problem is brighter, not redder. Everything this line can say is a fact about the
     // machine rather than a mistake someone made, and TEXT_MAIN over TEXT_DIM is a step in
@@ -179,6 +214,14 @@ void ModelOptionsView::_applyEngineChange()
     mSplitSensitivity->setVisible(knobs_visible);
     mMinNoteDuration->setVisible(knobs_visible);
 
+    // The tooltip is the only place with room for all three facts at once, so it carries what
+    // the panel had to choose between: the material, the reporting, and the general rule.
+    const int selected = _selectedEngine();
+    mEnginePicker->setTooltip(String(EngineCatalog::get(selected).displayName) + " -- "
+                              + EngineCatalog::whenLine(selected) + "\nReports "
+                              + EngineCatalog::reportsLine(selected) + ".\n\n"
+                              + QuarryTooltips::mo_engine);
+
     _refreshAvailability();
 
     const int height = preferredHeight();
@@ -203,13 +246,38 @@ void ModelOptionsView::_refreshAvailability()
     const auto status = manager->getSidecarStatus();
     const int selected = _selectedEngine();
 
+    // Why a greyed row is greyed, which is not the same question as whether it is. With no
+    // sidecar configured, nothing is missing that installing anything would supply, and telling
+    // someone an engine is not installed sends them after a package when what they need is a
+    // Python interpreter and one environment variable.
+    String reason = "not installed";
+
+    if (!status.configured) {
+        reason = "needs the sidecar";
+    } else if (status.error.isNotEmpty()) {
+        reason = "sidecar unreachable";
+    }
+
+    bool availability_moved = reason != mUnavailableReason;
+    mUnavailableReason = reason;
+
     for (int i = 0; i < EngineCatalog::NumEngines; ++i) {
         // Until the probe has answered, nothing here has grounds to call an engine missing, so
         // every row stays live. After it, the ready line is the whole truth.
         const bool available =
             !EngineCatalog::isSidecar(i) || !status.probed || status.engines.contains(EngineCatalog::get(i).wireName);
 
-        mEnginePicker->setItemEnabled(i + 1, available);
+        if (mEngineAvailable[static_cast<size_t>(i)] != available) {
+            mEngineAvailable[static_cast<size_t>(i)] = available;
+            availability_moved = true;
+        }
+    }
+
+    // Rebuilt rather than poked, because the row's second column changes with its enablement
+    // and ComboBox exposes no setter for that half. Only when something actually moved: this
+    // runs off a 15 Hz timer and the answer is settled after the first probe.
+    if (availability_moved) {
+        _buildMenu();
     }
 
     String status_line;
@@ -232,10 +300,10 @@ void ModelOptionsView::_refreshAvailability()
                       + (count == 1 ? " engine" : " engines");
     }
 
-    const auto trait_line = EngineCatalog::traitLine(selected);
+    const auto when_line = EngineCatalog::whenLine(selected);
 
-    if (trait_line != mTraitLine || status_line != mStatusLine || is_problem != mStatusIsProblem) {
-        mTraitLine = trait_line;
+    if (when_line != mWhenLine || status_line != mStatusLine || is_problem != mStatusIsProblem) {
+        mWhenLine = when_line;
         mStatusLine = status_line;
         mStatusIsProblem = is_problem;
         repaint();

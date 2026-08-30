@@ -23,18 +23,51 @@
  * scores. They are categorical facts about what an engine reports, they do not move when the
  * corpus changes, and they are the part a person can actually choose on: a take with pedal
  * wants an engine that reports pedal.
+ *
+ * Two of the fields are read by nobody but a person, and they carry the whole of what the
+ * picker knows about *when* to reach for an engine. "Kong", "Transkun" and "Muscriptor" are
+ * the names their authors gave them; not one of the three says what it is for, and a list of
+ * seven such names is a list of seven guesses. So every engine also carries the heading it
+ * sits under, which is the material it is for, and the line it shows once chosen, which is
+ * when you would pick it over the engine beside it. What it reports is not stored beside
+ * them: reportsLine derives that from the flags, so a corrected flag cannot leave a stale
+ * sentence next to it.
  */
 namespace EngineCatalog
 {
 
 enum EngineIndex { BuiltIn = 0, Kong, Transkun, Muscriptor, SepKong, SepTranskun, SepMuscriptor, NumEngines };
 
+// The four headings the picker groups by, named once so that two engines meant to share one
+// cannot drift apart by a comma. In caps because that is what a heading looks like everywhere
+// else in this interface; nothing upper-cases them at draw time.
+constexpr const char* kAlwaysThere = "ALWAYS AVAILABLE, NO SETUP";
+constexpr const char* kSoloPiano = "SOLO PIANO";
+constexpr const char* kGeneral = "ANY INSTRUMENT, AND MIXES";
+constexpr const char* kSplitFirst = "MIXES, SPLIT INTO PARTS FIRST (SLOWER)";
+
 struct Engine {
     /** As sent in a transcribe request. Empty for the built-in tier, which never goes on a wire. */
     const char* wireName;
     const char* displayName;
-    /** What the engine is for, in the words the picker shows. */
-    const char* scope;
+    /** The heading this engine sits under in the picker, naming the material it is for.
+        Engines that share one are adjacent in this table and the picker prints it once above
+        the run, so a reader sorts seven proper nouns into four decisions before reading any
+        one of them. */
+    const char* group;
+    /** The line under the picker once this engine is chosen: what it is for, and the one
+        thing that would make someone pick it over the engine beside it under the same
+        heading. Written rather than derived, because "the more cautious of the two" is a
+        judgement read off the bench (docs/ANALYSIS.md 4.2) and no flag in this struct
+        implies it.
+
+        Short on purpose, and the ceiling is low. It is drawn into one 238 px row of
+        LABEL_FONT and clipped, not wrapped, if it runs over, and nothing about that is
+        visible until someone writes the sentence that overflows; Tests/engine_catalog_test.h
+        holds the ceiling instead. Anything that applies to a whole run of engines -- that a
+        sep+ take is slower, for instance -- belongs in the heading, which is written once and
+        has more room. */
+    const char* when;
     bool reportsPedal;
     /** True when the model itself measures velocity per note. The built-in tier does not: its
         dynamics come from NoteVelocity reading the audio afterwards, which is a different and
@@ -46,13 +79,15 @@ struct Engine {
 inline const Engine* table()
 {
     static const Engine engines[NumEngines] = {
-        {"", "Built-in", "Any instrument", false, false, false},
-        {"kong", "Kong", "Piano", true, true, false},
-        {"transkun", "Transkun", "Piano", false, true, false},
-        {"muscriptor", "Muscriptor", "Any instrument", false, false, false},
-        {"sep+kong", "Kong + separation", "Mixes, piano parts", true, true, true},
-        {"sep+transkun", "Transkun + separation", "Mixes, piano parts", false, true, true},
-        {"sep+muscriptor", "Muscriptor + separation", "Mixes", false, false, true},
+        {"", "Built-in", kAlwaysThere, "Any instrument, and always there.", false, false, false},
+        {"kong", "Kong", kSoloPiano, "Solo piano. Hears the pedal.", true, true, false},
+        {"transkun", "Transkun", kSoloPiano, "Solo piano. The cautious one.", false, true, false},
+        {"muscriptor", "Muscriptor", kGeneral, "Non-piano and mixes. Hears everything.", false, false, false},
+        {"sep+kong", "Kong + separation", kSplitFirst, "Piano out of a mix, with pedal.", true, true, true},
+        {"sep+transkun", "Transkun + separation", kSplitFirst, "Piano out of a mix, cautiously.", false,
+         true, true},
+        {"sep+muscriptor", "Muscriptor + separation", kSplitFirst, "A whole mix, part by part.", false, false,
+         true},
     };
 
     return engines;
@@ -97,18 +132,37 @@ inline int indexForWireName(const juce::String& inWireName)
     return BuiltIn;
 }
 
-/** The line under the picker: what the selected engine is for, and what it reports. */
-inline juce::String traitLine(int inIndex)
+/**
+ * The right-hand column of the picker's row: what this engine measures for itself.
+ *
+ * Derived from the flags rather than stored beside them. Two engines can sit under the same
+ * heading and be indistinguishable to a reader until this line separates them -- Kong and
+ * Transkun are both "solo piano" and differ only here -- so it has to be the same fact the
+ * transcription is actually run on, not a second copy of it left behind by a correction.
+ *
+ * "Estimated velocity" is not a softer way of saying "velocity". An engine that measures none
+ * of its own still comes out of the plugin with a velocity on every note, because NoteVelocity
+ * reads them off the audio afterwards, and calling both "velocity" would claim a match between
+ * a measurement and a guess.
+ */
+inline juce::String reportsLine(int inIndex)
 {
     const auto& engine = get(inIndex);
 
     juce::StringArray parts;
-    parts.add(engine.scope);
     parts.add(engine.reportsPedal ? "pedal" : "no pedal");
     parts.add(engine.reportsVelocity ? "velocity" : "estimated velocity");
 
     return parts.joinIntoString(juce::String::fromUTF8(" \xc2\xb7 "));
 }
+
+/** The line under the picker: what the selected engine is for, and when you would reach for it. */
+inline juce::String whenLine(int inIndex)
+{ return get(inIndex).when; }
+
+/** The heading the picker prints above this engine, naming the material it is for. */
+inline juce::String groupOf(int inIndex)
+{ return get(inIndex).group; }
 
 } // namespace EngineCatalog
 

@@ -10,10 +10,13 @@
 namespace QuarryTooltips
 {
 // Model
+// Appended to a per-engine line built in ModelOptionsView, so it says only the part that is
+// true of every engine. Anything about one of them belongs in the catalog, next to it.
 const String mo_engine =
-    "Which model listens to the take. The built-in one ships with Quarry and always works; the "
-    "rest run in the Python sidecar and are greyed out when it cannot import them. A different "
-    "model is a different reading of the audio, so choosing one re-transcribes.";
+    "The list is grouped by what each model is for, and each row says what it measures. The "
+    "built-in one ships with Quarry and always works; the rest run in the Python sidecar, and "
+    "one this machine cannot reach is greyed with the reason beside it. A different model is a "
+    "different reading of the audio, so choosing one re-transcribes.";
 
 const String mo_advanced =
     "The built-in decoder's own settings. They belong to that decoder alone: a take read by a "

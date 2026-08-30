@@ -22,7 +22,9 @@
 
 #include <JuceHeader.h>
 
+#include "Components/Views/LeftColumnLayout.h"
 #include "EngineCatalog.h"
+#include "UIDefines.h"
 
 namespace engine_catalog_test_utils
 {
@@ -79,7 +81,9 @@ inline bool engine_catalog_test()
     {
         const auto name = juce::String(get(i).displayName);
         check(name.isNotEmpty(), "every engine has a display name");
-        check(traitLine(i).isNotEmpty(), "every engine says what it is for");
+        check(reportsLine(i).isNotEmpty(), "every engine says what it reports");
+        check(whenLine(i).isNotEmpty(), "every engine says what it is for");
+        check(groupOf(i).isNotEmpty(), "every engine sits under a heading");
 
         if (i != BuiltIn)
         {
@@ -98,6 +102,80 @@ inline bool engine_catalog_test()
     juce::StringArray unique(names);
     unique.removeDuplicates(false);
     check(unique.size() == names.size(), "no two engines share a display name");
+
+    // What the picker shows, and the reason it can be read at all.
+    //
+    // Six of the seven display names are the names their authors chose -- "Kong", "Transkun",
+    // "Muscriptor" -- and not one of them says what it is for. The heading and the when line
+    // are the entire answer to "which of these do I want", so they are checked here rather
+    // than left to be noticed by someone choosing wrong.
+
+    // The picker prints a heading once above the run of engines that share it, so a heading
+    // that appears twice with something else in between prints twice and groups nothing.
+    {
+        juce::StringArray runs;
+
+        for (int i = 0; i < NumEngines; ++i)
+            if (runs.isEmpty() || runs[runs.size() - 1] != groupOf(i))
+                runs.add(groupOf(i));
+
+        juce::StringArray distinct(runs);
+        distinct.removeDuplicates(false);
+        check(distinct.size() == runs.size(), "engines sharing a heading are adjacent in the table");
+        check(runs.size() >= 3, "the list is grouped, not one heading over all of it");
+    }
+
+    // Two engines under one heading are, by construction, for the same material. The second
+    // column is then the only thing between them, and two identical ones are a coin toss.
+    for (int i = 0; i < NumEngines; ++i)
+        for (int j = i + 1; j < NumEngines; ++j)
+            if (groupOf(i) == groupOf(j))
+                check(reportsLine(i) != reportsLine(j),
+                      "two engines under one heading can be told apart by what they report");
+
+    // The when line is drawn into one row of LABEL_FONT the width of the picker, and clipped
+    // there, not wrapped. Nothing makes an overflow visible except selecting that engine and
+    // looking at the panel, which is six selections away from wherever the sentence was
+    // written, so it is measured here in the font it is actually drawn in.
+    {
+        const auto label = UIDefines::LABEL_FONT();
+        const auto room = (float) LeftColumnLayout::MODEL_ROW_WIDTH;
+
+        float widest = 0.0f;
+        int widest_engine = 0;
+
+        for (int i = 0; i < NumEngines; ++i)
+        {
+            const auto width = label.getStringWidthFloat(whenLine(i));
+
+            if (width > widest)
+            {
+                widest = width;
+                widest_engine = i;
+            }
+
+            check(width <= room, "a when line fits the panel unclipped");
+        }
+
+        // Printed rather than only asserted, because the number is the whole margin anyone
+        // writing the next engine's line has to work with, and it is not otherwise knowable
+        // without building a window and selecting that engine.
+        std::cout << "  widest when line: " << get(widest_engine).displayName << ", " << widest
+                  << " px of " << room << std::endl;
+    }
+
+    // Distinct, or two engines give the same answer to "what is this for" and the line is
+    // doing nothing for at least one of them.
+    {
+        juce::StringArray whens;
+
+        for (int i = 0; i < NumEngines; ++i)
+            whens.add(whenLine(i));
+
+        juce::StringArray unique_whens(whens);
+        unique_whens.removeDuplicates(false);
+        check(unique_whens.size() == whens.size(), "no two engines say the same thing about themselves");
+    }
 
     // Whatever the sidecar is handed, an unrecognised name has to land somewhere that exists.
     check(indexForWireName("") == BuiltIn, "an empty wire name falls back to the built-in tier");

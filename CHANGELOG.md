@@ -19,6 +19,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   a different reading of the audio, not a different treatment of the same notes.
   `QUARRY_SIDECAR_ENGINE` still works and now seeds that parameter rather than deciding for the
   session; a restored session overrides it, which is the right way round.
+- feat: the picker says what each model is for and when to use it. Seven rows reading Built-in,
+  Kong, Transkun, Muscriptor and their separation twins are seven proper nouns; six of them are
+  the names their authors chose and not one says what it is for, so the only way to find out was
+  to select one and read the line underneath. The menu is grouped now -- `SOLO PIANO`,
+  `ANY INSTRUMENT, AND MIXES`, `MIXES, SPLIT INTO PARTS FIRST (SLOWER)` -- with what each engine
+  measures in a second column, which is what separates Kong from Transkun once the heading has
+  said they are both for piano, and the line under the closed picker says when you would reach
+  for the one that is selected. A greyed row now says why it is greyed in that same column:
+  `needs the sidecar` when none is configured, `sidecar unreachable` when one is and it will not
+  start, and `not installed` only when a working sidecar really lacks that engine. One word for
+  all three sends two thirds of the readers after the wrong fix.
 - feat: the summary says which engine actually read the take. A take that quietly came back from
   Basic Pitch because the sidecar would not start looked exactly like one from the engine you
   chose: same notes, same shape, same everything except the accuracy you were counting on. The

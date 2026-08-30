@@ -263,9 +263,12 @@ The shipped window is 1000x755 and resizable.
 │ DRIVER / INPUT / CHANNELS / LEVEL            hint text  │  device strip
 ├───────────────────────┬─────────────────────────────────┤
 │ MODEL                 │                                 │
-│   engine, what it is  │      waveform                   │
-│   for, whether it can ├─────────────────────────────────┤
-│   be reached, ADVANCED│      drag strip                 │
+│   engine, grouped by  │      waveform                   │
+│   material            ├─────────────────────────────────┤
+│   what it is for and  │      drag strip                 │
+│   when to use it      │                                 │
+│   whether it can be   │                                 │
+│   reached, ADVANCED   │                                 │
 ├───────────────────────┼─────────────────────────────────┤
 │ SCALE QUANTIZE     ⏻  │      summary + confidence bars  │
 ├───────────────────────┤      (and which engine read it) │
@@ -280,6 +283,20 @@ The shipped window is 1000x755 and resizable.
   the result belongs in the footer. Pitch bend is in the footer for exactly that reason:
   it changes the MIDI written out and nothing about what the model heard.
 - Sections are panels with a `micro()` caps label and an enable toggle in the label row.
+- **A list of proper nouns is not a choice.** The MODEL picker offers seven engines, six of
+  them named by their authors -- Kong, Transkun, Muscriptor -- and not one of those names says
+  what it is for. So the menu is grouped: a heading over each run of engines naming the
+  material they are for (`SOLO PIANO`, `MIXES, SPLIT INTO PARTS FIRST (SLOWER)`), the row's
+  name on the left, and what that engine measures on the right, which is what separates two
+  engines under one heading. Closed, the picker shows the name and one line under it saying
+  what it is for and when you would reach for it. All of that copy lives in `EngineCatalog.h`
+  next to the flags it has to agree with, and the line under the picker is measured against
+  the picker's own width in `Tests/engine_catalog_test.h`: it is clipped, not wrapped, and an
+  overflow is otherwise invisible until someone selects that engine and looks.
+- **A greyed row says why it is greyed**, in the same right-hand column: `needs the sidecar`
+  when none is configured, `sidecar unreachable` when one is and it will not start, and
+  `not installed` only when a working sidecar genuinely lacks that engine. One word for all
+  three would send two thirds of the readers after the wrong fix.
 - **A section collapses to its label row when its toggle is off.** Both quantize sections
   default to off, and 254 px of the most prominent column in the window used to be spent
   showing controls that did nothing until someone switched them on. MODEL never collapses,

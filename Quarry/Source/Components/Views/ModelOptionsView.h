@@ -16,9 +16,21 @@
 #include "UIDefines.h"
 
 /**
- * The MODEL panel: a picker, a line saying what the selected engine is for, a line saying
- * whether it can actually be reached, and the built-in decoder's three rotaries folded away
- * behind ADVANCED.
+ * The MODEL panel: a picker, a line saying what the selected engine is for and when to reach
+ * for it, a line saying whether it can actually be reached, and the built-in decoder's three
+ * rotaries folded away behind ADVANCED.
+ *
+ * The picker is grouped rather than flat, and that is the point of it. Seven rows reading
+ * "Built-in / Kong / Transkun / Muscriptor / Kong + separation / ..." are seven proper nouns:
+ * six of them are the names their authors chose, none of them says what it is for, and the
+ * only way to find out used to be to select one and read the line underneath. So each run of
+ * engines sits under a heading naming the material it is for, and each row carries what that
+ * engine measures in a second column, which is what separates Kong from Transkun once the
+ * heading has told you they are both for piano. An engine this machine cannot reach says why
+ * in that column instead of being greyed with no reason given, and the why matters: an engine
+ * that is genuinely missing from a working sidecar wants pip, and one on a machine with no
+ * sidecar configured at all wants docs/SIDECAR.md. "Not installed" for both would send half
+ * the readers after the wrong fix.
  *
  * This replaces the TRANSCRIPTION panel, which had the priorities exactly inverted. It gave
  * three rotaries permanent space to a decoder the user could not choose, while the choice of
@@ -61,6 +73,19 @@ private:
     /** True when the selected engine is the built-in one, whose decoder the rotaries drive. */
     bool _showsDecoderKnobs() const;
 
+    /**
+     * Fills the picker's menu from the catalog: a heading above each run of engines that share
+     * one, and each row's second column from mEngineAvailable and mUnavailableReason.
+     *
+     * Written through ComboBox::getRootMenu rather than addItemList, because a heading is a
+     * PopupMenu item and a second column is a PopupMenu item's shortcut text, and ComboBox
+     * offers no way to set the second of those. Rebuilding is safe as long as the item *text*
+     * never changes: ComboBox::getSelectedItemIndex compares the label it is showing against
+     * the text of the item it thinks is selected, and the parameter attachment reads it. The
+     * heading, the second column and the enablement are all free to change; the name is not.
+     */
+    void _buildMenu();
+
     /** The index the parameter currently holds, clamped into the catalog. */
     int _selectedEngine() const;
 
@@ -85,9 +110,18 @@ private:
     // response here touches components. The timer is needed anyway to notice the sidecar probe
     // landing on a background thread, so one mechanism covers both.
     int mLastSeenEngine = -1;
-    String mTraitLine;
+    String mWhenLine;
     String mStatusLine;
     bool mStatusIsProblem = false;
+
+    // Every row live until the probe answers; see _refreshAvailability. Held here rather than
+    // read back off the menu because the menu is rebuilt from it, not the other way round.
+    std::array<bool, EngineCatalog::NumEngines> mEngineAvailable {};
+
+    // What a greyed row says in place of what it reports. One string for all of them, because
+    // every reason a sidecar engine can be unreachable is a fact about the sidecar rather than
+    // about that engine, up to and including the one that names an engine.
+    String mUnavailableReason;
 
     bool mAdvancedOpen = false;
 

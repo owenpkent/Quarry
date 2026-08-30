@@ -45,6 +45,13 @@ constexpr int MODEL_SIDECAR_ENGINE = 104;
 constexpr int MODEL_ADVANCED_CLOSED = 128;
 constexpr int MODEL_ADVANCED_OPEN = 223;
 
+/** How wide MODEL's picker is, and with it the two lines of text under it.
+    Here rather than inside the panel because the engine catalog's own copy is measured against
+    it (Tests/engine_catalog_test.h): those lines are drawn into this width and clipped, not
+    wrapped, and a sentence one word too long for it is invisible until someone selects that
+    engine and looks. */
+constexpr int MODEL_ROW_WIDTH = 238;
+
 constexpr int SCALE_QUANTIZE_EXPANDED = 134;
 constexpr int TIME_QUANTIZE_EXPANDED = 120;
 

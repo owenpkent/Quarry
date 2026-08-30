@@ -39,6 +39,14 @@ The workflow is very simple:
     - Or, in the standalone app, pick an audio input in the **SOURCE** strip and record straight from it
       (see below).
     - Or drop an audio file on the plugin. (.wav, .aiff, .flac, .mp3 and .ogg (vorbis) supported)
+- Pick the model that listens, in **MODEL** at the top of the left column. The list is grouped by
+  what each model is for, because "Kong" and "Transkun" are the names their authors chose and
+  neither says anything about your take: **SOLO PIANO**, **ANY INSTRUMENT, AND MIXES**, and
+  **MIXES, SPLIT INTO PARTS FIRST (SLOWER)**, with what each one measures (pedal, velocity)
+  beside its name. **Built-in** ships with Quarry and always works; the rest run in the Python
+  sidecar (`docs/SIDECAR.md`) and, when this machine cannot reach one, the row says why rather
+  than only greying out. The line under the picker says what the chosen model is for and when
+  you would reach for it, and the summary says which one actually read the take.
 - Quarry says what it heard: the key and its runner-up, the tempo, the meter, how many notes,
   and a strip showing which bars the model was least sure of. Click a bar to jump there, or press
   **NEXT SHAKY BAR** to walk them. **show notes** puts the piano roll under the waveform when you

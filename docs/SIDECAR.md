@@ -70,10 +70,12 @@ need it.
 ## 2. Running it
 
 **In the app.** The engine is picked in the MODEL panel at the top of the Transcribe page,
-which lists every engine in `EngineCatalog.h`, greys out the ones this machine's sidecar
-cannot import, and says which one actually read the current take. Choosing one re-transcribes:
-a different engine is a different reading of the audio, not a different treatment of the same
-notes.
+which lists every engine in `EngineCatalog.h`, grouped by the material each is for, with what
+it measures beside its name. An engine this machine cannot reach is greyed and says why in
+that column: `needs the sidecar` with none configured, `sidecar unreachable` when one is and
+it will not start, `not installed` when a working sidecar genuinely lacks it. The summary says
+which engine actually read the current take. Choosing one re-transcribes: a different engine
+is a different reading of the audio, not a different treatment of the same notes.
 
 What still has to come from the environment is the command line, because it is a path to a
 Python interpreter and there is nowhere in the UI to type one yet:
