@@ -56,6 +56,10 @@ TimeQuantizeOptionsView::TimeQuantizeOptionsView(QuarryAudioProcessor& processor
 TimeQuantizeOptionsView::~TimeQuantizeOptionsView()
 {
     mProcessor.getParams()[static_cast<size_t>(ParameterHelpers::EnableTimeQuantizationId)]->removeListener(this);
+
+    // After the listener is off, so nothing can re-trigger between the two lines, and before
+    // the component's own teardown reaches anything handleAsyncUpdate would touch.
+    cancelPendingUpdate();
 }
 
 int TimeQuantizeOptionsView::preferredHeight() const
@@ -115,14 +119,17 @@ void TimeQuantizeOptionsView::parameterValueChanged(int parameterIndex, float ne
         return;
     }
 
-    // Marshalled for the same reason as NoteOptionsView's: this arrives on whichever thread
-    // moved the parameter, and it now moves the whole left column, not just this panel.
-    MessageManager::callAsync(
-        [safe = Component::SafePointer<TimeQuantizeOptionsView>(this), enable = newValue > 0.5f] {
-            if (safe != nullptr) {
-                safe->_setViewEnabled(enable);
-            }
-        });
+    // Marshalled for the same reason as NoteOptionsView's, and through the same AsyncUpdater
+    // rather than MessageManager::callAsync: this arrives on whichever thread moved the
+    // parameter, it now moves the whole left column and not just this panel, and an audio thread
+    // is no place to allocate a lambda or take the message-queue lock.
+    mPendingEnable.store(newValue > 0.5f);
+    triggerAsyncUpdate();
+}
+
+void TimeQuantizeOptionsView::handleAsyncUpdate()
+{
+    _setViewEnabled(mPendingEnable.load());
 }
 
 void TimeQuantizeOptionsView::parameterGestureChanged(int parameterIndex, bool gestureIsStarting)

@@ -20,6 +20,7 @@ class QuarryMainView;
 class TimeQuantizeOptionsView
     : public Component
     , public AudioProcessorParameter::Listener
+    , public AsyncUpdater
 {
 public:
     explicit TimeQuantizeOptionsView(QuarryAudioProcessor& processor);
@@ -45,6 +46,8 @@ private:
 
     void parameterGestureChanged(int parameterIndex, bool gestureIsStarting) override;
 
+    void handleAsyncUpdate() override;
+
     void _setViewEnabled(bool inEnable);
 
     void _setupTempoEditor();
@@ -67,6 +70,10 @@ private:
     std::unique_ptr<NumericTextEditor<int>> mTimeSignatureDenomEditor;
 
     bool mIsViewEnabled = false;
+
+    // Written on whichever thread moved the parameter, read on the message thread by
+    // handleAsyncUpdate. Same reason as NoteOptionsView's.
+    std::atomic<bool> mPendingEnable {false};
 };
 
 #endif // RhythmOptionsView_h

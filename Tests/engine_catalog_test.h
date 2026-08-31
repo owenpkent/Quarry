@@ -187,6 +187,20 @@ inline bool engine_catalog_test()
     check(indexForWireName("auto") == BuiltIn, "auto is not a choice this list can make");
 
     // QUARRY_SIDECAR_ENGINE is typed by a person into a shell.
+    // startingEngine answers the other half of the same question: not what a wire name means,
+    // but what to do when it means nothing. It has to differ from indexForWireName on exactly
+    // the inputs that land on BuiltIn, because seeding the built-in tier on a machine that
+    // configured a sidecar is how the sidecar silently stopped being used at all.
+    check(startingEngine("kong") == Kong, "a named engine starts on itself");
+    check(startingEngine("sep+transkun") == SepTranskun, "a named sep+ engine starts on itself");
+    check(isSidecar(startingEngine("auto")), "auto starts on a sidecar engine, not on the built-in tier");
+    check(isSidecar(startingEngine("")), "an unset engine name still starts on the sidecar");
+    check(isSidecar(startingEngine("nonsense")), "an unrecognised engine name still starts on the sidecar");
+
+    for (int i = 0; i < NumEngines; ++i)
+        check(startingEngine(get(i).wireName) == (isSidecar(i) ? i : startingEngine("auto")),
+              "every sidecar engine's wire name starts on that engine");
+
     check(indexForWireName("KONG") == Kong, "wire names match regardless of case");
     check(indexForWireName("  transkun  ") == Transkun, "wire names survive surrounding whitespace");
 
@@ -208,6 +222,18 @@ inline bool engine_catalog_test()
     check(get(SepKong).separatesStems && ! get(Kong).separatesStems, "only the sep+ engines separate");
 
     // Out of range is reachable from a saved session written by a later version of this list.
+    // The three phrases the picker and the summary both use. Written once so a change to one
+    // cannot leave the panel and the sentence under it describing the same failure differently;
+    // the check that matters is that they are distinguishable and that asSentence only touches
+    // the first letter, since the summary uses them mid-sentence and the panel starts a line.
+    check(juce::String(kNeedsSidecar) != juce::String(kNotInstalled)
+              && juce::String(kNotInstalled) != juce::String(kSidecarUnreachable),
+          "the three unavailability phrases say three different things");
+    check(asSentence(kSidecarUnreachable) == "Sidecar unreachable", "asSentence capitalises the first letter");
+    check(asSentence(kSidecarUnreachable).substring(1) == juce::String(kSidecarUnreachable).substring(1),
+          "asSentence changes nothing but the first letter");
+    check(asSentence("").isEmpty(), "asSentence survives an empty phrase");
+
     check(&get(-1) == &get(0), "an index below the list clamps into it");
     check(&get(NumEngines + 5) == &get(NumEngines - 1), "an index past the list clamps into it");
 

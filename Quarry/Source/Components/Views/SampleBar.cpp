@@ -8,6 +8,7 @@
 
 #include "AudioUtils.h"
 #include "QuarryTooltips.h"
+#include "SampleBarLayout.h"
 #include "TakeNaming.h"
 
 #include <okstudio/Obsidian.h>
@@ -74,9 +75,10 @@ SampleBar::SampleBar(QuarryAudioProcessor& inProcessor)
     mPitchBend = std::make_unique<ComboBox>("PitchBend");
     mPitchBend->setEditableText(false);
     mPitchBend->setJustificationType(Justification::centredLeft);
-    // Shorter than the parameter's own choice names, which read as a sentence in a column and
-    // as clutter in a bar. The attachment maps by index, so the words here are free.
-    mPitchBend->addItemList({"No bend", "Single bend"}, 1);
+    // The parameter's own choice names, not shortened ones. They were shortened while a painted
+    // "PITCH BEND" caption sat beside the picker saying what it was; the caption cost 80 px of a
+    // bar with none to spare (see SampleBarLayout), and these two words say it themselves.
+    mPitchBend->addItemList({"No Pitch Bend", "Single Pitch Bend"}, 1);
     mPitchBend->setTooltip(QuarryTooltips::to_pitch_bend);
     mPitchBend->setTitle("Pitch bend mode");
     mPitchBendAttachment = std::make_unique<ComboBoxParameterAttachment>(
@@ -455,30 +457,29 @@ void SampleBar::paint(Graphics& g)
     g.setColour(TEXT_DIM);
     g.setFont(UIDefines::LABEL_FONT());
     g.drawText("SAVE TO", 14, 0, 70, getHeight(), Justification::centredLeft);
-
-    if (!mPitchBendLabelBounds.isEmpty()) {
-        g.drawText("PITCH BEND", mPitchBendLabelBounds, Justification::centredRight);
-    }
 }
 
 void SampleBar::resized()
 {
-    auto area = getLocalBounds().reduced(10, 8);
-    area.removeFromLeft(74); // the SAVE TO label painted above
+    namespace L = SampleBarLayout;
 
-    mSaveButton->setBounds(area.removeFromRight(78));
-    area.removeFromRight(10);
-    mMidiToggle->setBounds(area.removeFromRight(66));
-    mWavToggle->setBounds(area.removeFromRight(64));
-    area.removeFromRight(14);
+    auto area = getLocalBounds().reduced(L::MARGIN_X, L::MARGIN_Y);
+    area.removeFromLeft(L::SAVE_TO_LABEL); // the SAVE TO label painted above
 
-    mPitchBend->setBounds(area.removeFromRight(104).withSizeKeepingCentre(104, 20));
-    area.removeFromRight(8);
-    mPitchBendLabelBounds = area.removeFromRight(72);
-    area.removeFromRight(10);
+    mSaveButton->setBounds(area.removeFromRight(L::SAVE_BUTTON));
+    area.removeFromRight(L::SAVE_GAP);
+    mMidiToggle->setBounds(area.removeFromRight(L::MIDI_TOGGLE));
+    mWavToggle->setBounds(area.removeFromRight(L::WAV_TOGGLE));
+    area.removeFromRight(L::PITCH_BEND_GAP);
 
-    // The folder needs the room; the status takes what is left of the middle.
-    mFolderButton->setBounds(area.removeFromLeft(jmin(300, area.getWidth() / 2)));
-    area.removeFromLeft(12);
+    mPitchBend->setBounds(area.removeFromRight(L::PITCH_BEND).withSizeKeepingCentre(L::PITCH_BEND, 20));
+    area.removeFromRight(L::PITCH_BEND_TRAIL);
+
+    // Both of these stretch, and on this bar they are the only two that do, so the split between
+    // them is stated in SampleBarLayout and checked in Tests/sample_bar_test.h rather than being
+    // whatever halving the leftovers happens to produce. The status gets its floor first: the
+    // folder's full path is on its tooltip, and the status sentence is nowhere but here.
+    mFolderButton->setBounds(area.removeFromLeft(L::folderWidth(getWidth())));
+    area.removeFromLeft(L::MIDDLE_GAP);
     mStatusLabel->setBounds(area);
 }

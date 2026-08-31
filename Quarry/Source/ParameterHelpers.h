@@ -116,6 +116,22 @@ inline float getUnmappedParamValue(RangedAudioParameter* inParam)
     return inParam->getNormalisableRange().convertFrom0to1(inParam->getValue());
 }
 
+/**
+ * The index an AudioParameterChoice is holding, rounded the way the parameter itself rounds.
+ *
+ * A host automating a choice parameter can leave it on any normalised value at all, and nothing
+ * snaps it to an index: AudioParameterChoice::getIndex rounds to the nearest one, and so does
+ * ComboBoxParameterAttachment, which is why the host's readout and the picker on screen always
+ * agree with each other. Truncating instead -- static_cast<int> on the unmapped value -- names a
+ * different choice for every value that is not exactly on an index, so a parameter sitting on
+ * 1.8 shows as Transkun everywhere a person can see it and transcribes with Kong. Read through
+ * here rather than cast at the call site, so the picker and the engine that runs cannot disagree.
+ */
+inline int getChoiceIndex(RangedAudioParameter* inParam)
+{
+    return roundToInt(getUnmappedParamValue(inParam));
+}
+
 inline std::unique_ptr<RangedAudioParameter> getRangedAudioParamForID(ParamIdEnum id)
 {
     switch (id) {

@@ -27,7 +27,11 @@ On entering `serve` mode, before reading any request, the sidecar emits one line
   ones have a model loaded yet -- see "Lazy loading" below. An engine absent from this list will
   fail any `transcribe` request that names it, with an `ok:false` response, not a crash. If
   `demucs` also imports cleanly, every base engine in the list gets a `"sep+"`-prefixed twin
-  added too (e.g. `"sep+kong"`) -- see "sep+ engines" below.
+  added too (e.g. `"sep+kong"`) -- see "sep+ engines" below. A client must tell an absent
+  `engines` field apart from an empty one: absent means this sidecar does not report what it
+  has, and the only honest thing to do with a request is send it and read the answer. Refusing
+  every engine on a missing field turns any older or third-party `serve` into a sidecar with
+  nothing installed.
 - `device` is `"cuda"` if `torch.cuda.is_available()`, else `"cpu"`. It is the device every engine
   is loaded on for the life of the process; there is no per-request device override.
 

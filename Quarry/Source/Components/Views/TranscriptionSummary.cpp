@@ -30,7 +30,14 @@ constexpr int cellGap = 2;
     The fallback half is the reason this line exists. A take that quietly came back from
     BasicPitch because the sidecar would not start looks exactly like a take that came back from
     the engine you chose: same notes, same shape, same everything except the accuracy you were
-    counting on. The picker on the left says what you asked for; this says what answered. */
+    counting on. The picker on the left says what you asked for; this says what answered.
+
+    Three of the four reasons are the same three the MODEL panel gives for greying a row out, so
+    the words for them come from EngineCatalog rather than being written a second time here. The
+    two arrive at them from different directions -- that panel from the sidecar's ready line and
+    before a take, this from EngineFallback and after one -- and when they were phrased
+    separately the same dead child was "sidecar unreachable" above and "the sidecar would not
+    start" below, which reads as two problems. */
 String engineLine(const TranscriptionManager::EngineRun& inRun)
 {
     const String actual(EngineCatalog::get(inRun.actualEngine).displayName);
@@ -38,11 +45,11 @@ String engineLine(const TranscriptionManager::EngineRun& inRun)
 
     switch (inRun.fallback) {
         case TranscriptionManager::EngineFallback::SidecarNotConfigured:
-            return "Read by " + actual + ", " + requested + " needs the sidecar";
+            return "Read by " + actual + ", " + requested + " " + EngineCatalog::kNeedsSidecar;
         case TranscriptionManager::EngineFallback::SidecarStartFailed:
-            return "Read by " + actual + ", the sidecar would not start";
+            return "Read by " + actual + ", " + EngineCatalog::kSidecarUnreachable;
         case TranscriptionManager::EngineFallback::EngineNotInstalled:
-            return "Read by " + actual + ", " + requested + " is not installed";
+            return "Read by " + actual + ", " + requested + " is " + EngineCatalog::kNotInstalled;
         case TranscriptionManager::EngineFallback::TranscribeFailed:
             return "Read by " + actual + ", " + requested + " failed on this take";
         case TranscriptionManager::EngineFallback::None:

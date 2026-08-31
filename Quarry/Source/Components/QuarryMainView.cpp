@@ -6,6 +6,8 @@
 
 #include "QuarryLookAndFeel.h"
 
+#include "Views/SampleBarLayout.h"
+
 // Last, deliberately: this reaches the Windows audio stack, and windows.h defines a
 // Rectangle() that makes juce::Rectangle ambiguous in anything parsed after it.
 #if JUCE_WINDOWS
@@ -42,6 +44,12 @@ constexpr int contentTop = 86;
 /** How tall the content is at full height: not the whole window under contentTop, because the
     update line sits below it. */
 constexpr int wideContentHeight = 625;
+
+// The footer divides its own width between a folder path and a status message, and the division
+// is checked in Tests/sample_bar_test.h against SampleBarLayout's copy of that width. The check
+// is only worth anything if the copy is this number.
+static_assert(SampleBarLayout::X == contentMargin && SampleBarLayout::WIDTH == wideContentWidth,
+              "SampleBarLayout no longer describes the bar this view places");
 } // namespace
 
 
@@ -384,7 +392,7 @@ void QuarryMainView::resized()
     _layoutLeftColumn();
 
     // The window grew by 60 px to seat this; nothing above it moved.
-    mSampleBar->setBounds(29, 665, 941, 46);
+    mSampleBar->setBounds(contentMargin, LeftColumnLayout::SAMPLE_BAR_TOP, wideContentWidth, SampleBarLayout::HEIGHT);
 
 #if JUCE_WINDOWS
     const auto narrow = getWidth() < wideContentWidth + 2 * contentMargin;

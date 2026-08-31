@@ -107,6 +107,19 @@ public:
     const juce::StringArray& getAvailableEngines() const;
 
     /**
+     * Whether the ready line carried an "engines" array at all, which is not the same question
+     * as whether that array had anything in it.
+     *
+     * The field is what the protocol says a sidecar sends, but an older serve process, or any
+     * other implementation of the protocol, can leave it out -- and an absent field parses to
+     * exactly the same empty StringArray as a sidecar that genuinely has no engine installed.
+     * Treating the two alike refuses every transcribe request before it is sent, so a sidecar
+     * that worked yesterday reports seven engines as "not installed" today. False here means
+     * the sidecar did not say, and the only honest thing to do with a request is send it.
+     */
+    bool hasEngineList() const;
+
+    /**
      * "cuda" or "cpu": the device every engine in this process is loaded on, fixed for the life
      * of the child. Empty until start() has succeeded.
      */
@@ -136,6 +149,7 @@ private:
     // Filled from the "ready" line and then left alone: the child re-reports nothing, so these
     // describe this child for as long as it lives.
     juce::StringArray mAvailableEngines;
+    bool mEngineListReported = false;
     juce::String mDevice;
 
 #if JUCE_WINDOWS

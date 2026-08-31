@@ -21,7 +21,7 @@ class QuarryMainView;
 class NoteOptionsView
     : public Component
     , AudioProcessorParameter::Listener
-
+    , public AsyncUpdater
 {
 public:
     explicit NoteOptionsView(QuarryAudioProcessor& processor);
@@ -52,6 +52,8 @@ private:
 
     void parameterGestureChanged(int parameterIndex, bool gestureIsStarting) override;
 
+    void handleAsyncUpdate() override;
+
     void _enableView(bool inEnable);
 
     QuarryAudioProcessor& mProcessor;
@@ -71,6 +73,11 @@ private:
     std::unique_ptr<ComboBoxParameterAttachment> mSnapModeAttachment;
 
     bool mIsViewEnabled = false;
+
+    // What parameterValueChanged saw, for handleAsyncUpdate to act on once it is on the message
+    // thread. An atomic rather than a captured lambda argument because the write happens on the
+    // audio thread, where allocating one is not allowed.
+    std::atomic<bool> mPendingEnable {false};
 };
 
 #endif // NoteOptionsView_h

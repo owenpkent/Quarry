@@ -133,6 +133,43 @@ inline int indexForWireName(const juce::String& inWireName)
 }
 
 /**
+ * Which engine a configured sidecar starts on, given whatever QUARRY_SIDECAR_ENGINE said.
+ *
+ * Separate from indexForWireName because they answer different questions. That one asks what a
+ * wire name means, and "auto" honestly means nothing this list can say. This one asks what to
+ * do about it, and the answer cannot be the built-in tier: a machine that has gone to the
+ * trouble of configuring a sidecar and then not named an engine is asking for the sidecar, and
+ * seeding it back to BasicPitch would hand that machine a 0.775 onset F1 where it had 0.98
+ * (docs/ANALYSIS.md 4.2) with nothing anywhere saying a substitution had happened.
+ *
+ * Kong rather than the best-scoring engine, and for the protocol's own reason: "auto" is a
+ * fixed alias for kong on the sidecar side too (tools/sidecar/PROTOCOL.md, "Request"), because
+ * it is the complete piano answer -- onsets, offsets, pedal and velocity, all first-class. The
+ * difference is that the picker now names it on screen, so the default is a visible statement
+ * rather than the invisible one this replaced.
+ */
+inline int startingEngine(const juce::String& inWireName)
+{
+    const auto named = indexForWireName(inWireName);
+    return named != BuiltIn ? named : Kong;
+}
+
+// Why an engine cannot be reached, in the words every part of the interface uses for it.
+//
+// Written once because two places say them from two different sources of truth: the picker
+// works off the sidecar's ready line and greys a row before a take, the summary works off
+// EngineFallback and reports after one. They describe the same three situations, and a reader
+// who is told "the sidecar would not start" in one and "sidecar unreachable" in the other has
+// to work out for themselves whether those are one problem or two.
+constexpr const char* kNeedsSidecar = "needs the sidecar";
+constexpr const char* kSidecarUnreachable = "sidecar unreachable";
+constexpr const char* kNotInstalled = "not installed";
+
+/** One of the phrases above, capitalised for the start of a line rather than the middle of one. */
+inline juce::String asSentence(const juce::String& inPhrase)
+{ return inPhrase.substring(0, 1).toUpperCase() + inPhrase.substring(1); }
+
+/**
  * The right-hand column of the picker's row: what this engine measures for itself.
  *
  * Derived from the flags rather than stored beside them. Two engines can sit under the same

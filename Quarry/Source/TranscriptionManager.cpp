@@ -18,6 +18,7 @@ TranscriptionManager::TranscriptionManager(QuarryAudioProcessor* inProcessor)
     : mProcessor(inProcessor)
     , mTimeQuantizeOptions(inProcessor)
     , mThreadPool(1)
+    , mProbePool(1)
 {
     // QUARRY_SIDECAR_CMD / QUARRY_SIDECAR_ENGINE -- see SidecarActivation.h. Read once here rather
     // than per take: they select a tier for the process's whole lifetime, not a per-take option.
@@ -39,13 +40,17 @@ TranscriptionManager::TranscriptionManager(QuarryAudioProcessor* inProcessor)
     // command line still has to come from the environment, because it is a path to a Python
     // interpreter and there is nowhere in the UI yet for a person to type one.
     if (mSidecarActivation.active) {
-        const auto index = EngineCatalog::indexForWireName(mSidecarActivation.engine);
+        // startingEngine, not indexForWireName. The two differ on exactly one input and it is the
+        // common one: QUARRY_SIDECAR_ENGINE unset, which SidecarActivation defaults to "auto".
+        // indexForWireName answers BuiltIn there, and seeding that would leave every take on
+        // BasicPitch on a machine that had configured a sidecar and said nothing further about
+        // it -- 0.775 onset F1 where it asked for 0.98, with no fallback recorded and so nothing
+        // in the summary saying a substitution had happened at all.
+        const auto index = EngineCatalog::startingEngine(mSidecarActivation.engine);
 
-        if (index != EngineCatalog::BuiltIn) {
-            auto* engine_param = mProcessor->getParams()[ParameterHelpers::EngineId];
-            engine_param->setValueNotifyingHost(
-                engine_param->getNormalisableRange().convertTo0to1(static_cast<float>(index)));
-        }
+        auto* engine_param = mProcessor->getParams()[ParameterHelpers::EngineId];
+        engine_param->setValueNotifyingHost(
+            engine_param->getNormalisableRange().convertTo0to1(static_cast<float>(index)));
     }
 
     auto& apvts = mProcessor->getAPVTS();
@@ -82,7 +87,19 @@ void TranscriptionManager::timerCallback()
     }
 
     if (mShouldProbeSidecar.exchange(false)) {
-        mThreadPool.addJob(mProbeLambda);
+        mProbePool.addJob(mProbeLambda);
+    }
+
+    // The only message-thread pulse this class already owns, so the MODEL panel's two lines are
+    // rewritten from here rather than from a second timer of its own polling for the same answer.
+    const auto sidecar_status_revision = mSidecarStatusRevision.load();
+
+    if (sidecar_status_revision != mLastNotifiedSidecarStatusRevision) {
+        mLastNotifiedSidecarStatusRevision = sidecar_status_revision;
+
+        if (onSidecarStatusChanged != nullptr) {
+            onSidecarStatusChanged();
+        }
     }
 
     if (mShouldRunNewTranscription) {
@@ -154,13 +171,18 @@ void TranscriptionManager::parameterChanged(const String& parameterID, float new
 bool TranscriptionManager::_ensureSidecarStarted(juce::String& outError)
 {
     if (mSidecarClient != nullptr) {
+        // Re-recorded rather than returned from early, so a status left saying "unreachable" by
+        // a failure that has since been recovered from cannot outlive it. Nothing else re-probes
+        // once the editor's first probe has run, so without this the MODEL panel would grey all
+        // seven rows and pin a stale error for the rest of the session, while every take went on
+        // transcribing perfectly well on the engine the panel called unreachable.
+        _recordSidecarStatus(mSidecarClient.get(), {});
         return true;
     }
 
     auto client = std::make_unique<SidecarClient>(mSidecarActivation.commandLine);
 
     if (!client->start(outError)) {
-        _registerSidecarFailure();
         _recordSidecarStatus(nullptr, outError);
         return false;
     }
@@ -173,6 +195,16 @@ bool TranscriptionManager::_ensureSidecarStarted(juce::String& outError)
 
 void TranscriptionManager::_probeSidecar()
 {
+    // Try rather than wait. A take holding the client is starting or using the very thing this
+    // was going to ask about, and it records the answer itself either way, so there is nothing
+    // here to learn by queueing behind a transcription that can run for a minute -- and a probe
+    // thread parked on a lock for that long is a thread the destructor then has to wait out.
+    const ScopedTryLock lock(mSidecarClientLock);
+
+    if (!lock.isLocked()) {
+        return;
+    }
+
     if (mSidecarUnavailable) {
         _recordSidecarStatus(nullptr, "gave up on the sidecar after repeated failures");
         return;
@@ -180,6 +212,10 @@ void TranscriptionManager::_probeSidecar()
 
     juce::String error;
 
+    // No _registerSidecarFailure here. Opening the plugin window is not an attempt to transcribe
+    // anything, and spending a strike on it meant two window opens could retire the tier before
+    // a take had ever asked for it -- taking with them the one from-scratch retry docs/SIDECAR.md
+    // promises. The budget is for takes; this only reports.
     if (!_ensureSidecarStarted(error)) {
         DBG("Sidecar probe failed: " << error);
     }
@@ -195,11 +231,18 @@ void TranscriptionManager::_recordSidecarStatus(const SidecarClient* inClient, c
 
     if (inClient != nullptr) {
         mSidecarStatus.engines = inClient->getAvailableEngines();
+        mSidecarStatus.enginesKnown = inClient->hasEngineList();
         mSidecarStatus.device = inClient->getDevice();
     } else {
         mSidecarStatus.engines.clear();
+        mSidecarStatus.enginesKnown = false;
         mSidecarStatus.device.clear();
     }
+
+    // Outside the lock's concern but inside its scope, so a reader that sees the new revision is
+    // guaranteed to see the fields it counts for. The message-thread timer watches this and calls
+    // onSidecarStatusChanged; see requestSidecarProbe.
+    mSidecarStatusRevision.fetch_add(1);
 }
 
 bool TranscriptionManager::_tryTranscribeWithSidecar(const juce::File& inSourceFile,
@@ -213,6 +256,11 @@ bool TranscriptionManager::_tryTranscribeWithSidecar(const juce::File& inSourceF
         return false;
     }
 
+    // Held for the whole take, including the transcribe itself: a probe must not start a second
+    // child underneath one, and a probe already in flight is starting the very client this take
+    // is about to want, so waiting for it is the right thing rather than the slow thing.
+    const ScopedLock lock(mSidecarClientLock);
+
     if (mSidecarUnavailable) {
         outFallback = EngineFallback::SidecarStartFailed;
         return false;
@@ -222,6 +270,7 @@ bool TranscriptionManager::_tryTranscribeWithSidecar(const juce::File& inSourceF
 
     if (!_ensureSidecarStarted(error)) {
         DBG("Sidecar failed to start (" << mSidecarActivation.commandLine << "): " << error);
+        _registerSidecarFailure();
         outFallback = EngineFallback::SidecarStartFailed;
         return false;
     }
@@ -232,7 +281,13 @@ bool TranscriptionManager::_tryTranscribeWithSidecar(const juce::File& inSourceF
     // that is not on it is a round trip to be told what we were told at startup. Worse, a failed
     // transcribe counts against the session-wide give-up below, which would let one missing
     // package take the whole tier down with it.
-    if (!mSidecarClient->getAvailableEngines().contains(wire_name)) {
+    //
+    // Only when it said, though. A ready line with no "engines" field parses to the same empty
+    // list as a sidecar with nothing installed, and refusing on that would turn every older or
+    // third-party serve process into seven engines that are all "not installed" -- a request
+    // this used to send, and that used to be answered. Silence means send it and find out, which
+    // is also what the picker does with the same unknown.
+    if (mSidecarClient->hasEngineList() && !mSidecarClient->getAvailableEngines().contains(wire_name)) {
         DBG("Sidecar has no engine named " << wire_name);
         outFallback = EngineFallback::EngineNotInstalled;
         return false;
@@ -292,9 +347,13 @@ void TranscriptionManager::_runModel()
 {
     mUsingSidecarForCurrentTake = false;
 
-    const int requested_engine = jlimit(0,
-                                        EngineCatalog::NumEngines - 1,
-                                        static_cast<int>(mProcessor->getParameterValue(ParameterHelpers::EngineId)));
+    // getChoiceIndex, not a cast: the picker and the host's own readout both round, and
+    // truncating here would transcribe with one engine while every readable surface named the
+    // one above it. See ParameterHelpers::getChoiceIndex.
+    const int requested_engine =
+        jlimit(0,
+               EngineCatalog::NumEngines - 1,
+               ParameterHelpers::getChoiceIndex(mProcessor->getParams()[ParameterHelpers::EngineId]));
 
     auto fallback = EngineFallback::None;
 
@@ -360,8 +419,6 @@ void TranscriptionManager::_runModel()
     mProcessor->getPlayer()->getSynthController()->setNewMidiEventsVectorToUse(single_events);
 
     mProcessor->setStateToPopulatedAudioAndMidiRegions();
-
-    mTranscribeJobsInFlight.fetch_sub(1);
 }
 
 void TranscriptionManager::_updateTranscription()
@@ -423,13 +480,6 @@ void TranscriptionManager::_updatePostProcessing()
     }
 
     mShouldUpdatePostProcessing = false;
-}
-
-bool TranscriptionManager::isJobRunningOrQueued() const
-{
-    // Not mThreadPool.getNumJobs(): the sidecar probe shares that pool (deliberately, so it
-    // cannot race a take for the client) and is not a transcription.
-    return mTranscribeJobsInFlight.load() > 0;
 }
 
 TranscriptionManager::EngineRun TranscriptionManager::getEngineRun() const
@@ -518,7 +568,6 @@ void TranscriptionManager::launchTranscribeJob()
 
     // Have at least one second to transcribe
     if (mProcessor->getSourceAudioManager()->getNumSamplesDownAcquired() >= 1 * AUDIO_SAMPLE_RATE) {
-        mTranscribeJobsInFlight.fetch_add(1);
         mThreadPool.addJob(mJobLambda);
     } else {
         mProcessor->clear();

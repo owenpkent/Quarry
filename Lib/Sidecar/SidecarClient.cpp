@@ -62,6 +62,11 @@ const juce::StringArray& SidecarClient::getAvailableEngines() const
     return mAvailableEngines;
 }
 
+bool SidecarClient::hasEngineList() const
+{
+    return mEngineListReported;
+}
+
 const juce::String& SidecarClient::getDevice() const
 {
     return mDevice;
@@ -412,10 +417,14 @@ bool SidecarClient::start(juce::String& outError)
             // which engines its interpreter can import, and a picker that cannot see that has to
             // either offer every engine and let the failures teach the user, or offer none.
             mAvailableEngines.clear();
+            mEngineListReported = false;
 
-            if (const auto* engines = parsed.getProperty("engines", juce::var()).getArray())
+            if (const auto* engines = parsed.getProperty("engines", juce::var()).getArray()) {
+                mEngineListReported = true;
+
                 for (const auto& engine : *engines)
                     mAvailableEngines.add(engine.toString());
+            }
 
             mDevice = parsed.getProperty("device", juce::var()).toString();
 

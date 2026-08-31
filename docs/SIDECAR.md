@@ -93,7 +93,10 @@ forever. It seeds the `ENGINE` parameter when `TranscriptionManager` is construc
 session restored a moment later overrides it, which is the right way round: the environment is
 a default belonging to a machine, and the session is a decision someone made about a piece of
 music. `auto` is not one of the choices the picker can make -- no index in a closed list
-honestly means "whatever the sidecar picks" -- so it seeds the built-in engine instead.
+honestly means "whatever the sidecar picks" -- so an unset or `auto` value seeds **kong**, and
+the picker says so. It does not seed the built-in engine: a machine that configured a sidecar
+and then said nothing further about it is asking for the sidecar, and quietly answering that
+with Basic Pitch is a drop from 0.98 onset F1 to 0.775 with nothing on screen reporting it.
 
 The client starts on the first transcription or on the picker's own probe, whichever comes
 first, and lives for the session. The probe is what lets the picker grey out an engine before

@@ -78,21 +78,33 @@ ModelOptionsView::ModelOptionsView(QuarryAudioProcessor& inProcessor)
     mMinNoteDuration->setTooltip(QuarryTooltips::to_min_note_duration);
     addChildComponent(mMinNoteDuration.get());
 
+    mProcessor.getParams()[ParameterHelpers::EngineId]->addListener(this);
+
     // Asked once, as soon as the page exists, rather than on the first take. When no sidecar is
     // configured this answers instantly and costs nothing; when one is, the model load it starts
     // is a cost that take was going to pay anyway, and paying it while someone is still reading
-    // the page is better than in the middle of their first transcription.
+    // the page is better than in the middle of their first transcription. It no longer holds the
+    // first take up while it does: the probe has its own thread now (see requestSidecarProbe).
     if (auto* manager = mProcessor.getTranscriptionManager()) {
+        manager->onSidecarStatusChanged = [this] { _refreshAvailability(); };
         manager->requestSidecarProbe();
     }
 
     _applyEngineChange();
-
-    startTimerHz(15);
 }
 
 ModelOptionsView::~ModelOptionsView()
-{ stopTimer(); }
+{
+    mProcessor.getParams()[ParameterHelpers::EngineId]->removeListener(this);
+
+    // Before ~AsyncUpdater, which cancels anything already triggered: the callback captures this
+    // and the manager outlives the editor.
+    if (auto* manager = mProcessor.getTranscriptionManager()) {
+        manager->onSidecarStatusChanged = nullptr;
+    }
+
+    cancelPendingUpdate();
+}
 
 int ModelOptionsView::preferredHeight() const
 {
@@ -108,8 +120,12 @@ bool ModelOptionsView::_showsDecoderKnobs() const
 
 int ModelOptionsView::_selectedEngine() const
 {
-    return jlimit(
-        0, EngineCatalog::NumEngines - 1, static_cast<int>(mProcessor.getParameterValue(ParameterHelpers::EngineId)));
+    // Through getChoiceIndex so this rounds exactly as the attachment driving the picker does.
+    // Truncating instead put the row on screen and the engine that runs one index apart for
+    // every automated value that is not sitting precisely on one.
+    return jlimit(0,
+                  EngineCatalog::NumEngines - 1,
+                  ParameterHelpers::getChoiceIndex(mProcessor.getParams()[ParameterHelpers::EngineId]));
 }
 
 void ModelOptionsView::_buildMenu()
@@ -187,14 +203,27 @@ void ModelOptionsView::paint(Graphics& g)
     g.drawText(mStatusLine, Rectangle<int>(kLeftMargin + 1, kStatusY, kRowWidth, kTextH), Justification::centredLeft);
 }
 
-void ModelOptionsView::timerCallback()
+void ModelOptionsView::parameterValueChanged(int parameterIndex, float newValue)
+{
+    ignoreUnused(parameterIndex, newValue);
+
+    // Nothing but the flag: an automated parameter delivers this on the audio thread, and
+    // everything the response touches is a component. AsyncUpdater's trigger allocates nothing
+    // and takes no lock, and it coalesces, so a parameter swept through every index between two
+    // frames costs one rebuild rather than one per block.
+    triggerAsyncUpdate();
+}
+
+void ModelOptionsView::parameterGestureChanged(int parameterIndex, bool gestureIsStarting)
+{
+    ignoreUnused(parameterIndex, gestureIsStarting);
+}
+
+void ModelOptionsView::handleAsyncUpdate()
 {
     if (mLastSeenEngine != _selectedEngine()) {
         _applyEngineChange();
-        return;
     }
-
-    _refreshAvailability();
 }
 
 void ModelOptionsView::_applyEngineChange()
@@ -214,13 +243,20 @@ void ModelOptionsView::_applyEngineChange()
     mSplitSensitivity->setVisible(knobs_visible);
     mMinNoteDuration->setVisible(knobs_visible);
 
-    // The tooltip is the only place with room for all three facts at once, so it carries what
-    // the panel had to choose between: the material, the reporting, and the general rule.
-    const int selected = _selectedEngine();
-    mEnginePicker->setTooltip(String(EngineCatalog::get(selected).displayName) + " -- "
-                              + EngineCatalog::whenLine(selected) + "\nReports "
-                              + EngineCatalog::reportsLine(selected) + ".\n\n"
-                              + QuarryTooltips::mo_engine);
+    // Choosing an engine is a question about whether this machine can have it, so it is the
+    // moment to ask again rather than to keep reporting whatever the last answer was. Nothing
+    // else re-probes after the editor opens, and a status left saying "unreachable" by one
+    // transient failure would otherwise stand for the rest of the session.
+    if (auto* manager = mProcessor.getTranscriptionManager()) {
+        if (EngineCatalog::isSidecar(mLastSeenEngine) && manager->getSidecarStatus().error.isNotEmpty()) {
+            manager->requestSidecarProbe();
+        }
+    }
+
+    // Ahead of _refreshAvailability as well as inside it: the tooltip names the selected engine,
+    // which has just moved, and the refresh only rewrites it when one of the two drawn lines
+    // changes with it.
+    _refreshTooltip();
 
     _refreshAvailability();
 
@@ -250,12 +286,18 @@ void ModelOptionsView::_refreshAvailability()
     // sidecar configured, nothing is missing that installing anything would supply, and telling
     // someone an engine is not installed sends them after a package when what they need is a
     // Python interpreter and one environment variable.
-    String reason = "not installed";
+    //
+    // The three phrases come from EngineCatalog because TranscriptionSummary says the same three
+    // things about the same three situations, from EngineFallback rather than from here, and the
+    // two used to be written out separately: this panel called a dead child "sidecar
+    // unreachable" while the summary under it called the same child "the sidecar would not
+    // start", for the same take.
+    String reason = EngineCatalog::kNotInstalled;
 
     if (!status.configured) {
-        reason = "needs the sidecar";
+        reason = EngineCatalog::kNeedsSidecar;
     } else if (status.error.isNotEmpty()) {
-        reason = "sidecar unreachable";
+        reason = EngineCatalog::kSidecarUnreachable;
     }
 
     bool availability_moved = reason != mUnavailableReason;
@@ -263,9 +305,11 @@ void ModelOptionsView::_refreshAvailability()
 
     for (int i = 0; i < EngineCatalog::NumEngines; ++i) {
         // Until the probe has answered, nothing here has grounds to call an engine missing, so
-        // every row stays live. After it, the ready line is the whole truth.
-        const bool available =
-            !EngineCatalog::isSidecar(i) || !status.probed || status.engines.contains(EngineCatalog::get(i).wireName);
+        // every row stays live. After it, the ready line is the whole truth -- when it named its
+        // engines at all. A sidecar that did not say leaves enginesKnown false, which is the same
+        // unknown as an unprobed one and is treated the same way here and on the transcribe path.
+        const bool available = !EngineCatalog::isSidecar(i) || !status.probed || !status.enginesKnown
+                               || status.engines.contains(EngineCatalog::get(i).wireName);
 
         if (mEngineAvailable[static_cast<size_t>(i)] != available) {
             mEngineAvailable[static_cast<size_t>(i)] = available;
@@ -289,15 +333,20 @@ void ModelOptionsView::_refreshAvailability()
     } else if (!status.probed) {
         status_line = "Asking the sidecar what it has";
     } else if (status.error.isNotEmpty()) {
-        status_line = "Sidecar unreachable: " + status.error;
+        status_line = EngineCatalog::asSentence(EngineCatalog::kSidecarUnreachable) + ": " + status.error;
         is_problem = true;
-    } else if (EngineCatalog::isSidecar(selected) && !status.engines.contains(EngineCatalog::get(selected).wireName)) {
-        status_line = String(EngineCatalog::get(selected).displayName) + " is not installed";
+    } else if (EngineCatalog::isSidecar(selected) && status.enginesKnown
+               && !status.engines.contains(EngineCatalog::get(selected).wireName)) {
+        status_line = String(EngineCatalog::get(selected).displayName) + " is " + EngineCatalog::kNotInstalled;
         is_problem = true;
-    } else {
+    } else if (status.enginesKnown) {
         const auto count = status.engines.size();
         status_line = "Sidecar ready on " + status.device.toUpperCase() + ", " + String(count)
                       + (count == 1 ? " engine" : " engines");
+    } else {
+        // Up, answering, and never said what it has. Nothing is wrong and nothing is known, and
+        // counting engines it did not report would be inventing the number.
+        status_line = "Sidecar ready on " + status.device.toUpperCase();
     }
 
     const auto when_line = EngineCatalog::whenLine(selected);
@@ -306,6 +355,26 @@ void ModelOptionsView::_refreshAvailability()
         mWhenLine = when_line;
         mStatusLine = status_line;
         mStatusIsProblem = is_problem;
+        _refreshTooltip();
         repaint();
     }
+}
+
+void ModelOptionsView::_refreshTooltip()
+{
+    const int selected = _selectedEngine();
+
+    // The material, the reporting and the general rule: the three facts the panel itself has to
+    // choose between for want of room, all in the one place that has it.
+    String tooltip = String(EngineCatalog::get(selected).displayName) + " -- " + EngineCatalog::whenLine(selected)
+                     + "\nReports " + EngineCatalog::reportsLine(selected) + ".";
+
+    // And, when there is one, the whole of what went wrong -- which is the half of the status
+    // line the panel cannot show. The prefix alone is most of a 238 px row, so what survives on
+    // screen is the summary and what a person actually needs, a path or a Python error, is here.
+    if (mStatusIsProblem && mStatusLine.isNotEmpty()) {
+        tooltip += "\n\n" + mStatusLine;
+    }
+
+    mEnginePicker->setTooltip(tooltip + "\n\n" + QuarryTooltips::mo_engine);
 }

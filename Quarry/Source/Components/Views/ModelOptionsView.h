@@ -46,7 +46,8 @@
  */
 class ModelOptionsView
     : public Component
-    , public Timer
+    , public AudioProcessorParameter::Listener
+    , public AsyncUpdater
 {
 public:
     explicit ModelOptionsView(QuarryAudioProcessor& inProcessor);
@@ -57,7 +58,13 @@ public:
 
     void paint(Graphics& g) override;
 
-    void timerCallback() override;
+    /** Arrives on whichever thread moved ENGINE, which for an automated one is the audio thread,
+        so it only sets the flag AsyncUpdater already owns. See handleAsyncUpdate. */
+    void parameterValueChanged(int parameterIndex, float newValue) override;
+
+    void parameterGestureChanged(int parameterIndex, bool gestureIsStarting) override;
+
+    void handleAsyncUpdate() override;
 
     /**
      * How tall this panel wants to be right now. Changes when ADVANCED opens and when the
@@ -94,6 +101,18 @@ private:
 
     void _applyEngineChange();
 
+    /**
+     * The picker's tooltip: what the selected engine is for, what it reports, and -- when there
+     * is one -- the whole of what went wrong.
+     *
+     * The status line under the picker is drawn into one 238 px row and clipped, not wrapped,
+     * and the one thing it can say that is not written anywhere else is a message from a Python
+     * process: a path, a traceback line, "timed out waiting for ready". Those do not fit, and a
+     * reason that ellipsises after four characters is not a reason. The line keeps the summary;
+     * this keeps the text.
+     */
+    void _refreshTooltip();
+
     QuarryAudioProcessor& mProcessor;
 
     std::unique_ptr<ComboBox> mEnginePicker;
@@ -105,10 +124,12 @@ private:
     std::unique_ptr<Knob> mSplitSensitivity;
     std::unique_ptr<Knob> mMinNoteDuration;
 
-    // Polled rather than listened for. AudioProcessorParameter::Listener delivers on whatever
-    // thread moved the parameter, which for an automated one is the audio thread, and every
-    // response here touches components. The timer is needed anyway to notice the sidecar probe
-    // landing on a background thread, so one mechanism covers both.
+    // Both of the things this panel has to notice now push rather than being polled for. The
+    // ENGINE parameter arrives through parameterValueChanged, on whatever thread moved it, and
+    // is marshalled by AsyncUpdater because every response here touches components; the sidecar
+    // probe landing arrives through TranscriptionManager::onSidecarStatusChanged, already on the
+    // message thread. What replaced a 15 Hz timer that copied the whole status under a lock and
+    // rebuilt three strings, for the life of the editor, to watch an answer that settles once.
     int mLastSeenEngine = -1;
     String mWhenLine;
     String mStatusLine;

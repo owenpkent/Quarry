@@ -68,7 +68,6 @@ private:
     // nothing to do with.
     std::unique_ptr<ComboBox> mPitchBend;
     std::unique_ptr<ComboBoxParameterAttachment> mPitchBendAttachment;
-    Rectangle<int> mPitchBendLabelBounds;
 
     std::unique_ptr<ToggleButton> mWavToggle;
     std::unique_ptr<ToggleButton> mMidiToggle;
