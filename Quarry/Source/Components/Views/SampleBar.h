@@ -45,7 +45,15 @@ private:
     /** Where takes land. Falls back to Music/Quarry Samples on a first run. */
     File _folder() const;
 
+    /** What the folder button shows: the last two components of the path, which fit a button in
+        a fixed-width bar where the whole path does not. The tooltip keeps the whole thing. */
+    String _folderLabel(const File& inFolder) const;
+
     void _chooseFolder();
+
+    /** Shows the save folder in the desktop's own file manager, creating it first if a first
+        run has named it but nothing has written to it yet. */
+    void _openFolder();
 
     /** Gathers what the write needs, then hands it to a background thread. */
     void _save();
@@ -60,6 +68,12 @@ private:
     QuarryAudioProcessor& mProcessor;
 
     std::unique_ptr<TextButton> mFolderButton;
+
+    // Beside the path rather than replacing the click on it: the path button changes where takes
+    // go, which is the rarer thing to want and the one you would not want to do by accident, and
+    // "open the folder I have been saving to" had no control at all. Two narrow buttons that read
+    // as one, rather than one button whose two jobs a person has to guess between.
+    std::unique_ptr<DrawableButton> mOpenFolderButton;
 
     // Pitch bend is an export setting, not a transcription one: it changes the MIDI written
     // from a take and nothing about what the model heard from it. docs/UI.md draws that line

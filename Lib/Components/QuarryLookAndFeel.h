@@ -74,6 +74,35 @@ inline void setRole(juce::Component& c, Role r)
     c.getProperties().set(rolePropertyId(), static_cast<int>(r));
 }
 
+/** The icons are Lucide, taken as published and so stroked in black (okstudio/Icons.h says why),
+    and black on Obsidian's ground is 1.09:1. Every one of them is repainted on load against the
+    colour the surface wants: TEXT_MAIN at 14.8:1, and still 3.5:1 once JUCE dims a disabled
+    button to 0.41 alpha, which most of the toolbar is until a take exists.
+
+    Here rather than beside one of its callers because there are now two -- the toolbar and the
+    footer -- and an icon repainted one way in one place and another way in the other is a
+    contrast bug nobody would think to look for. */
+inline void recolourIcon(juce::Drawable* inDrawable, juce::Colour inColour)
+{
+    if (inDrawable == nullptr)
+        return;
+
+    // Two blacks, not one. Lucide's stroke is #000000; 0e0e0e is the near-black the icons this
+    // set replaced were authored in for a light theme that no longer exists, and it stays until
+    // nothing in Assets is drawn in it any more.
+    inDrawable->replaceColour(juce::Colour(0xff0e0e0e), inColour);
+    inDrawable->replaceColour(juce::Colours::black, inColour);
+}
+
+/** An icon from its SVG source, already repainted. The SVG is a string constant, so the two
+    arguments JUCE wants are the one thing a caller has. */
+inline std::unique_ptr<juce::Drawable> icon(const void* inSvgData, int inSvgSize, juce::Colour inColour)
+{
+    auto drawable = juce::Drawable::createFromImageData(inSvgData, (size_t) inSvgSize);
+    recolourIcon(drawable.get(), inColour);
+    return drawable;
+}
+
 inline Role roleOf(const juce::Component& c)
 {
     const auto v = c.getProperties().getWithDefault(rolePropertyId(), static_cast<int>(Role::secondary));

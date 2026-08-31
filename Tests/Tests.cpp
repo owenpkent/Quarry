@@ -14,6 +14,7 @@
 #include "engine_catalog_test.h"
 #include "left_column_test.h"
 #include "sample_bar_test.h"
+#include "icon_test.h"
 
 int main()
 {
@@ -51,6 +52,9 @@ int main()
 
     std::cout << std::endl << "SAMPLE BAR TEST" << std::endl;
     result |= !sample_bar_test();
+
+    std::cout << std::endl << "ICON TEST" << std::endl;
+    result |= !icon_test();
 
     return result;
 }

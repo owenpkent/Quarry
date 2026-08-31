@@ -16,22 +16,6 @@
 
 namespace
 {
-/** The toolbar SVGs were authored near-black for the old light theme, which
-    measures 1.09:1 on Obsidian's ground. Repaint them at load: TEXT_MAIN is
-    14.8:1, and still 3.5:1 once JUCE dims a disabled button to 0.41 alpha.
-    TEXT_DIM would have been 5.5:1 enabled but only 2.0:1 disabled, under the
-    3:1 WCAG 2.2 SC 1.4.11 asks of graphical objects, and most of this toolbar
-    is disabled until a take exists.
-*/
-void recolourIcon(Drawable* inDrawable, Colour inColour)
-{
-    if (inDrawable == nullptr)
-        return;
-
-    inDrawable->replaceColour(Colour(0xff0e0e0e), inColour);
-    inDrawable->replaceColour(Colours::black, inColour);
-}
-
 /** The margin either side of the content, and the width that content has always been. Both
     were spelled out at every use before the window had a second size to be. */
 constexpr int contentMargin = 29;
@@ -76,8 +60,8 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
     auto record_on_drawable =
         Drawable::createFromImageData(BinaryData::recordingon_svg, BinaryData::recordingon_svgSize);
 
-    recolourIcon(record_off_drawable.get(), TEXT_MAIN);
-    recolourIcon(record_on_drawable.get(), RECORD_RED);
+    quarry::lnf::recolourIcon(record_off_drawable.get(), TEXT_MAIN);
+    quarry::lnf::recolourIcon(record_on_drawable.get(), RECORD_RED);
 
     mRecordButton->setImages(
         record_off_drawable.get(), nullptr, nullptr, nullptr, record_on_drawable.get(), nullptr, nullptr);
@@ -116,7 +100,7 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
     mClearButton->setHelpText(QuarryTooltips::clear);
 
     auto bin_drawable = Drawable::createFromImageData(BinaryData::deleteicon_svg, BinaryData::deleteicon_svgSize);
-    recolourIcon(bin_drawable.get(), TEXT_MAIN);
+    quarry::lnf::recolourIcon(bin_drawable.get(), TEXT_MAIN);
     mClearButton->setImages(bin_drawable.get());
 
     mClearButton->onClick = [this]() {
@@ -132,7 +116,7 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
     mBackButton->setColour(DrawableButton::ColourIds::backgroundColourId, Colours::transparentBlack);
     mBackButton->setColour(DrawableButton::ColourIds::backgroundOnColourId, Colours::transparentBlack);
     auto back_icon_drawable = Drawable::createFromImageData(BinaryData::back_svg, BinaryData::back_svgSize);
-    recolourIcon(back_icon_drawable.get(), TEXT_MAIN);
+    quarry::lnf::recolourIcon(back_icon_drawable.get(), TEXT_MAIN);
     mBackButton->setImages(back_icon_drawable.get());
     mBackButton->onClick = [this]() {
         mProcessor.getPlayer()->reset();
@@ -149,9 +133,9 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
     mPlayPauseButton->setColour(DrawableButton::ColourIds::backgroundColourId, Colours::transparentBlack);
     mPlayPauseButton->setColour(DrawableButton::ColourIds::backgroundOnColourId, Colours::transparentBlack);
     auto play_icon_drawable = Drawable::createFromImageData(BinaryData::play_svg, BinaryData::play_svgSize);
-    recolourIcon(play_icon_drawable.get(), TEXT_MAIN);
+    quarry::lnf::recolourIcon(play_icon_drawable.get(), TEXT_MAIN);
     auto pause_icon_drawable = Drawable::createFromImageData(BinaryData::pause_svg, BinaryData::pause_svgSize);
-    recolourIcon(pause_icon_drawable.get(), TEXT_MAIN);
+    quarry::lnf::recolourIcon(pause_icon_drawable.get(), TEXT_MAIN);
     mPlayPauseButton->setImages(
         play_icon_drawable.get(), nullptr, nullptr, nullptr, pause_icon_drawable.get(), nullptr, nullptr, nullptr);
 
@@ -174,10 +158,10 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
     mCenterButton->setColour(DrawableButton::ColourIds::backgroundOnColourId, Colours::transparentBlack);
     auto center_icon_drawable_off =
         Drawable::createFromImageData(BinaryData::center_off_svg, BinaryData::center_off_svgSize);
-    recolourIcon(center_icon_drawable_off.get(), TEXT_MAIN);
+    quarry::lnf::recolourIcon(center_icon_drawable_off.get(), TEXT_MAIN);
     auto center_icon_drawable_on =
         Drawable::createFromImageData(BinaryData::center_on_svg, BinaryData::center_on_svgSize);
-    recolourIcon(center_icon_drawable_on.get(), okstudio::obsidian::accentOf(*this).base);
+    quarry::lnf::recolourIcon(center_icon_drawable_on.get(), okstudio::obsidian::accentOf(*this).base);
     mCenterButton->setImages(center_icon_drawable_off.get(),
                              nullptr,
                              nullptr,
@@ -205,7 +189,7 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
     mSettingsButton->setColour(DrawableButton::ColourIds::backgroundColourId, TRANSPARENT);
     mSettingsButton->setColour(DrawableButton::ColourIds::backgroundOnColourId, CONTROL_BG);
     auto settings_icon_drawable = Drawable::createFromImageData(BinaryData::settings_svg, BinaryData::settings_svgSize);
-    recolourIcon(settings_icon_drawable.get(), TEXT_MAIN);
+    quarry::lnf::recolourIcon(settings_icon_drawable.get(), TEXT_MAIN);
     mSettingsButton->setImages(settings_icon_drawable.get());
     addAndMakeVisible(mSettingsButton.get());
 
@@ -286,9 +270,9 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
     mMuteButton->setColour(DrawableButton::ColourIds::backgroundOnColourId, Colours::transparentBlack);
 
     auto mute_on_drawable = Drawable::createFromImageData(BinaryData::mute_svg, BinaryData::mute_svgSize);
-    recolourIcon(mute_on_drawable.get(), TEXT_MAIN);
+    quarry::lnf::recolourIcon(mute_on_drawable.get(), TEXT_MAIN);
     auto mute_off_drawable = Drawable::createFromImageData(BinaryData::unmute_svg, BinaryData::unmute_svgSize);
-    recolourIcon(mute_off_drawable.get(), TEXT_MAIN);
+    quarry::lnf::recolourIcon(mute_off_drawable.get(), TEXT_MAIN);
 
     mMuteButton->setImages(
         mute_off_drawable.get(), nullptr, nullptr, nullptr, mute_on_drawable.get(), nullptr, nullptr);
