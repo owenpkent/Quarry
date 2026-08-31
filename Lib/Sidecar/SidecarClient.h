@@ -98,6 +98,33 @@ public:
     /** Whether the child process is still alive. False before start() and after shutdown(). */
     bool isRunning() const;
 
+    /**
+     * The engine names the sidecar reported in its "ready" line, sorted as it sent them. These
+     * are the engines whose packages import cleanly in that interpreter, which is not the same
+     * as the ones with a model loaded -- loading is lazy and happens on first use. Empty until
+     * start() has succeeded. See tools/sidecar/PROTOCOL.md, "Startup".
+     */
+    const juce::StringArray& getAvailableEngines() const;
+
+    /**
+     * Whether the ready line carried an "engines" array at all, which is not the same question
+     * as whether that array had anything in it.
+     *
+     * The field is what the protocol says a sidecar sends, but an older serve process, or any
+     * other implementation of the protocol, can leave it out -- and an absent field parses to
+     * exactly the same empty StringArray as a sidecar that genuinely has no engine installed.
+     * Treating the two alike refuses every transcribe request before it is sent, so a sidecar
+     * that worked yesterday reports seven engines as "not installed" today. False here means
+     * the sidecar did not say, and the only honest thing to do with a request is send it.
+     */
+    bool hasEngineList() const;
+
+    /**
+     * "cuda" or "cpu": the device every engine in this process is loaded on, fixed for the life
+     * of the child. Empty until start() has succeeded.
+     */
+    const juce::String& getDevice() const;
+
 private:
     /** Write one line (with the trailing newline) to the child's stdin. */
     bool _writeLine(const juce::String& inLine, juce::String& outError);
@@ -118,6 +145,12 @@ private:
     std::string mReadBuffer;
     int mNextId = 0;
     bool mStarted = false;
+
+    // Filled from the "ready" line and then left alone: the child re-reports nothing, so these
+    // describe this child for as long as it lives.
+    juce::StringArray mAvailableEngines;
+    bool mEngineListReported = false;
+    juce::String mDevice;
 
 #if JUCE_WINDOWS
     HANDLE mChildStdinWrite = nullptr;

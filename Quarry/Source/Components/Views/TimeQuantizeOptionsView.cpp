@@ -7,6 +7,15 @@
 #include <okstudio/Obsidian.h>
 #include "QuarryMainView.h"
 
+namespace
+{
+// The section's own content ends here; the rest is the padding the panel keeps under it.
+constexpr int CONTENT_BOTTOM = LEFT_SECTIONS_TOP_PAD + 70 + 17;
+
+static_assert(CONTENT_BOTTOM <= LeftColumnLayout::TIME_QUANTIZE_EXPANDED,
+              "TIME QUANTIZE no longer fits the height the column stacks against");
+} // namespace
+
 TimeQuantizeOptionsView::TimeQuantizeOptionsView(QuarryAudioProcessor& processor)
     : mProcessor(processor)
 {
@@ -47,6 +56,15 @@ TimeQuantizeOptionsView::TimeQuantizeOptionsView(QuarryAudioProcessor& processor
 TimeQuantizeOptionsView::~TimeQuantizeOptionsView()
 {
     mProcessor.getParams()[static_cast<size_t>(ParameterHelpers::EnableTimeQuantizationId)]->removeListener(this);
+
+    // After the listener is off, so nothing can re-trigger between the two lines, and before
+    // the component's own teardown reaches anything handleAsyncUpdate would touch.
+    cancelPendingUpdate();
+}
+
+int TimeQuantizeOptionsView::preferredHeight() const
+{
+    return mIsViewEnabled ? LeftColumnLayout::TIME_QUANTIZE_EXPANDED : LeftColumnLayout::COLLAPSED;
 }
 
 void TimeQuantizeOptionsView::resized()
@@ -61,20 +79,28 @@ void TimeQuantizeOptionsView::resized()
 
 void TimeQuantizeOptionsView::paint(Graphics& g)
 {
-    okstudio::obsidian::raisedFill(g,
-                                   Rectangle<float>(0.0f,
-                                                    static_cast<float>(LEFT_SECTIONS_TOP_PAD),
-                                                    static_cast<float>(getWidth()),
-                                                    static_cast<float>(getHeight() - LEFT_SECTIONS_TOP_PAD)),
-                                   5.0f,
-                                   PANEL_TOP,
-                                   PANEL_BOT);
+    if (mIsViewEnabled) {
+        okstudio::obsidian::raisedFill(
+            g,
+            Rectangle<float>(0.0f,
+                             static_cast<float>(LEFT_SECTIONS_TOP_PAD),
+                             static_cast<float>(getWidth()),
+                             static_cast<float>(getHeight() - LEFT_SECTIONS_TOP_PAD)),
+            5.0f,
+            PANEL_TOP,
+            PANEL_BOT);
+    }
 
     float alpha = isEnabled() && mIsViewEnabled ? 1.0f : DISABLED_ALPHA;
 
     g.setColour(TEXT_MAIN.withAlpha(alpha));
     g.setFont(UIDefines::TITLE_FONT());
     g.drawText("TIME QUANTIZE", Rectangle<int>(24, 0, 210, 17), Justification::centredLeft);
+
+    // Collapsed, there is nothing under the label row for these to name.
+    if (!mIsViewEnabled) {
+        return;
+    }
 
     g.setFont(UIDefines::LABEL_FONT());
     g.drawText("TEMPO", Rectangle<int>(19, LEFT_SECTIONS_TOP_PAD + 45, 50, 14), Justification::centredLeft);
@@ -89,9 +115,21 @@ void TimeQuantizeOptionsView::paint(Graphics& g)
 
 void TimeQuantizeOptionsView::parameterValueChanged(int parameterIndex, float newValue)
 {
-    if (parameterIndex == static_cast<int>(ParameterHelpers::EnableTimeQuantizationId)) {
-        _setViewEnabled(newValue > 0.5f);
+    if (parameterIndex != static_cast<int>(ParameterHelpers::EnableTimeQuantizationId)) {
+        return;
     }
+
+    // Marshalled for the same reason as NoteOptionsView's, and through the same AsyncUpdater
+    // rather than MessageManager::callAsync: this arrives on whichever thread moved the
+    // parameter, it now moves the whole left column and not just this panel, and an audio thread
+    // is no place to allocate a lambda or take the message-queue lock.
+    mPendingEnable.store(newValue > 0.5f);
+    triggerAsyncUpdate();
+}
+
+void TimeQuantizeOptionsView::handleAsyncUpdate()
+{
+    _setViewEnabled(mPendingEnable.load());
 }
 
 void TimeQuantizeOptionsView::parameterGestureChanged(int parameterIndex, bool gestureIsStarting)
@@ -101,7 +139,18 @@ void TimeQuantizeOptionsView::parameterGestureChanged(int parameterIndex, bool g
 
 void TimeQuantizeOptionsView::_setViewEnabled(bool inEnable)
 {
+    const bool changed = mIsViewEnabled != inEnable;
+
     mIsViewEnabled = inEnable;
+
+    // Hidden as well as disabled: collapsed, the panel is one label row tall and there is no
+    // room under it for anything to be drawn in.
+    mQuantizationForceSlider->setVisible(inEnable);
+    mTimeDivisionDropdown->setVisible(inEnable);
+    mTempoEditor->setVisible(inEnable);
+    mTimeSignatureNumEditor->setVisible(inEnable);
+    mTimeSignatureDenomEditor->setVisible(inEnable);
+
     mQuantizationForceSlider->setEnabled(inEnable);
     mTimeDivisionDropdown->setEnabled(inEnable);
 
@@ -117,6 +166,10 @@ void TimeQuantizeOptionsView::_setViewEnabled(bool inEnable)
     mTimeSignatureDenomEditor->setEnabled(inEnable);
 
     repaint();
+
+    if (changed && onPreferredHeightChanged != nullptr) {
+        onPreferredHeightChanged();
+    }
 }
 
 void TimeQuantizeOptionsView::_setupTempoEditor()

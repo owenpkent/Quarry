@@ -7,6 +7,17 @@
 #include <okstudio/Obsidian.h>
 #include "QuarryMainView.h"
 
+namespace
+{
+// The section's own content ends here; the rest is the padding the panel keeps under it.
+constexpr int CONTENT_BOTTOM = LEFT_SECTIONS_TOP_PAD + 75 + 17;
+
+static_assert(CONTENT_BOTTOM <= LeftColumnLayout::SCALE_QUANTIZE_EXPANDED,
+              "SCALE QUANTIZE no longer fits the height the column stacks against");
+static_assert(LeftColumnLayout::COLLAPSED == LEFT_SECTIONS_TOP_PAD,
+              "a collapsed section is its label row, which is what LEFT_SECTIONS_TOP_PAD reserves");
+} // namespace
+
 NoteOptionsView::NoteOptionsView(QuarryAudioProcessor& processor)
     : mProcessor(processor)
 {
@@ -69,6 +80,15 @@ NoteOptionsView::NoteOptionsView(QuarryAudioProcessor& processor)
 NoteOptionsView::~NoteOptionsView()
 {
     mProcessor.getParams()[static_cast<size_t>(ParameterHelpers::EnableNoteQuantizationId)]->removeListener(this);
+
+    // After the listener is off, so nothing can re-trigger between the two lines, and before
+    // the component's own teardown reaches anything handleAsyncUpdate would touch.
+    cancelPendingUpdate();
+}
+
+int NoteOptionsView::preferredHeight() const
+{
+    return mIsViewEnabled ? LeftColumnLayout::SCALE_QUANTIZE_EXPANDED : LeftColumnLayout::COLLAPSED;
 }
 
 void NoteOptionsView::resized()
@@ -82,14 +102,17 @@ void NoteOptionsView::resized()
 
 void NoteOptionsView::paint(Graphics& g)
 {
-    okstudio::obsidian::raisedFill(g,
-                                   Rectangle<float>(0.0f,
-                                                    static_cast<float>(LEFT_SECTIONS_TOP_PAD),
-                                                    static_cast<float>(getWidth()),
-                                                    static_cast<float>(getHeight() - LEFT_SECTIONS_TOP_PAD)),
-                                   5.0f,
-                                   PANEL_TOP,
-                                   PANEL_BOT);
+    if (mIsViewEnabled) {
+        okstudio::obsidian::raisedFill(
+            g,
+            Rectangle<float>(0.0f,
+                             static_cast<float>(LEFT_SECTIONS_TOP_PAD),
+                             static_cast<float>(getWidth()),
+                             static_cast<float>(getHeight() - LEFT_SECTIONS_TOP_PAD)),
+            5.0f,
+            PANEL_TOP,
+            PANEL_BOT);
+    }
 
     float alpha = mIsViewEnabled && isEnabled() ? 1.0f : DISABLED_ALPHA;
 
@@ -97,6 +120,12 @@ void NoteOptionsView::paint(Graphics& g)
 
     g.setFont(UIDefines::TITLE_FONT());
     g.drawText("SCALE QUANTIZE", Rectangle<int>(24, 0, 274, 17), Justification::centredLeft);
+
+    // Nothing below the label row exists when the section is collapsed, so neither do the words
+    // naming it.
+    if (!mIsViewEnabled) {
+        return;
+    }
 
     g.setFont(UIDefines::LABEL_FONT());
     g.drawText("RANGE", Rectangle<int>(19, mMinMaxNoteSlider->getY(), 80, 17), Justification::centredLeft);
@@ -108,10 +137,27 @@ void NoteOptionsView::paint(Graphics& g)
 
 void NoteOptionsView::parameterValueChanged(int parameterIndex, float newValue)
 {
-    if (parameterIndex == static_cast<int>(ParameterHelpers::EnableNoteQuantizationId)) {
-        bool enable = newValue > 0.5f;
-        _enableView(enable);
+    if (parameterIndex != static_cast<int>(ParameterHelpers::EnableNoteQuantizationId)) {
+        return;
     }
+
+    // Delivered on whichever thread moved the parameter, which for an automated one is the audio
+    // thread, and everything _enableView touches is a component. It used to call straight
+    // through; now that it also moves the section's height, and with it the whole left column,
+    // getting that wrong is a good deal louder than a stale repaint.
+    //
+    // AsyncUpdater rather than MessageManager::callAsync, which is what this reached for first.
+    // That allocates a std::function, takes the message-queue lock and builds a SafePointer --
+    // and building the first one lazily creates the WeakReference master that ~Component clears,
+    // so a host automating this per block was allocating and locking in a real-time callback and
+    // racing its own destructor with it. Triggering does neither, and coalesces besides.
+    mPendingEnable.store(newValue > 0.5f);
+    triggerAsyncUpdate();
+}
+
+void NoteOptionsView::handleAsyncUpdate()
+{
+    _enableView(mPendingEnable.load());
 }
 
 void NoteOptionsView::parameterGestureChanged(int parameterIndex, bool gestureIsStarting)
@@ -121,11 +167,27 @@ void NoteOptionsView::parameterGestureChanged(int parameterIndex, bool gestureIs
 
 void NoteOptionsView::_enableView(bool inEnable)
 {
+    const bool changed = mIsViewEnabled != inEnable;
+
     mIsViewEnabled = inEnable;
+
+    // Hidden as well as disabled: below the label row there is no room for them at all when the
+    // section is collapsed, and a control drawn outside its panel's bounds would spill onto
+    // whatever the column stacked underneath.
+    mMinMaxNoteSlider->setVisible(inEnable);
+    mRootNoteDropdown->setVisible(inEnable);
+    mKeyType->setVisible(inEnable);
+    mSnapMode->setVisible(inEnable);
+
     mMinMaxNoteSlider->setEnabled(inEnable);
     mRootNoteDropdown->setEnabled(inEnable);
     mKeyType->setEnabled(inEnable);
     mSnapMode->setEnabled(inEnable);
+
     repaint();
+
+    if (changed && onPreferredHeightChanged != nullptr) {
+        onPreferredHeightChanged();
+    }
 }
 

@@ -25,6 +25,39 @@ constexpr int minimumCellWidth = 9;
 
 constexpr int cellGap = 2;
 
+/** Which engine produced this take, and when that is not the one that was asked for, why.
+
+    The fallback half is the reason this line exists. A take that quietly came back from
+    BasicPitch because the sidecar would not start looks exactly like a take that came back from
+    the engine you chose: same notes, same shape, same everything except the accuracy you were
+    counting on. The picker on the left says what you asked for; this says what answered.
+
+    Three of the four reasons are the same three the MODEL panel gives for greying a row out, so
+    the words for them come from EngineCatalog rather than being written a second time here. The
+    two arrive at them from different directions -- that panel from the sidecar's ready line and
+    before a take, this from EngineFallback and after one -- and when they were phrased
+    separately the same dead child was "sidecar unreachable" above and "the sidecar would not
+    start" below, which reads as two problems. */
+String engineLine(const TranscriptionManager::EngineRun& inRun)
+{
+    const String actual(EngineCatalog::get(inRun.actualEngine).displayName);
+    const String requested(EngineCatalog::get(inRun.requestedEngine).displayName);
+
+    switch (inRun.fallback) {
+        case TranscriptionManager::EngineFallback::SidecarNotConfigured:
+            return "Read by " + actual + ", " + requested + " " + EngineCatalog::kNeedsSidecar;
+        case TranscriptionManager::EngineFallback::SidecarStartFailed:
+            return "Read by " + actual + ", " + EngineCatalog::kSidecarUnreachable;
+        case TranscriptionManager::EngineFallback::EngineNotInstalled:
+            return "Read by " + actual + ", " + requested + " is " + EngineCatalog::kNotInstalled;
+        case TranscriptionManager::EngineFallback::TranscribeFailed:
+            return "Read by " + actual + ", " + requested + " failed on this take";
+        case TranscriptionManager::EngineFallback::None:
+        default:
+            return "Read by " + actual;
+    }
+}
+
 /** A clock, from seconds. Minutes and seconds, because takes are minutes long and an hour
     of buffered audio is not something this ever sees in one transcription. */
 String asClock(double inSeconds)
@@ -293,6 +326,28 @@ void TranscriptionSummary::_paintReadout(Graphics& g)
     drawColumn(2, "METER", String(numerator) + " / " + String(denominator), TEXT_MAIN);
     drawColumn(3, "NOTES", String(mNoteCount), TEXT_MAIN);
     drawColumn(4, "LENGTH", asClock(_takeSeconds()), TEXT_MAIN);
+
+    // On the sub-line the key's runner-up occupies, but starting at column one, so it runs the
+    // width of the four columns that have nothing under them. It belongs with the readout and
+    // not with the strip: which engine read the take is a fact about the take, in the block
+    // that holds the rest of them.
+    if (auto* manager = mProcessor.getTranscriptionManager()) {
+        const auto run = manager->getEngineRun();
+
+        if (run.hasRun) {
+            const auto fell_back = run.fallback != TranscriptionManager::EngineFallback::None;
+
+            g.setColour(fell_back ? TEXT_MAIN : TEXT_DIM);
+            g.setFont(UIDefines::LABEL_FONT());
+            g.drawText(engineLine(run),
+                       mReadoutBounds.withX(mReadoutBounds.getX() + columnWidth)
+                           .withY(mReadoutBounds.getY() + 38)
+                           .withHeight(16)
+                           .withWidth(4 * columnWidth - 8),
+                       Justification::topLeft,
+                       false);
+        }
+    }
 }
 
 void TranscriptionSummary::_paintStrip(Graphics& g)

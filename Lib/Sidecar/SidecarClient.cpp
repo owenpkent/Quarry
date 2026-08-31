@@ -57,6 +57,21 @@ bool SidecarClient::isRunning() const
 #endif
 }
 
+const juce::StringArray& SidecarClient::getAvailableEngines() const
+{
+    return mAvailableEngines;
+}
+
+bool SidecarClient::hasEngineList() const
+{
+    return mEngineListReported;
+}
+
+const juce::String& SidecarClient::getDevice() const
+{
+    return mDevice;
+}
+
 bool SidecarClient::_writeLine(const juce::String& inLine, juce::String& outError)
 {
     // Named so the temporary outlives the raw pointer toRawUTF8() hands back.
@@ -398,6 +413,21 @@ bool SidecarClient::start(juce::String& outError)
         }
 
         if (parsed.getProperty("event", juce::var()).toString() == "ready") {
+            // Kept rather than dropped on the floor. This line is the only place the sidecar says
+            // which engines its interpreter can import, and a picker that cannot see that has to
+            // either offer every engine and let the failures teach the user, or offer none.
+            mAvailableEngines.clear();
+            mEngineListReported = false;
+
+            if (const auto* engines = parsed.getProperty("engines", juce::var()).getArray()) {
+                mEngineListReported = true;
+
+                for (const auto& engine : *engines)
+                    mAvailableEngines.add(engine.toString());
+            }
+
+            mDevice = parsed.getProperty("device", juce::var()).toString();
+
             return true;
         }
     }

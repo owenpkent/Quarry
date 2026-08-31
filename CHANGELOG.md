@@ -9,6 +9,52 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- feat: the Transcribe page leads with which model listens. The choice that moves onset F1 from
+  0.775 to 0.98 was an environment variable read once at startup and mentioned nowhere, while
+  three rotaries belonging to the engine you could not choose held permanent space above it. The
+  left column now opens with MODEL: a picker over every engine in the new `EngineCatalog.h`, a
+  line saying what the selected one is for and whether it reports pedal and velocity, and a line
+  saying whether this machine can actually reach it. The engine is a real parameter, so it is
+  automatable, it saves with the session, and changing it re-transcribes -- a different engine is
+  a different reading of the audio, not a different treatment of the same notes.
+  `QUARRY_SIDECAR_ENGINE` still works and now seeds that parameter rather than deciding for the
+  session; a restored session overrides it, which is the right way round.
+- feat: the picker says what each model is for and when to use it. Seven rows reading Built-in,
+  Kong, Transkun, Muscriptor and their separation twins are seven proper nouns; six of them are
+  the names their authors chose and not one says what it is for, so the only way to find out was
+  to select one and read the line underneath. The menu is grouped now -- `SOLO PIANO`,
+  `ANY INSTRUMENT, AND MIXES`, `MIXES, SPLIT INTO PARTS FIRST (SLOWER)` -- with what each engine
+  measures in a second column, which is what separates Kong from Transkun once the heading has
+  said they are both for piano, and the line under the closed picker says when you would reach
+  for the one that is selected. A greyed row now says why it is greyed in that same column:
+  `needs the sidecar` when none is configured, `sidecar unreachable` when one is and it will not
+  start, and `not installed` only when a working sidecar really lacks that engine. One word for
+  all three sends two thirds of the readers after the wrong fix.
+- feat: the summary says which engine actually read the take. A take that quietly came back from
+  Basic Pitch because the sidecar would not start looked exactly like one from the engine you
+  chose: same notes, same shape, same everything except the accuracy you were counting on. The
+  readout now carries "Read by Kong", or "Read by Built-in, Kong is not installed", beside the
+  key and the tempo. The picker says what was asked for; this says what answered.
+- fix: the decoder rotaries belong to the decoder that owns them. Note Sens / Split Sens / Min Dur
+  are Basic Pitch parameters that a sidecar take never reaches, and nothing said so: three live
+  controls wired to nothing. They are behind ADVANCED now, and ADVANCED exists only while the
+  built-in engine is selected. A control the current engine does not use is absent rather than
+  dimmed, because dimming asks the reader to work out why and the answer is not something they
+  did wrong.
+- fix: a section that is switched off no longer holds the column open. Scale Quantize and Time
+  Quantize both default to off and between them held 254 px of the most prominent column in the
+  window to show controls that did nothing until someone turned them on. They collapse to their
+  label row, which is also what makes room for MODEL. The column is stacked rather than placed at
+  fixed coordinates now, the geometry is in `LeftColumnLayout.h`, and `Tests/left_column_test.h`
+  checks all twelve combinations of section states still clear the footer, because the one that
+  overflows is the one nobody assembles by hand.
+- refactor: pitch bend moved to the footer, beside the MIDI it acts on. `docs/UI.md` already drew
+  the line -- a control that acts on the result belongs in the footer -- and pitch bend had been
+  sitting in the transcription panel next to three decoder knobs it has nothing to do with.
+- fix: the app starts again. `SamplePageView::_updateEnablements` set the fix-volume button's
+  title outside the `if` that guards it, on a `source` that is null until something is picked, so
+  Quarry took an access violation building its own first window and never drew one. One pair of
+  braces.
 - fix: a bake-off sweep survives its cases. `run_bakeoff.py` aborted the whole engine run
   when one case threw, which is exactly how two engines each silently lost ~50 of 90 real
   takes in one day; a failing case is now recorded and skipped, the failures are listed at

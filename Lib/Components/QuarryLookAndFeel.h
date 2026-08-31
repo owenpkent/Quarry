@@ -202,7 +202,14 @@ inline bool shouldShowFocus(const juce::Component& c)
 class LookAndFeel : public okstudio::obsidian::LookAndFeel
 {
 public:
-    LookAndFeel() = default;
+    LookAndFeel()
+    {
+        // Obsidian styles every part of a popup menu except its section headings, because
+        // nothing in the line has grouped a menu before. Left alone, the heading takes
+        // LookAndFeel_V4's scheme colour, which is not one of the four Obsidian sets, and lands
+        // as near-white text the same size as the rows it is meant to sit above.
+        setColour(juce::PopupMenu::headerTextColourId, TEXT_DIM);
+    }
 
     // Reimplemented rather than delegating: the border, the role fills and the state
     // handling all change, and the base would have to be undone more than reused. It
@@ -336,6 +343,56 @@ public:
                                  .withCentre({ bounds.getX() + boxS * 0.5f + 1.0f, bounds.getCentreY() });
             focusRing(g, box, 5.0f, okstudio::obsidian::accentOf(button).base);
         }
+    }
+
+    // The one number this class copies from Obsidian, whose popup menu draws every row's text
+    // into area.reduced(26, 0) and offers no constant to ask for it. A heading that does not sit
+    // on the same left edge as the rows it labels is a heading over nothing, so this has to
+    // agree with that inset; menuGutterAllowance below is where the agreement is checked.
+    static constexpr int menuTextGutter = 26;
+
+    // A section heading in a grouped menu, e.g. the MODEL picker's "SOLO PIANO".
+    //
+    // The base draws it in the menu's own font, boldened, outdented twelve pixels from a row
+    // that Obsidian indents twenty-six. That is a heading only by weight, and it lines up with
+    // nothing. This is the same caps micro-label the panels use, on the row's own left edge, so
+    // the group reads as a label over a list rather than as a louder list item.
+    void drawPopupMenuSectionHeader(juce::Graphics& g, const juce::Rectangle<int>& area,
+                                    const juce::String& sectionName) override
+    {
+        g.setColour(findColour(juce::PopupMenu::headerTextColourId));
+        g.setFont(UIDefines::LABEL_FONT());
+        g.drawText(sectionName, area.reduced(menuTextGutter, 0).withTrimmedBottom(3),
+                   juce::Justification::bottomLeft, true);
+    }
+
+    // Obsidian sizes every row to minHitPx, which is right for a row you have to hit and wrong
+    // for a heading, which is not a target and cannot be clicked. Left at the row height, four
+    // headings add a hundred and thirty-six pixels of nothing to a seven-item menu.
+    void getIdealPopupMenuSectionHeaderSizeWithOptions(const juce::String& title, int,
+                                                       int& idealWidth, int& idealHeight,
+                                                       const juce::PopupMenu::Options&) override
+    {
+        const auto f = UIDefines::LABEL_FONT();
+        idealWidth = (int) std::ceil(f.getStringWidthFloat(title)) + menuGutterAllowance();
+        idealHeight = 26;
+    }
+
+    // What Obsidian adds to a string's width to make a row: its two gutters plus its own slack.
+    // Asked for rather than copied -- an empty item sizes to the allowance and nothing else -- so
+    // a heading cannot end up narrower than the rows beneath it if that arithmetic ever moves.
+    // The two numbers it is built from are documented in Obsidian as having to agree with each
+    // other; this keeps them agreeing with a third place across a vendored-header boundary.
+    int menuGutterAllowance()
+    {
+        int allowance = 0, unusedHeight = 0;
+        okstudio::obsidian::LookAndFeel::getIdealPopupMenuItemSize({}, false, 0, allowance, unusedHeight);
+
+        // If Obsidian's gutter ever shrinks below what drawPopupMenuSectionHeader insets by, the
+        // heading starts hanging off the left of its own rows.
+        jassert(allowance >= menuTextGutter * 2);
+
+        return allowance;
     }
 
     void drawComboBox(juce::Graphics& g, int width, int height, bool isDown,

@@ -69,20 +69,42 @@ need it.
 
 ## 2. Running it
 
-**In the app.** Two environment variables, read once at startup, documented where they are
-read in `TranscriptionManager`:
+**In the app.** The engine is picked in the MODEL panel at the top of the Transcribe page,
+which lists every engine in `EngineCatalog.h`, grouped by the material each is for, with what
+it measures beside its name. An engine this machine cannot reach is greyed and says why in
+that column: `needs the sidecar` with none configured, `sidecar unreachable` when one is and
+it will not start, `not installed` when a working sidecar genuinely lacks it. The summary says
+which engine actually read the current take. Choosing one re-transcribes: a different engine
+is a different reading of the audio, not a different treatment of the same notes.
+
+What still has to come from the environment is the command line, because it is a path to a
+Python interpreter and there is nowhere in the UI to type one yet:
 
 ```
 set QUARRY_SIDECAR_CMD=c:\path\to\Quarry\tools\bakeoff\.venv\Scripts\python.exe c:\path\to\Quarry\tools\sidecar\quarry_sidecar.py serve
 set QUARRY_SIDECAR_ENGINE=kong
 ```
 
-Unset or empty means current behaviour, byte for byte. `QUARRY_SIDECAR_ENGINE` defaults to
-`auto`, which currently means kong (the complete piano answer: onsets, offsets, velocity,
-pedal); material-based routing arrives with the profiles of `STATS.md` §2. The client starts
-lazily on the first transcription, lives for the session, and on any failure the take falls
-back to Basic Pitch with a `DBG` log; one from-scratch retry is allowed before the sidecar is
-given up for the session.
+Unset or empty `QUARRY_SIDECAR_CMD` means current behaviour, byte for byte: the picker offers
+only the built-in engine and says why.
+
+`QUARRY_SIDECAR_ENGINE` now names the engine to *start on* rather than the engine to use
+forever. It seeds the `ENGINE` parameter when `TranscriptionManager` is constructed, and a
+session restored a moment later overrides it, which is the right way round: the environment is
+a default belonging to a machine, and the session is a decision someone made about a piece of
+music. `auto` is not one of the choices the picker can make -- no index in a closed list
+honestly means "whatever the sidecar picks" -- so an unset or `auto` value seeds **kong**, and
+the picker says so. It does not seed the built-in engine: a machine that configured a sidecar
+and then said nothing further about it is asking for the sidecar, and quietly answering that
+with Basic Pitch is a drop from 0.98 onset F1 to 0.775 with nothing on screen reporting it.
+
+The client starts on the first transcription or on the picker's own probe, whichever comes
+first, and lives for the session. The probe is what lets the picker grey out an engine before
+a take rather than after a failure; it runs on the transcription thread, so it cannot race a
+take for the client, and it costs nothing when no command line is set. On any failure the take
+falls back to Basic Pitch with a `DBG` log and **the summary says so** rather than leaving the
+substitution invisible; one from-scratch retry is allowed before the sidecar is given up for
+the session.
 
 **On the bench.** Any corpus, any engine, scored identically to everything else:
 
@@ -118,6 +140,8 @@ knowing before touching the client: `juce::ChildProcess` cannot write a child's 
   is the obvious fix and has not been done yet.
 - **The knobs.** Note Sens / Split Sens / Min Dur are Basic Pitch decoder parameters with no
   sidecar equivalent; on a sidecar take they skip re-decoding and only post-processing
-  (scale snap, range, quantize) reruns.
+  (scale snap, range, quantize) reruns. They are therefore not shown for a sidecar engine at
+  all -- the MODEL panel drops them with the engine that owns them, rather than dimming three
+  live-looking controls and leaving the reader to work out why.
 - **The client is one-request-in-flight** and blocking on a background thread; the POSIX
   branch of `SidecarClient` is written but untested (Windows is the tested platform).

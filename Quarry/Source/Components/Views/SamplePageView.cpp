@@ -1115,9 +1115,14 @@ void SamplePageView::_updateEnablements()
     mFixVolumeButton->setVisible(quiet);
     mFixVolumeButton->setEnabled(quiet);
 
+    // Braced. Without them the second line sat outside the `if`, ran on every refresh, and
+    // dereferenced a null `source` -- which is what the page holds until something is picked,
+    // so the app took an access violation building its own first window and never drew one.
     if (quiet)
+    {
         mFixVolumeButton->setButtonText("TURN " + appLabel(source->name).toUpperCase() + " UP TO 100%");
         mFixVolumeButton->setTitle("Turn " + appLabel(source->name) + " up to 100%");
+    }
 
     // Everything is always recordable: it is the path that does not need process loopback,
     // and so the one that still works on a Windows too old for the rest of this page.

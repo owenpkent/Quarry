@@ -11,6 +11,9 @@
 #include "sampler_test.h"
 #include "sidecar_integration_test.h"
 #include "focus_ring_test.h"
+#include "engine_catalog_test.h"
+#include "left_column_test.h"
+#include "sample_bar_test.h"
 
 int main()
 {
@@ -39,6 +42,15 @@ int main()
 
     std::cout << std::endl << "FOCUS RING TEST" << std::endl;
     result |= !focus_ring_test();
+
+    std::cout << std::endl << "ENGINE CATALOG TEST" << std::endl;
+    result |= !engine_catalog_test();
+
+    std::cout << std::endl << "LEFT COLUMN TEST" << std::endl;
+    result |= !left_column_test();
+
+    std::cout << std::endl << "SAMPLE BAR TEST" << std::endl;
+    result |= !sample_bar_test();
 
     return result;
 }

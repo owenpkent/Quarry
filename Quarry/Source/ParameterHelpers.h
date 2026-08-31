@@ -9,6 +9,7 @@
 #include "NoteUtils.h"
 #include "TimeQuantizeUtils.h"
 #include "NnId.h"
+#include "EngineCatalog.h"
 
 namespace ParameterHelpers
 {
@@ -32,6 +33,10 @@ enum ParamIdEnum {
     EnableTimeQuantizationId,
     TimeDivisionId,
     QuantizationForceId,
+    // Appended rather than filed with the other transcription parameters, which is where it
+    // belongs by meaning: the enum index is the host's automation index, and inserting one in
+    // the middle would silently renumber every parameter after it in sessions already saved.
+    EngineId,
     TotalNumParams
 };
 
@@ -50,7 +55,8 @@ static const StringArray ParamIdStr {"MUTE",
                                      "KEY_SNAP_MODE",
                                      "ENABLE_TIME_QUANTIZATION",
                                      "TIME_DIVISION",
-                                     "QUANTIZATION_FORCE"};
+                                     "QUANTIZATION_FORCE",
+                                     "ENGINE"};
 
 inline String toName(ParamIdEnum id)
 {
@@ -87,6 +93,8 @@ inline String toName(ParamIdEnum id)
             return "Time Division";
         case QuantizationForceId:
             return "Quantization Force";
+        case EngineId:
+            return "Engine";
         default:
             jassertfalse;
             return "Unknown";
@@ -106,6 +114,22 @@ inline ParameterID toJuceParameterID(ParamIdEnum id)
 inline float getUnmappedParamValue(RangedAudioParameter* inParam)
 {
     return inParam->getNormalisableRange().convertFrom0to1(inParam->getValue());
+}
+
+/**
+ * The index an AudioParameterChoice is holding, rounded the way the parameter itself rounds.
+ *
+ * A host automating a choice parameter can leave it on any normalised value at all, and nothing
+ * snaps it to an index: AudioParameterChoice::getIndex rounds to the nearest one, and so does
+ * ComboBoxParameterAttachment, which is why the host's readout and the picker on screen always
+ * agree with each other. Truncating instead -- static_cast<int> on the unmapped value -- names a
+ * different choice for every value that is not exactly on an index, so a parameter sitting on
+ * 1.8 shows as Transkun everywhere a person can see it and transcribes with Kong. Read through
+ * here rather than cast at the call site, so the picker and the engine that runs cannot disagree.
+ */
+inline int getChoiceIndex(RangedAudioParameter* inParam)
+{
+    return roundToInt(getUnmappedParamValue(inParam));
 }
 
 inline std::unique_ptr<RangedAudioParameter> getRangedAudioParamForID(ParamIdEnum id)
@@ -164,6 +188,15 @@ inline std::unique_ptr<RangedAudioParameter> getRangedAudioParamForID(ParamIdEnu
                 toJuceParameterID(id), toName(id), TimeQuantizeUtils::TimeDivisionsStr, 5);
         case QuantizationForceId:
             return std::make_unique<AudioParameterFloat>(toJuceParameterID(id), toName(id), 0.0f, 1.0f, 0.f);
+        // The list is closed and comes from EngineCatalog, so an index means the same engine
+        // everywhere, including on a machine where most of them are not installed. Availability
+        // is a property of the machine and greys a row out in the picker; it does not change
+        // what the parameter can hold. Defaults to the built-in tier because that is the one
+        // engine that is always there -- QUARRY_SIDECAR_ENGINE moves it at construction when a
+        // sidecar is configured (see TranscriptionManager).
+        case EngineId:
+            return std::make_unique<AudioParameterChoice>(
+                toJuceParameterID(id), toName(id), EngineCatalog::displayNames(), EngineCatalog::BuiltIn);
 
         default:
             jassertfalse;

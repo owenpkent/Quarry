@@ -60,6 +60,15 @@ private:
     QuarryAudioProcessor& mProcessor;
 
     std::unique_ptr<TextButton> mFolderButton;
+
+    // Pitch bend is an export setting, not a transcription one: it changes the MIDI written
+    // from a take and nothing about what the model heard from it. docs/UI.md draws that line
+    // itself -- a control that acts on the result belongs in the footer -- and it spent years
+    // in the left column's TRANSCRIPTION panel anyway, beside three decoder knobs it has
+    // nothing to do with.
+    std::unique_ptr<ComboBox> mPitchBend;
+    std::unique_ptr<ComboBoxParameterAttachment> mPitchBendAttachment;
+
     std::unique_ptr<ToggleButton> mWavToggle;
     std::unique_ptr<ToggleButton> mMidiToggle;
     std::unique_ptr<TextButton> mSaveButton;

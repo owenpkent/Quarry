@@ -6,6 +6,8 @@
 
 #include "QuarryLookAndFeel.h"
 
+#include "Views/SampleBarLayout.h"
+
 // Last, deliberately: this reaches the Windows audio stack, and windows.h defines a
 // Rectangle() that makes juce::Rectangle ambiguous in anything parsed after it.
 #if JUCE_WINDOWS
@@ -42,13 +44,19 @@ constexpr int contentTop = 86;
 /** How tall the content is at full height: not the whole window under contentTop, because the
     update line sits below it. */
 constexpr int wideContentHeight = 625;
+
+// The footer divides its own width between a folder path and a status message, and the division
+// is checked in Tests/sample_bar_test.h against SampleBarLayout's copy of that width. The check
+// is only worth anything if the copy is this number.
+static_assert(SampleBarLayout::X == contentMargin && SampleBarLayout::WIDTH == wideContentWidth,
+              "SampleBarLayout no longer describes the bar this view places");
 } // namespace
 
 
 QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
     : mProcessor(processor)
     , mVisualizationPanel(&processor)
-    , mTranscriptionOptions(processor)
+    , mModelOptions(processor)
     , mNoteOptions(processor)
     , mQuantizePanel(processor)
 {
@@ -294,9 +302,16 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
     addAndMakeVisible(*mMuteButton);
 
     addAndMakeVisible(mVisualizationPanel);
-    addAndMakeVisible(mTranscriptionOptions);
+    addAndMakeVisible(mModelOptions);
     addAndMakeVisible(mNoteOptions);
     addAndMakeVisible(mQuantizePanel);
+
+    // Each section decides its own height and says so; the column is the only thing that knows
+    // what is above and below it, so it does the stacking.
+    const auto relayout_left_column = [this] { _layoutLeftColumn(); };
+    mModelOptions.onPreferredHeightChanged = relayout_left_column;
+    mNoteOptions.onPreferredHeightChanged = relayout_left_column;
+    mQuantizePanel.onPreferredHeightChanged = relayout_left_column;
 
     mAudioInputView = std::make_unique<AudioInputView>(mProcessor);
     addAndMakeVisible(*mAudioInputView);
@@ -373,15 +388,11 @@ void QuarryMainView::resized()
     mMuteButton->setBounds(931, 43, 35, 35);
 
     mVisualizationPanel.setBounds(328, 140, 642, 491);
-    mTranscriptionOptions.setBounds(29, 140, 274, 190);
-    // Shorter than it was by the row the detected-key readout used to take. That reading is in
-    // the summary now, beside the tempo and the meter, so the panel is snap controls and
-    // nothing else and Time Quantize moves up behind it.
-    mNoteOptions.setBounds(29, 354, 274, 134);
-    mQuantizePanel.setBounds(29, 496, 274, 120);
+
+    _layoutLeftColumn();
 
     // The window grew by 60 px to seat this; nothing above it moved.
-    mSampleBar->setBounds(29, 665, 941, 46);
+    mSampleBar->setBounds(contentMargin, LeftColumnLayout::SAMPLE_BAR_TOP, wideContentWidth, SampleBarLayout::HEIGHT);
 
 #if JUCE_WINDOWS
     const auto narrow = getWidth() < wideContentWidth + 2 * contentMargin;
@@ -413,6 +424,25 @@ void QuarryMainView::resized()
     if (narrow)
         mSettingsButton->setBounds(getWidth() - 65, 43, 35, 35);
 #endif
+}
+
+void QuarryMainView::_layoutLeftColumn()
+{
+    int y = LeftColumnLayout::TOP;
+
+    const auto place = [&](Component& inSection, int inHeight) {
+        inSection.setBounds(LeftColumnLayout::X, y, LeftColumnLayout::WIDTH, inHeight);
+        y += inHeight + LeftColumnLayout::GAP;
+    };
+
+    place(mModelOptions, mModelOptions.preferredHeight());
+    place(mNoteOptions, mNoteOptions.preferredHeight());
+    place(mQuantizePanel, mQuantizePanel.preferredHeight());
+
+    // Everything expanded at once is the tall case, and it has to clear the sample bar. The
+    // arithmetic is checked in Tests (left_column_test.h) rather than trusted here, because the
+    // three heights live in three files and nothing else would notice one of them growing.
+    jassert(y - LeftColumnLayout::GAP <= LeftColumnLayout::BOTTOM_LIMIT);
 }
 
 void QuarryMainView::parentHierarchyChanged()
@@ -455,7 +485,7 @@ void QuarryMainView::_showSamplePage(bool inShouldShow)
     const auto transcribing = ! inShouldShow;
 
     mVisualizationPanel.setVisible(transcribing);
-    mTranscriptionOptions.setVisible(transcribing);
+    mModelOptions.setVisible(transcribing);
     mNoteOptions.setVisible(transcribing);
     mQuantizePanel.setVisible(transcribing);
     mAudioInputView->setVisible(transcribing);
