@@ -1,5 +1,5 @@
 # Upstream pin for the vendored okstudio kit headers.
 # Written by tools/sync_okstudio.py. Do not edit by hand.
 repo=https://github.com/owenpkent/okstudio-juce-kit.git
-commit=7572847bbe950f7eee59319f9ed0c71efb8361f7
+commit=1f6cff7717999ab87f2b4dd1b42423128cd06d05
 synced=2026-08-31

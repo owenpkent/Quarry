@@ -35,6 +35,7 @@ VENDORED = [
     "okstudio/CaptureMath.h",
     "okstudio/Obsidian.h",
     "okstudio/MouseOnly.h",
+    "okstudio/Icons.h",
 ]
 
 KIT_REPO = "https://github.com/owenpkent/okstudio-juce-kit.git"
