@@ -25,6 +25,9 @@
 #ifndef QUARRY_LOOKANDFEEL_H
 #define QUARRY_LOOKANDFEEL_H
 
+#include <string_view>
+
+#include <okstudio/Icons.h>
 #include <okstudio/Obsidian.h>
 
 #include "UIDefines.h"
@@ -94,11 +97,21 @@ inline void recolourIcon(juce::Drawable* inDrawable, juce::Colour inColour)
     inDrawable->replaceColour(juce::Colours::black, inColour);
 }
 
-/** An icon from its SVG source, already repainted. The SVG is a string constant, so the two
-    arguments JUCE wants are the one thing a caller has. */
-inline std::unique_ptr<juce::Drawable> icon(const void* inSvgData, int inSvgSize, juce::Colour inColour)
+/** An icon from okstudio::icons, already repainted.
+
+    One call rather than the create-then-recolour pair every button used to write out, because
+    the pair is not optional: the artwork is stroked black (okstudio/Icons.h says why), black on
+    a panel is 1.09:1, and a caller who writes the first line and forgets the second gets a
+    button that is there, hit-testable, and invisible. */
+inline std::unique_ptr<juce::Drawable> icon(std::string_view inSvg, juce::Colour inColour)
 {
-    auto drawable = juce::Drawable::createFromImageData(inSvgData, (size_t) inSvgSize);
+    auto drawable = juce::Drawable::createFromImageData(inSvg.data(), inSvg.size());
+
+    // A parse failure hands back null, and DrawableButton::setImages takes null without
+    // complaint, so the icon would go missing with nothing said. Tests/icon_test.h is what
+    // actually holds this; the assertion is for whoever is running a debug build when it breaks.
+    jassert(drawable != nullptr);
+
     recolourIcon(drawable.get(), inColour);
     return drawable;
 }

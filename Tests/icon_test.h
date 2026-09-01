@@ -1,7 +1,7 @@
 //
 // Every icon in the window, actually parsed.
 //
-// The icons are SVG source compiled into BinaryData and turned into a Drawable at runtime by
+// The icons are SVG source from okstudio/Icons.h, turned into a Drawable at runtime by
 // juce::Drawable::createFromImageData. That call returns a null pointer when the parse fails, and
 // DrawableButton::setImages takes a null pointer without complaint, so an icon JUCE cannot read
 // is not an error anywhere: it is a button that draws nothing, on a toolbar, discovered by
@@ -11,9 +11,10 @@
 // loaded when the editor is constructed, which no other test does; and the failure looks exactly
 // like a button that is meant to be blank.
 //
-// It matters more now than it did. The artwork is Lucide rather than hand-cut, so it arrives from
-// outside this repo and is replaced wholesale rather than edited a path at a time, and the whole
-// set moves at once when the pin does.
+// The kit's own KitTests checks this artwork is well-formed. This checks the half that is
+// Quarry's: that the constant each button names still exists, that JUCE can parse it, and that
+// recolouring it does something -- because the artwork now arrives from another repo through
+// tools/sync_okstudio.py, and a sync moves the whole set at once.
 //
 
 #ifndef QUARRY_ICON_TEST_H
@@ -21,8 +22,11 @@
 
 #include <iostream>
 #include <string>
+#include <string_view>
 
 #include <JuceHeader.h>
+
+#include <okstudio/Icons.h>
 
 namespace icon_test_utils
 {
@@ -40,8 +44,7 @@ static void check(bool condition, const std::string& what)
 struct Icon
 {
     const char* name;
-    const char* data;
-    int size;
+    std::string_view svg;
 };
 } // namespace icon_test_utils
 
@@ -52,29 +55,30 @@ inline bool icon_test()
 
     icon_test_utils::failures = 0;
 
-    // Every icon the window draws. Listed by hand rather than swept out of BinaryData, because
-    // the point is that each one a button asks for is there: a sweep would pass just as happily
-    // over a set that had lost the one the play button wanted.
+    // Every icon the window draws, named the way its button names it. Listed by hand rather than
+    // swept out of the kit's namespace, because the point is that each one a button asks for is
+    // there: a sweep would pass just as happily over a set that had lost the one the play button
+    // wanted, and the kit serves five products with icons Quarry does not use.
     const Icon all[] = {
-        {"back", BinaryData::back_svg, BinaryData::back_svgSize},
-        {"play", BinaryData::play_svg, BinaryData::play_svgSize},
-        {"pause", BinaryData::pause_svg, BinaryData::pause_svgSize},
-        {"recordingoff", BinaryData::recordingoff_svg, BinaryData::recordingoff_svgSize},
-        {"recordingon", BinaryData::recordingon_svg, BinaryData::recordingon_svgSize},
-        {"center_off", BinaryData::center_off_svg, BinaryData::center_off_svgSize},
-        {"center_on", BinaryData::center_on_svg, BinaryData::center_on_svgSize},
-        {"settings", BinaryData::settings_svg, BinaryData::settings_svgSize},
-        {"mute", BinaryData::mute_svg, BinaryData::mute_svgSize},
-        {"unmute", BinaryData::unmute_svg, BinaryData::unmute_svgSize},
-        {"deleteicon", BinaryData::deleteicon_svg, BinaryData::deleteicon_svgSize},
-        {"folderopen", BinaryData::folderopen_svg, BinaryData::folderopen_svgSize},
+        {"skipToStart", okstudio::icons::skipToStart},
+        {"play", okstudio::icons::play},
+        {"pause", okstudio::icons::pause},
+        {"record", okstudio::icons::record},
+        {"recording", okstudio::icons::recording},
+        {"unfoldHorizontal", okstudio::icons::unfoldHorizontal},
+        {"foldHorizontal", okstudio::icons::foldHorizontal},
+        {"settings", okstudio::icons::settings},
+        {"mute", okstudio::icons::mute},
+        {"unmute", okstudio::icons::unmute},
+        {"trash", okstudio::icons::trash},
+        {"folderOpen", okstudio::icons::folderOpen},
     };
 
     for (const auto& icon : all)
     {
-        const auto drawable = juce::Drawable::createFromImageData(icon.data, (size_t) icon.size);
+        const auto drawable = juce::Drawable::createFromImageData(icon.svg.data(), icon.svg.size());
 
-        check(drawable != nullptr, std::string(icon.name) + ".svg does not parse: the button would draw nothing");
+        check(drawable != nullptr, std::string(icon.name) + " does not parse: the button would draw nothing");
 
         if (drawable == nullptr)
             continue;
@@ -83,9 +87,9 @@ inline bool icon_test()
         // as empty -- is the same blank button by another route.
         const auto bounds = drawable->getDrawableBounds();
 
-        check(! bounds.isEmpty(), std::string(icon.name) + ".svg parses to nothing drawable");
+        check(! bounds.isEmpty(), std::string(icon.name) + " parses to nothing drawable");
         check(bounds.getWidth() > 1.0f && bounds.getHeight() > 1.0f,
-              std::string(icon.name) + ".svg is too small to be a 24 px icon");
+              std::string(icon.name) + " is too small to be a 24 px icon");
     }
 
     // The recolour every caller does, and the reason it works: the artwork is stroked in black,
@@ -97,7 +101,7 @@ inline bool icon_test()
 
         for (const auto& icon : all)
         {
-            auto drawable = juce::Drawable::createFromImageData(icon.data, (size_t) icon.size);
+            auto drawable = juce::Drawable::createFromImageData(icon.svg.data(), icon.svg.size());
 
             if (drawable == nullptr)
                 continue;
@@ -117,7 +121,7 @@ inline bool icon_test()
                     if (before.getPixelAt(x, y) != after.getPixelAt(x, y))
                         moved = true;
 
-            check(moved, std::string(icon.name) + ".svg is not stroked in black, so recolouring it does nothing");
+            check(moved, std::string(icon.name) + " is not stroked in black, so recolouring it does nothing");
 
             if (moved)
                 ++painted;
@@ -125,6 +129,14 @@ inline bool icon_test()
 
         std::cout << "  " << painted << " of " << std::size(all) << " icons recolour from black" << std::endl;
     }
+
+    // The two toggle pairs, which are the only icons here whose meaning depends on the other
+    // one. A pair that ended up the same drawing would leave the state resting entirely on
+    // colour, which docs/UI.md does not allow of anything this window draws.
+    check(okstudio::icons::record != okstudio::icons::recording,
+          "the record pair is two drawings, so the armed state is not carried by colour alone");
+    check(okstudio::icons::foldHorizontal != okstudio::icons::unfoldHorizontal,
+          "the centre pair is two drawings, so the held state is not carried by colour alone");
 
     if (icon_test_utils::failures == 0)
     {

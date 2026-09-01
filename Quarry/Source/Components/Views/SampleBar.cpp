@@ -62,8 +62,7 @@ SampleBar::SampleBar(QuarryAudioProcessor& inProcessor)
     mOpenFolderButton->setColour(DrawableButton::ColourIds::backgroundColourId, Colours::transparentBlack);
     mOpenFolderButton->setColour(DrawableButton::ColourIds::backgroundOnColourId, Colours::transparentBlack);
 
-    auto open_folder_icon =
-        quarry::lnf::icon(BinaryData::folderopen_svg, BinaryData::folderopen_svgSize, TEXT_DIM);
+    auto open_folder_icon = quarry::lnf::icon(okstudio::icons::folderOpen, TEXT_DIM);
     mOpenFolderButton->setImages(open_folder_icon.get());
 
     // A glyph has no text for a screen reader to read, so the name has to be written. The path

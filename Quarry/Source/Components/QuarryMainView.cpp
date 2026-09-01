@@ -55,13 +55,10 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
     mRecordButton->setTitle("Record");
     mRecordButton->setHelpText(QuarryTooltips::record);
 
-    auto record_off_drawable =
-        Drawable::createFromImageData(BinaryData::recordingoff_svg, BinaryData::recordingoff_svgSize);
-    auto record_on_drawable =
-        Drawable::createFromImageData(BinaryData::recordingon_svg, BinaryData::recordingon_svgSize);
-
-    quarry::lnf::recolourIcon(record_off_drawable.get(), TEXT_MAIN);
-    quarry::lnf::recolourIcon(record_on_drawable.get(), RECORD_RED);
+    // An empty ring at rest and a red ring with a dot while recording: the pair differs in shape
+    // as well as in colour, so the armed state does not rest on hue alone.
+    auto record_off_drawable = quarry::lnf::icon(okstudio::icons::record, TEXT_MAIN);
+    auto record_on_drawable = quarry::lnf::icon(okstudio::icons::recording, RECORD_RED);
 
     mRecordButton->setImages(
         record_off_drawable.get(), nullptr, nullptr, nullptr, record_on_drawable.get(), nullptr, nullptr);
@@ -99,8 +96,7 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
     mClearButton->setTitle("Clear audio and MIDI");
     mClearButton->setHelpText(QuarryTooltips::clear);
 
-    auto bin_drawable = Drawable::createFromImageData(BinaryData::deleteicon_svg, BinaryData::deleteicon_svgSize);
-    quarry::lnf::recolourIcon(bin_drawable.get(), TEXT_MAIN);
+    auto bin_drawable = quarry::lnf::icon(okstudio::icons::trash, TEXT_MAIN);
     mClearButton->setImages(bin_drawable.get());
 
     mClearButton->onClick = [this]() {
@@ -115,8 +111,7 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
     mBackButton->setClickingTogglesState(false);
     mBackButton->setColour(DrawableButton::ColourIds::backgroundColourId, Colours::transparentBlack);
     mBackButton->setColour(DrawableButton::ColourIds::backgroundOnColourId, Colours::transparentBlack);
-    auto back_icon_drawable = Drawable::createFromImageData(BinaryData::back_svg, BinaryData::back_svgSize);
-    quarry::lnf::recolourIcon(back_icon_drawable.get(), TEXT_MAIN);
+    auto back_icon_drawable = quarry::lnf::icon(okstudio::icons::skipToStart, TEXT_MAIN);
     mBackButton->setImages(back_icon_drawable.get());
     mBackButton->onClick = [this]() {
         mProcessor.getPlayer()->reset();
@@ -132,10 +127,8 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
     mPlayPauseButton->setClickingTogglesState(true);
     mPlayPauseButton->setColour(DrawableButton::ColourIds::backgroundColourId, Colours::transparentBlack);
     mPlayPauseButton->setColour(DrawableButton::ColourIds::backgroundOnColourId, Colours::transparentBlack);
-    auto play_icon_drawable = Drawable::createFromImageData(BinaryData::play_svg, BinaryData::play_svgSize);
-    quarry::lnf::recolourIcon(play_icon_drawable.get(), TEXT_MAIN);
-    auto pause_icon_drawable = Drawable::createFromImageData(BinaryData::pause_svg, BinaryData::pause_svgSize);
-    quarry::lnf::recolourIcon(pause_icon_drawable.get(), TEXT_MAIN);
+    auto play_icon_drawable = quarry::lnf::icon(okstudio::icons::play, TEXT_MAIN);
+    auto pause_icon_drawable = quarry::lnf::icon(okstudio::icons::pause, TEXT_MAIN);
     mPlayPauseButton->setImages(
         play_icon_drawable.get(), nullptr, nullptr, nullptr, pause_icon_drawable.get(), nullptr, nullptr, nullptr);
 
@@ -156,12 +149,11 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
     mCenterButton->setClickingTogglesState(true);
     mCenterButton->setColour(DrawableButton::ColourIds::backgroundColourId, Colours::transparentBlack);
     mCenterButton->setColour(DrawableButton::ColourIds::backgroundOnColourId, Colours::transparentBlack);
-    auto center_icon_drawable_off =
-        Drawable::createFromImageData(BinaryData::center_off_svg, BinaryData::center_off_svgSize);
-    quarry::lnf::recolourIcon(center_icon_drawable_off.get(), TEXT_MAIN);
+    // Arrows spreading from the centre line when the playhead is free to leave it, and drawing
+    // in to it when it is held there. Shape as well as colour, for the same reason as record.
+    auto center_icon_drawable_off = quarry::lnf::icon(okstudio::icons::unfoldHorizontal, TEXT_MAIN);
     auto center_icon_drawable_on =
-        Drawable::createFromImageData(BinaryData::center_on_svg, BinaryData::center_on_svgSize);
-    quarry::lnf::recolourIcon(center_icon_drawable_on.get(), okstudio::obsidian::accentOf(*this).base);
+        quarry::lnf::icon(okstudio::icons::foldHorizontal, okstudio::obsidian::accentOf(*this).base);
     mCenterButton->setImages(center_icon_drawable_off.get(),
                              nullptr,
                              nullptr,
@@ -188,8 +180,7 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
     mSettingsButton->setClickingTogglesState(false);
     mSettingsButton->setColour(DrawableButton::ColourIds::backgroundColourId, TRANSPARENT);
     mSettingsButton->setColour(DrawableButton::ColourIds::backgroundOnColourId, CONTROL_BG);
-    auto settings_icon_drawable = Drawable::createFromImageData(BinaryData::settings_svg, BinaryData::settings_svgSize);
-    quarry::lnf::recolourIcon(settings_icon_drawable.get(), TEXT_MAIN);
+    auto settings_icon_drawable = quarry::lnf::icon(okstudio::icons::settings, TEXT_MAIN);
     mSettingsButton->setImages(settings_icon_drawable.get());
     addAndMakeVisible(mSettingsButton.get());
 
@@ -269,10 +260,8 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
     mMuteButton->setColour(DrawableButton::ColourIds::backgroundColourId, Colours::transparentBlack);
     mMuteButton->setColour(DrawableButton::ColourIds::backgroundOnColourId, Colours::transparentBlack);
 
-    auto mute_on_drawable = Drawable::createFromImageData(BinaryData::mute_svg, BinaryData::mute_svgSize);
-    quarry::lnf::recolourIcon(mute_on_drawable.get(), TEXT_MAIN);
-    auto mute_off_drawable = Drawable::createFromImageData(BinaryData::unmute_svg, BinaryData::unmute_svgSize);
-    quarry::lnf::recolourIcon(mute_off_drawable.get(), TEXT_MAIN);
+    auto mute_on_drawable = quarry::lnf::icon(okstudio::icons::mute, TEXT_MAIN);
+    auto mute_off_drawable = quarry::lnf::icon(okstudio::icons::unmute, TEXT_MAIN);
 
     mMuteButton->setImages(
         mute_off_drawable.get(), nullptr, nullptr, nullptr, mute_on_drawable.get(), nullptr, nullptr);
