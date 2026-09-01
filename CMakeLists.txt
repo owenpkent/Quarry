@@ -89,9 +89,13 @@ foreach (dir ${source_dirs})
 endforeach ()
 
 #Binary data
+# The typeface comes from the kit, not from Assets: it is the line's face now, and every
+# product on the line embeds the same three files (ThirdParty/okstudio/data/fonts, and see
+# okstudio/Fonts.h). Glob rather than name them so a face added there needs no edit here.
+# OFL.txt beside them is not embedded; it ships as a file, which is what the licence asks.
 file(GLOB RESOURCES_FILES ${CMAKE_CURRENT_LIST_DIR}/Lib/ModelData/*.json
         ${CMAKE_CURRENT_LIST_DIR}/Lib/ModelData/*.ort
-        ${CMAKE_CURRENT_LIST_DIR}/Quarry/Assets/*.ttf
+        ${CMAKE_CURRENT_LIST_DIR}/ThirdParty/okstudio/data/fonts/*.ttf
         ${CMAKE_CURRENT_LIST_DIR}/Quarry/Assets/*.png
         ${CMAKE_CURRENT_LIST_DIR}/Quarry/Assets/*.svg)
 

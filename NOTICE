@@ -38,14 +38,17 @@ Third-party components
     derived from that work.
   - minimp3 (https://github.com/lieff/minimp3), CC0-1.0.
   - okstudio JUCE kit (https://github.com/owenpkent/okstudio-juce-kit),
-    Copyright 2026 Owen Kent. Six headers from it are vendored in this
-    repository under ThirdParty/okstudio; see that directory's README.md.
+    Copyright 2026 Owen Kent. Seven headers and the line's typeface are
+    vendored in this repository under ThirdParty/okstudio; see that
+    directory's README.md.
   - Montserrat (https://github.com/JulietaUla/Montserrat), Copyright 2011
     The Montserrat Project Authors, SIL Open Font License, Version 1.1.
     Version 8.000 of the Regular, SemiBold and Bold faces is embedded in
-    the binary and is every word this application draws. The licence
-    requires its notice to travel with the font, so it is reproduced in
-    full below.
+    the binary and is every word this application draws. It reaches this
+    repository through the okstudio kit, which adopted it as the typeface
+    for the whole product line; the faces and their licence are vendored
+    under ThirdParty/okstudio/data/fonts. The licence requires its notice
+    to travel with the font, so it is reproduced in full below as well.
   - Lucide (https://lucide.dev), Copyright Lucide Contributors 2022, ISC
     License, with portions held by Cole Bemis 2013-2022 as part of Feather
     (MIT). Every icon in the window is from it, as SVG source in
