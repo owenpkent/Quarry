@@ -75,10 +75,14 @@ constexpr int FOLDER_FLOOR = 140;
 
 /** What the status keeps whatever else happens, and it is a measurement rather than a guess:
     "Saved take_01.wav and take_01.mid." is the longest sentence this label writes that is not
-    part filename, and it wants 236 px. Tests/sample_bar_test.h measures all of them against this
-    number, which is how the 230 first written here was caught being six pixels short of the one
-    sentence it named. The only place any of them appears, so none of them may wrap. */
-constexpr int STATUS_FLOOR = 240;
+    part filename, and in Montserrat at the size it is drawn it wants 218 px.
+
+    The measuring is the point. This number was 230 by eye, then 240 after a test measured the
+    sentence in the platform default sans, then 225 once that test was corrected to measure in
+    the typeface the window is actually drawn in -- which the footer only became after Obsidian
+    stopped asking for Segoe UI by name. Two of those three numbers were wrong and neither was
+    wrong in a way anybody could see. Tests/sample_bar_test.h holds it now. */
+constexpr int STATUS_FLOOR = 225;
 
 /** What is left for the folder and the status together, once the fixed controls have had theirs. */
 constexpr int middleWidth(int inBarWidth)

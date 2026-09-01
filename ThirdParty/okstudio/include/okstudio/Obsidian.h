@@ -100,14 +100,59 @@ namespace okstudio::obsidian
     constexpr float radius = 6.0f;       // controls
     constexpr float panelRadius = 8.0f;  // panels / modules
 
-    // Segoe UI keeps the panel crisp on Windows (the shipping target) and falls
-    // back to the platform sans elsewhere; nothing is embedded.
+    // The typeface the chrome is drawn in, which a product may replace.
+    //
+    // Asking for "Segoe UI" by name was the whole font story here, and it has two problems. It
+    // is a Windows font, so everywhere else falls back to the platform sans and the chrome stops
+    // matching the design; and a product that embeds its own typeface for its own text ends up
+    // with a window in two of them, because a named request ignores
+    // setDefaultSansSerifTypeface. Quarry hit exactly that -- its labels in Montserrat, this
+    // header's menus and buttons in Segoe UI -- and papered over one of the eleven call sites
+    // with a getPopupMenuFont override rather than the other ten.
+    //
+    // So the name is now a fallback rather than the answer. setUiTypefaces() is what a product
+    // calls once, with the faces it has already embedded and licensed; the kit embeds nothing
+    // and takes on no font licence of its own.
+    //
+    // Two faces rather than a family with a weight, because that is what JUCE's embedded
+    // typefaces are: createSystemTypefaceFor gives you one face per file, and the semibold in a
+    // product's Assets is a different file from the regular.
+    namespace detail
+    {
+        inline juce::Typeface::Ptr& uiFace()
+        {
+            static juce::Typeface::Ptr face;
+            return face;
+        }
+
+        inline juce::Typeface::Ptr& uiSemiFace()
+        {
+            static juce::Typeface::Ptr face;
+            return face;
+        }
+    } // namespace detail
+
+    /** Draw the chrome in these faces instead of the platform's. Call once, on the message
+        thread, before the first paint; passing nulls restores the fallback. Either argument may
+        be null on its own, in which case that weight falls back and the other does not. */
+    inline void setUiTypefaces(juce::Typeface::Ptr regular, juce::Typeface::Ptr semiBold)
+    {
+        detail::uiFace() = std::move(regular);
+        detail::uiSemiFace() = std::move(semiBold);
+    }
+
     inline juce::Font ui(float height)
     {
+        if (auto face = detail::uiFace())
+            return juce::Font(juce::FontOptions(face)).withHeight(height);
+
         return juce::Font(juce::FontOptions("Segoe UI", height, juce::Font::plain));
     }
     inline juce::Font uiSemi(float height)
     {
+        if (auto face = detail::uiSemiFace())
+            return juce::Font(juce::FontOptions(face)).withHeight(height);
+
         return juce::Font(juce::FontOptions("Segoe UI Semibold", height, juce::Font::plain));
     }
     // Micro-caps section labels; callers pass uppercase text.
