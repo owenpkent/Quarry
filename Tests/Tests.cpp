@@ -1,4 +1,8 @@
 #include <JuceHeader.h>
+
+#include <okstudio/Obsidian.h>
+
+#include "UIDefines.h"
 #include "Features.h"
 #include "BasicPitchCNN.h"
 #include <vector>
@@ -14,9 +18,27 @@
 #include "engine_catalog_test.h"
 #include "left_column_test.h"
 #include "sample_bar_test.h"
+#include "icon_test.h"
 
 int main()
 {
+    // The window's typefaces, set once for the whole run and never unset.
+    //
+    // Two of these tests measure strings against a width, and a measurement is only worth
+    // anything in the font the string is actually drawn in: Obsidian's ui() resolves to whatever
+    // setUiTypefaces was handed, and a Font built with no typeface of its own draws in the
+    // default sans. The editor points both at Montserrat, so the tests have to as well.
+    //
+    // It happens here rather than inside the test that first needed it. Both of those calls are
+    // process-wide with no way to scope them to one case, so a test that set them was silently
+    // deciding what every test after it in this file would measure -- and a test that measured
+    // correctly only because sample_bar_test ran first would start measuring in the platform
+    // default the day somebody reordered the list below. That is the same class of error
+    // SampleBarLayout's STATUS_FLOOR comment describes, where two of three numbers were wrong
+    // and neither was wrong in a way anybody could see.
+    okstudio::obsidian::setUiTypefaces(UIDefines::MONTSERRAT_REGULAR(), UIDefines::MONTSERRAT_SEMIBOLD());
+    juce::LookAndFeel::getDefaultLookAndFeel().setDefaultSansSerifTypeface(UIDefines::MONTSERRAT_REGULAR());
+
     int result = 0;
 
     std::cout << std::endl << "FEATURE TEST" << std::endl;
@@ -51,6 +73,9 @@ int main()
 
     std::cout << std::endl << "SAMPLE BAR TEST" << std::endl;
     result |= !sample_bar_test();
+
+    std::cout << std::endl << "ICON TEST" << std::endl;
+    result |= !icon_test();
 
     return result;
 }

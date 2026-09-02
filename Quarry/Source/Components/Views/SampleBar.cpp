@@ -57,6 +57,23 @@ SampleBar::SampleBar(QuarryAudioProcessor& inProcessor)
     mFolderButton->onClick = [this]() { _chooseFolder(); };
     addAndMakeVisible(*mFolderButton);
 
+    mOpenFolderButton =
+        std::make_unique<DrawableButton>("OpenFolderButton", DrawableButton::ButtonStyle::ImageFitted);
+    mOpenFolderButton->setColour(DrawableButton::ColourIds::backgroundColourId, Colours::transparentBlack);
+    mOpenFolderButton->setColour(DrawableButton::ColourIds::backgroundOnColourId, Colours::transparentBlack);
+
+    auto open_folder_icon = quarry::lnf::icon(okstudio::icons::folderOpen, TEXT_DIM);
+    mOpenFolderButton->setImages(open_folder_icon.get());
+
+    // A glyph has no text for a screen reader to read, so the name has to be written. The path
+    // button beside it already says where; this one only has to say what it does with it, and
+    // "Open" on its own -- read out of a bar that also opens a chooser and writes a file -- could
+    // be any of three things.
+    mOpenFolderButton->setTitle("Open the save folder");
+    mOpenFolderButton->setTooltip("Show the save folder in the file manager.");
+    mOpenFolderButton->onClick = [this]() { _openFolder(); };
+    addAndMakeVisible(*mOpenFolderButton);
+
     // Bound to the tree rather than read from it once, so a session loaded with the editor
     // open moves the boxes instead of leaving them showing the previous session's answer.
     // A tree-driven change reaches onStateChange but never onClick.
@@ -114,6 +131,19 @@ SampleBar::~SampleBar()
     stopTimer();
 }
 
+String SampleBar::_folderLabel(const File& inFolder) const
+{
+    const auto name = inFolder.getFileName();
+    const auto parent = inFolder.getParentDirectory().getFileName();
+
+    // A drive root has no parent name to prefix with, and neither has a folder sitting directly
+    // in one, so both fall back to the whole path -- which is short in exactly those cases.
+    if (name.isEmpty() || parent.isEmpty())
+        return inFolder.getFullPathName();
+
+    return parent + File::getSeparatorString() + name;
+}
+
 File SampleBar::_folder() const
 {
     return TakeNaming::folder(mProcessor.getValueTree());
@@ -153,6 +183,29 @@ void SampleBar::_refreshNextBaseName(const File& inFolder)
     mNextBaseName = _nextBaseName(inFolder);
     mNextBaseNameFolder = inFolder.getFullPathName();
     mNextBaseNameStale = false;
+}
+
+void SampleBar::_openFolder()
+{
+    const auto folder = _folder();
+
+    // Created rather than reported as missing. TakeNaming::folder answers with Music/Quarry
+    // Samples on a first run, and that directory does not exist until the first save writes to
+    // it -- so on a fresh install the folder the bar has been naming all along would be the one
+    // thing this button could not show anyone.
+    if (!folder.isDirectory()) {
+        const auto created = folder.createDirectory();
+
+        if (created.failed()) {
+            _setStatus("Could not open " + folder.getFullPathName() + ": " + created.getErrorMessage(), true);
+            return;
+        }
+    }
+
+    // Selects the folder in the file manager rather than opening it, which is what JUCE's own
+    // name for this says and what every platform's "show in" idiom does. Either is fine here;
+    // what matters is that it is the desktop's own window and not one of ours.
+    folder.revealToUser();
 }
 
 void SampleBar::_chooseFolder()
@@ -413,9 +466,17 @@ void SampleBar::_updateEnablements()
     mSaveButton->setEnabled(has_take && any_format && !mSaveInFlight);
 
     const auto folder = _folder();
-    // The button says the path, which is the fact you want on screen but a poor name to
-    // hear read out. The title says what the control does; the tooltip already has the path.
-    mFolderButton->setButtonText(folder.getFullPathName());
+    // The button says where takes go, which is the fact you want on screen but a poor name to
+    // hear read out. The title says what the control does; the tooltip has the path in full.
+    //
+    // The last two components rather than the whole path, because the whole path is the one
+    // thing in this bar with no length at all: every other control is a word or a number this
+    // file chose, and this one is whatever directory a person picked, which can be six
+    // characters or two hundred. A button given a path too long for it wraps to two lines
+    // inside thirty pixels rather than eliding, so a layout that only works while the path
+    // stays short is not a layout. "Music\Quarry Samples" is what a person recognises anyway;
+    // the tooltip has the rest, and the button beside it goes there.
+    mFolderButton->setButtonText(_folderLabel(folder));
     mFolderButton->setTitle("Change folder");
     mFolderButton->setTooltip(folder.getFullPathName());
 
@@ -480,6 +541,8 @@ void SampleBar::resized()
     // whatever halving the leftovers happens to produce. The status gets its floor first: the
     // folder's full path is on its tooltip, and the status sentence is nowhere but here.
     mFolderButton->setBounds(area.removeFromLeft(L::folderWidth(getWidth())));
+    area.removeFromLeft(L::OPEN_GAP);
+    mOpenFolderButton->setBounds(area.removeFromLeft(L::OPEN_BUTTON));
     area.removeFromLeft(L::MIDDLE_GAP);
     mStatusLabel->setBounds(area);
 }

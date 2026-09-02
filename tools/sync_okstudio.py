@@ -35,13 +35,42 @@ VENDORED = [
     "okstudio/CaptureMath.h",
     "okstudio/Obsidian.h",
     "okstudio/MouseOnly.h",
+    "okstudio/Icons.h",
+    "okstudio/Fonts.h",
+]
+
+# Files Quarry vendors from <kit>/data rather than <kit>/include. Same idea, different root and
+# different rules: these are binaries, so they are copied byte for byte with no line-ending
+# normalising, and OFL.txt is not optional decoration -- the licence requires it to travel with
+# the faces, and embedding a font in a binary is redistributing it.
+VENDORED_DATA = [
+    "fonts/Montserrat-Regular.ttf",
+    "fonts/Montserrat-SemiBold.ttf",
+    "fonts/Montserrat-Bold.ttf",
+    "fonts/OFL.txt",
 ]
 
 KIT_REPO = "https://github.com/owenpkent/okstudio-juce-kit.git"
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 VENDOR_INCLUDE = os.path.join(REPO_ROOT, "ThirdParty", "okstudio", "include")
+VENDOR_DATA = os.path.join(REPO_ROOT, "ThirdParty", "okstudio", "data")
 PIN_FILE = os.path.join(REPO_ROOT, "ThirdParty", "okstudio", "UPSTREAM.txt")
+
+
+def copy_bytes(src, dst):
+    """Copy one data file exactly. A TTF is not text and must not be touched."""
+    shutil.copyfile(src, dst)
+    shutil.copystat(src, dst)
+
+
+def sha256_exact(path):
+    """Hash one data file byte for byte, with no normalising: see sha256 for why headers differ."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 def copy_as_lf(src, dst):
@@ -149,7 +178,15 @@ def main():
         if not os.path.exists(src):
             missing.append(rel)
         elif not os.path.exists(dst) or sha256(src) != sha256(dst):
-            drifted.append((rel, src, dst))
+            drifted.append((rel, src, dst, copy_as_lf))
+
+    for rel in VENDORED_DATA:
+        src = os.path.join(kit, "data", *rel.split("/"))
+        dst = os.path.join(VENDOR_DATA, *rel.split("/"))
+        if not os.path.exists(src):
+            missing.append("data/" + rel)
+        elif not os.path.exists(dst) or sha256_exact(src) != sha256_exact(dst):
+            drifted.append(("data/" + rel, src, dst, copy_bytes))
 
     if missing:
         for rel in missing:
@@ -168,11 +205,11 @@ def main():
         if not args.check and pin != head:
             write_pin(head, bool(git(kit, "status", "--porcelain")))
             pin = head
-        print("up to date (" + str(len(VENDORED)) + " headers, pinned at " +
-              (pin or "unknown")[:12] + ")")
+        print("up to date (" + str(len(VENDORED)) + " headers, " + str(len(VENDORED_DATA)) +
+              " data files, pinned at " + (pin or "unknown")[:12] + ")")
         return 0
 
-    for rel, _, _ in drifted:
+    for rel, _, _, _ in drifted:
         print("DRIFT: " + rel)
 
     head = git(kit, "rev-parse", "HEAD")
@@ -190,9 +227,9 @@ def main():
         return 1
 
     print()
-    for rel, src, dst in drifted:
+    for rel, src, dst, copy in drifted:
         os.makedirs(os.path.dirname(dst), exist_ok=True)
-        copy_as_lf(src, dst)
+        copy(src, dst)
         print("copied " + rel + " (" + str(os.path.getsize(dst)) + " bytes)")
 
     dirty = bool(git(kit, "status", "--porcelain"))

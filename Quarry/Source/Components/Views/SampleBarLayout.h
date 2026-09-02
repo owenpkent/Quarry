@@ -34,6 +34,9 @@ constexpr int HEIGHT = 46;
 constexpr int MARGIN_X = 10;
 constexpr int MARGIN_Y = 8;
 
+/** How tall anything in the bar can be, once the inset has had its share. */
+constexpr int INNER_HEIGHT = HEIGHT - MARGIN_Y * 2;
+
 /** The "SAVE TO" caption, painted rather than laid out, and the room reserved for it. */
 constexpr int SAVE_TO_LABEL = 74;
 
@@ -51,7 +54,17 @@ constexpr int PITCH_BEND_GAP = 14;
 constexpr int PITCH_BEND = 150;
 constexpr int PITCH_BEND_TRAIL = 10;
 
-/** Between the folder button and the status label. */
+/** Between the folder button and the button that opens it, which are one control in two
+    halves and sit closer together than either does to anything else. */
+constexpr int OPEN_GAP = 6;
+
+/** The button that reveals the save folder in the file manager. An icon rather than the word
+    "Open", and square rather than a text button's shape: it is the second thing in the middle of
+    a bar that had room for one, every pixel it takes comes off the path beside it, and a folder
+    glyph says the same thing in 30 px that four letters needed 52 for. */
+constexpr int OPEN_BUTTON = 30;
+
+/** Between the folder pair and the status label. */
 constexpr int MIDDLE_GAP = 12;
 
 /** The folder would take this much for a long path, and settles for less when the status needs
@@ -60,9 +73,16 @@ constexpr int MIDDLE_GAP = 12;
 constexpr int FOLDER_IDEAL = 300;
 constexpr int FOLDER_FLOOR = 140;
 
-/** What the status keeps whatever else happens. "Saved take_01.wav and take_01.mid." is the
-    sentence this has to fit, and it is the only place that sentence appears. */
-constexpr int STATUS_FLOOR = 230;
+/** What the status keeps whatever else happens, and it is a measurement rather than a guess:
+    "Saved take_01.wav and take_01.mid." is the longest sentence this label writes that is not
+    part filename, and in Montserrat at the size it is drawn it wants 218 px.
+
+    The measuring is the point. This number was 230 by eye, then 240 after a test measured the
+    sentence in the platform default sans, then 225 once that test was corrected to measure in
+    the typeface the window is actually drawn in -- which the footer only became after Obsidian
+    stopped asking for Segoe UI by name. Two of those three numbers were wrong and neither was
+    wrong in a way anybody could see. Tests/sample_bar_test.h holds it now. */
+constexpr int STATUS_FLOOR = 225;
 
 /** What is left for the folder and the status together, once the fixed controls have had theirs. */
 constexpr int middleWidth(int inBarWidth)
@@ -71,9 +91,11 @@ constexpr int middleWidth(int inBarWidth)
            - PITCH_BEND_GAP - PITCH_BEND - PITCH_BEND_TRAIL;
 }
 
-/** The middle minus the gap down it: what the two stretching controls actually share. */
+/** The middle minus the fixed things standing in it: what the two stretching controls share.
+    The Open button is fixed-width, so it comes out before the division rather than competing in
+    it -- a button whose label is one word does not want a share of anything. */
 constexpr int shareableWidth(int inBarWidth)
-{ return middleWidth(inBarWidth) - MIDDLE_GAP; }
+{ return middleWidth(inBarWidth) - OPEN_GAP - OPEN_BUTTON - MIDDLE_GAP; }
 
 constexpr int folderWidth(int inBarWidth)
 {
@@ -91,6 +113,7 @@ constexpr int folderWidth(int inBarWidth)
 
 constexpr int statusWidth(int inBarWidth)
 { return shareableWidth(inBarWidth) - folderWidth(inBarWidth); }
+
 
 } // namespace SampleBarLayout
 
