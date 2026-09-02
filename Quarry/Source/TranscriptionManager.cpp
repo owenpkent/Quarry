@@ -725,31 +725,40 @@ void TranscriptionManager::cancelCurrentJob()
 {
     jassert(MessageManager::getInstance()->isThisTheMessageThread());
 
-    // The check, the flag and the kill all under mStageLock, which is the lock _setCancellable
-    // writes through. Reading cancellable and then dropping the lock -- as this did -- left a gap
-    // exactly the width of two statements on the job thread: transcribe() returns true, and the
+    // The claim on this cancel, taken under mStageLock -- the lock _setCancellable writes
+    // through. Reading cancellable and then dropping the lock, as this did, left a gap exactly
+    // the width of two statements on the job thread: transcribe() returns true, and the
     // _setCancellable(false) on the very next line has not run yet. A click landing there found
     // cancellable still set and terminated a child that had already answered. The take then
     // completed normally off the response it had, so nothing looked wrong, while a loaded model
-    // and its VRAM were thrown away and a dead client was left in mSidecarClient for the next
-    // take to trip over.
+    // and its VRAM were thrown away and a dead client was left behind for the next take.
     //
-    // Held across all three, the job thread's own _setCancellable(false) either gets the lock
-    // first -- and this returns having killed nothing -- or waits behind this and then reads the
-    // mCancelRequested set below. Either way the two agree on whether this take was cancelled.
-    const ScopedLock stage_lock(mStageLock);
+    // Deciding under the lock is what closes it. The job thread's _setCancellable(false) is a
+    // write through this same lock, and it reads mCancelRequested only after that write, so
+    // either this got here first -- and the job sees the flag and treats its own result as
+    // cancelled -- or the job did, and cancellable is already clear when this looks. There is no
+    // third ordering, which is the whole point; the kill() below does not have to be inside the
+    // lock for it to hold.
+    //
+    // Clearing cancellable here as well, so a second click while the first is still tearing the
+    // child down finds nothing to claim.
+    {
+        const ScopedLock stage_lock(mStageLock);
 
-    if (!mCurrentStage.cancellable)
-        return;
+        if (!mCurrentStage.cancellable)
+            return;
 
-    mCancelRequested.store(true);
+        mCurrentStage.cancellable = false;
+        mCancelRequested.store(true);
+    }
 
+    // Outside mStageLock deliberately: kill() joins the stderr pump, which it gives up to two
+    // seconds to notice it should stop. Holding the stage lock across that would park the job
+    // thread's next stage event behind a thread join, on the message thread, mid-cancel.
+    //
     // See mSidecarClientPointerLock's own comment: this is the read-and-kill() side of it. Not
     // mSidecarClientLock -- the job holds that for the whole call, which is exactly what a cancel
     // has to reach past rather than wait behind.
-    //
-    // Taken under mStageLock, and only ever in that order: nothing anywhere takes this one first
-    // and then reaches for the stage.
     const ScopedLock lock(mSidecarClientPointerLock);
 
     if (mSidecarClient != nullptr)
