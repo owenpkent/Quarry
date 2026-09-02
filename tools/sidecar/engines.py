@@ -132,7 +132,7 @@ def make_kong(device: str):
     return PianoTranscription(device=device)
 
 
-def run_kong(transcriber, wav_path, _device: str):
+def run_kong(transcriber, wav_path, _device: str, report=None):
     """Kong's own transcribe() hands back note/pedal events directly -- see
     piano_transcription_inference/inference.py: transcribe(audio, midi_path) returns
     {'est_note_events': [...], 'est_pedal_events': [...]}; midi_path=None skips the file write
@@ -144,7 +144,12 @@ def run_kong(transcriber, wav_path, _device: str):
     from piano_transcription_inference import sample_rate as kong_sample_rate
 
     audio, _ = load_audio(str(wav_path), sr=kong_sample_rate, mono=True)
+
+    if report:
+        report("infer", "running kong inference")
     result = transcriber.transcribe(audio, None)
+    if report:
+        report("infer", "kong inference done")
 
     notes = []
     for ev in result["est_note_events"]:
@@ -179,15 +184,19 @@ def make_transkun(_device: str):
     return None
 
 
-def run_transkun(_transcriber, wav_path, device: str):
+def run_transkun(_transcriber, wav_path, device: str, report=None):
     with tempfile.TemporaryDirectory() as tmp:
         out_path = pathlib.Path(tmp) / "out.mid"
 
+        if report:
+            report("infer", "running transkun in a subprocess (weights reload every request)")
         subprocess.run(
             [sys.executable, "-m", "transkun.transcribe", str(wav_path), str(out_path),
              "--device", device],
             check=True, stdout=sys.stderr, stderr=sys.stderr,
         )
+        if report:
+            report("infer", "transkun inference done")
 
         pm = pretty_midi.PrettyMIDI(str(out_path))
 
@@ -211,9 +220,13 @@ def make_muscriptor(device: str):
     return TranscriptionModel.load_model(device=device)
 
 
-def run_muscriptor(transcriber, wav_path, _device: str):
+def run_muscriptor(transcriber, wav_path, _device: str, report=None):
+    if report:
+        report("infer", "running muscriptor inference")
     # detect_tempo=False keeps onsets in wall-clock time; see the module docstring for why.
     midi_bytes = transcriber.transcribe_to_midi(str(wav_path), detect_tempo=False)
+    if report:
+        report("infer", "muscriptor inference done")
 
     with tempfile.NamedTemporaryFile(suffix=".mid", delete=False) as handle:
         handle.write(midi_bytes)
@@ -254,7 +267,7 @@ def make_demucs_separator(device: str):
     return Separator(model="htdemucs", device=device)
 
 
-def run_separated(separator, base_run, base_transcriber, wav_path, device: str):
+def run_separated(separator, base_run, base_transcriber, wav_path, device: str, report=None):
     """Runs htdemucs on wav_path, drops the drums stem, transcribes each remaining stem (bass,
     other, vocals) with the base engine's own run() function, tags every note's "instrument"
     field with the stem name it came from (overriding whatever the base engine would have
@@ -263,23 +276,30 @@ def run_separated(separator, base_run, base_transcriber, wav_path, device: str):
     separated stem wavs, cleaned up before this function returns."""
     from demucs.api import save_audio
 
+    if report:
+        report("separate", "running demucs source separation")
     _original, stems = separator.separate_audio_file(wav_path)
+    if report:
+        report("separate", "separation done")
 
     notes = []
     pedal = []
     warnings = []
 
+    stem_names = [name for name in stems if name not in DROPPED_STEMS]
+
     with tempfile.TemporaryDirectory() as tmp:
         tmp_dir = pathlib.Path(tmp)
 
-        for stem_name, stem_wav in stems.items():
-            if stem_name in DROPPED_STEMS:
-                continue
+        for i, stem_name in enumerate(stem_names):
+            if report:
+                report("stem", f"transcribing {stem_name} stem ({i + 1}/{len(stem_names)})",
+                       fraction=i / len(stem_names))
 
             stem_path = tmp_dir / f"{stem_name}.wav"
-            save_audio(stem_wav, stem_path, samplerate=separator.samplerate)
+            save_audio(stems[stem_name], stem_path, samplerate=separator.samplerate)
 
-            stem_notes, stem_pedal, stem_warnings = base_run(base_transcriber, stem_path, device)
+            stem_notes, stem_pedal, stem_warnings = base_run(base_transcriber, stem_path, device, report=report)
 
             for note in stem_notes:
                 note["instrument"] = stem_name

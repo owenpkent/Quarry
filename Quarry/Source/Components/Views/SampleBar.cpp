@@ -74,6 +74,24 @@ SampleBar::SampleBar(QuarryAudioProcessor& inProcessor)
     mOpenFolderButton->onClick = [this]() { _openFolder(); };
     addAndMakeVisible(*mOpenFolderButton);
 
+    mActivityToggleButton =
+        std::make_unique<DrawableButton>("ActivityToggleButton", DrawableButton::ButtonStyle::ImageFitted);
+    mActivityToggleButton->setColour(DrawableButton::ColourIds::backgroundColourId, Colours::transparentBlack);
+    mActivityToggleButton->setColour(DrawableButton::ColourIds::backgroundOnColourId, Colours::transparentBlack);
+
+    // chevronDown rather than anything closer to a terminal or a log: the icon set is Lucide's
+    // interface glyphs, none of which draw a console, and this is the one already named for
+    // revealing something that sits below what is on screen, which is what the drawer does.
+    auto activity_icon = quarry::lnf::icon(okstudio::icons::chevronDown, TEXT_DIM);
+    mActivityToggleButton->setImages(activity_icon.get());
+    mActivityToggleButton->setTitle("Toggle the activity log");
+    mActivityToggleButton->setTooltip("Show or hide the activity log.");
+    mActivityToggleButton->onClick = [this]() {
+        if (onToggleActivity != nullptr)
+            onToggleActivity();
+    };
+    addAndMakeVisible(*mActivityToggleButton);
+
     // Bound to the tree rather than read from it once, so a session loaded with the editor
     // open moves the boxes instead of leaving them showing the previous session's answer.
     // A tree-driven change reaches onStateChange but never onClick.
@@ -543,6 +561,8 @@ void SampleBar::resized()
     mFolderButton->setBounds(area.removeFromLeft(L::folderWidth(getWidth())));
     area.removeFromLeft(L::OPEN_GAP);
     mOpenFolderButton->setBounds(area.removeFromLeft(L::OPEN_BUTTON));
+    area.removeFromLeft(L::ACTIVITY_GAP);
+    mActivityToggleButton->setBounds(area.removeFromLeft(L::ACTIVITY_BUTTON));
     area.removeFromLeft(L::MIDDLE_GAP);
     mStatusLabel->setBounds(area);
 }

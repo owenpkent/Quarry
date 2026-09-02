@@ -15,6 +15,8 @@
 #include "VisualizationPanel.h"
 #include "AudioInputView.h"
 #include "SampleBar.h"
+#include "ActivityDrawer.h"
+#include "ProgressStrip.h"
 #include <okstudio/Obsidian.h>
 #include "NnId.h"
 #include "UpdateCheck.h"
@@ -65,6 +67,10 @@ private:
         means anything on the other page. */
     void _showSamplePage(bool inShouldShow);
 
+    /** Opens the activity drawer on Transcribe, closes it anywhere. The key and the footer button
+        both come here so the page rule lives in one place. */
+    void _toggleActivityDrawer();
+
     /** Sizes the window to whatever is on screen. Only the Sample page with its captures hidden
         asks for anything but the full width; Transcribe's layout is absolute and assumes it. */
     void _applyWindowSize();
@@ -101,6 +107,15 @@ private:
     std::unique_ptr<DrawableButton> mSettingsButton;
 
     std::unique_ptr<SampleBar> mSampleBar;
+
+    // Added last (see the constructor) so it paints over the column and the footer rather than
+    // under them. Hidden until the backtick key or the footer button opens it; see
+    // ActivityDrawerLayout for why it is an overlay and not a fourth section.
+    std::unique_ptr<ActivityDrawer> mActivityDrawer;
+
+    /** The header's progress bar, caption and Cancel, above the transport. Hides itself when no
+        job is running; see ProgressStripLayout for where it sits and why. */
+    std::unique_ptr<ProgressStrip> mProgressStrip;
 
 #if JUCE_WINDOWS
     /** The way back out of Transcribe, and the only navigation the toolbar needs now that the

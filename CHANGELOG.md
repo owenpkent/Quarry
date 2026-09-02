@@ -87,6 +87,31 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- feat: an activity drawer, so the app says what it is doing while it does it. A take on a
+  slow engine showed nothing for minutes, and the sidecar's own logs went to NUL because
+  nothing read them. Press ` on Transcribe (or the chevron in the footer) and a terminal-style
+  drawer slides over the column: Quarry's own stage lines, the sidecar's stage events (protocol
+  version 2 adds them; `tools/sidecar/PROTOCOL.md`), its raw stderr, and every error, in one
+  monospace feed; `clear` empties it. The prompt under the feed takes a URL: the sidecar fetches
+  the audio with yt-dlp into the SAVE TO folder and the wav lands in a take exactly as a dropped
+  file would. That is a developer surface, not a shipped feature; `docs/SIDECAR.md` says what to
+  install.
+- feat: a progress strip above the transport, and Cancel. The same stage feed drives a thin bar
+  and a caption at the top right of the header while a job runs, with a percentage when the
+  sidecar knows one. CANCEL shows for sidecar takes and downloads, kills the child, and the next
+  job starts a fresh one; the built-in model has no cancellation point, so it gets the bar and
+  the caption but no button. The strip captions off the stage *slug*, not the sidecar's own
+  sentence: it has 169 px between the bar and Cancel, and the sentence truncated to "received
+  transcribe request: en..." -- the half that named no stage at all. The drawer still shows the
+  sentence, which is where there is room for it.
+- fix: the sidecar's own stage events reach the app instead of its stderr. `transcribe` and
+  `download` run the engine under `redirect_stdout(sys.stderr)` so library chatter cannot
+  corrupt the wire, but that redirect also caught the stage events the engine itself reports
+  from inside the call -- `infer`, `separate`, `stem` -- which arrived as raw JSON on stderr and
+  were never parsed. Those are the slow stages a progress readout exists for; only `received`,
+  `load-model`, `post` and `done`, emitted outside the block, were getting through. Protocol
+  writes now go to the stdout captured at import, past any redirect, and the sidecar test names
+  the `infer` stage rather than counting stages, which is what let this through.
 - feat: engines are comparable on material with no ground truth. `tools/bakeoff/agreement.py`
   scores every engine pair's outputs against each other with the bake-off's own matcher, so
   real takes — which have no reference MIDI and never will — get a trust signal from

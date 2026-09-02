@@ -55,10 +55,12 @@ inline bool sample_bar_test()
     check(status >= STATUS_FLOOR, "the status label keeps its floor at the shipped width");
     check(folder <= FOLDER_IDEAL, "the folder button never exceeds what a path needs");
 
-    // The two of them plus the gap are the middle exactly. A split that does not add up leaves a
-    // strip of panel showing between them, or runs the status off the end of the bar.
-    check(folder + OPEN_GAP + OPEN_BUTTON + MIDDLE_GAP + status == middleWidth(WIDTH),
-          "the folder, the Open button and the two gaps are the whole middle");
+    // The two of them plus every gap and fixed button between them are the middle exactly. A
+    // split that does not add up leaves a strip of panel showing between them, or runs the
+    // status off the end of the bar.
+    check(folder + OPEN_GAP + OPEN_BUTTON + ACTIVITY_GAP + ACTIVITY_BUTTON + MIDDLE_GAP + status
+              == middleWidth(WIDTH),
+          "the folder, the Open button, the activity toggle and their gaps are the whole middle");
 
     // What the regression looked like, as a number rather than as a description. The status is
     // the half with nowhere else to say what it says, so it is the half that keeps its room.
@@ -75,7 +77,8 @@ inline bool sample_bar_test()
         const int narrow = WIDTH - 200;
         check(folderWidth(narrow) >= 0 && statusWidth(narrow) >= 0,
               "a bar too narrow for both floors still divides into two real widths");
-        check(folderWidth(narrow) + OPEN_GAP + OPEN_BUTTON + MIDDLE_GAP + statusWidth(narrow)
+        check(folderWidth(narrow) + OPEN_GAP + OPEN_BUTTON + ACTIVITY_GAP + ACTIVITY_BUTTON + MIDDLE_GAP
+                      + statusWidth(narrow)
                   == middleWidth(narrow),
               "a narrow bar's split still adds up");
         check(folderWidth(narrow) <= folder, "a narrower bar gives the folder no more than a wide one");
@@ -92,6 +95,8 @@ inline bool sample_bar_test()
     // box it is given. A box narrower than it is tall would letterbox the icon and put it out of
     // square with every other icon in the window, so the width has to clear the bar's own height.
     check(OPEN_BUTTON >= INNER_HEIGHT, "the Open button is at least square, so its icon is not squashed");
+    check(ACTIVITY_BUTTON >= INNER_HEIGHT,
+          "the activity toggle is at least square, so its icon is not squashed");
     check(INNER_HEIGHT == HEIGHT - MARGIN_Y * 2, "the inner height is what the inset actually leaves");
 
     // The picker carries the parameter's own choice names now that the "PITCH BEND" caption is

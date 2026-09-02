@@ -1,6 +1,6 @@
 //
-// Blocking client for the transcription sidecar protocol (version 1): newline-delimited JSON
-// over a child process's stdio.
+// Blocking client for the transcription sidecar protocol (tools/sidecar/PROTOCOL.md, version 2):
+// newline-delimited JSON over a child process's stdio.
 //
 
 #include "SidecarClient.h"
@@ -25,7 +25,126 @@ constexpr int kReadyTimeoutMs = 120000;
 // How long shutdown() waits for the child to exit on its own, after closing its stdin, before
 // insisting.
 constexpr int kShutdownWaitMs = 5000;
+
+// How long shutdown()/kill() wait for the stderr pump thread to notice it should stop and return
+// from run(). The pump's own read loop polls on a much shorter grain than this (see StderrPump::
+// run()), so in practice this is a ceiling that is never actually reached.
+constexpr int kStderrPumpStopMs = 2000;
 } // namespace
+
+/**
+ * Drains the child's stderr pipe on its own thread, from just after the process launches (see
+ * start()) until shutdown()/kill() stops it, and hands each complete line to the owning client's
+ * onStderrLine sink.
+ *
+ * Why a pump exists at all: stderr is logging per the protocol (a caller must never parse it),
+ * but it used to be discarded outright (sent to NUL / /dev/null) because nothing looked at it. A
+ * serve-mode caller now wants to see it -- piped into its own activity log -- so it has to be
+ * read from somewhere. The pipe still must never be allowed to fill regardless of whether
+ * anything is listening (a full pipe would block the sidecar's own stderr writes and,
+ * transitively, whatever engine call it is logging from), so this reads continuously the same
+ * way it always drained for free into NUL, and only the destination of the bytes has changed.
+ *
+ * Lines are split on '\n', with a trailing '\r' stripped so Windows-style "\r\n" and plain "\n"
+ * both produce the same line; a chunk that ends mid-line is held over to be completed by the next
+ * read rather than delivered early. Whatever partial line is left when the pipe closes (the
+ * child's last line, if it did not end with its own newline) is still delivered rather than lost.
+ */
+class SidecarClient::StderrPump : public juce::Thread
+{
+public:
+    explicit StderrPump(SidecarClient& inOwner) : juce::Thread("sidecar stderr pump"), mOwner(inOwner) {}
+
+    void run() override
+    {
+        char chunk[4096];
+
+        for (;;) {
+            if (threadShouldExit()) {
+                break;
+            }
+
+#if JUCE_WINDOWS
+            DWORD available = 0;
+
+            if (!PeekNamedPipe(mOwner.mChildStderrRead, nullptr, 0, nullptr, &available, nullptr)) {
+                break; // pipe closed: the child exited, or shutdown()/kill() closed our own end
+            }
+
+            if (available == 0) {
+                juce::Thread::sleep(2);
+                continue;
+            }
+
+            DWORD num_read = 0;
+            const DWORD to_read = std::min<DWORD>(available, static_cast<DWORD>(sizeof(chunk)));
+
+            if (!ReadFile(mOwner.mChildStderrRead, chunk, to_read, &num_read, nullptr) || num_read == 0) {
+                break;
+            }
+
+            mBuffer.append(chunk, num_read);
+#else
+            pollfd pfd{mOwner.mChildStderrRead, POLLIN, 0};
+            const auto poll_result = ::poll(&pfd, 1, 20);
+
+            if (poll_result < 0) {
+                break;
+            }
+
+            if (pfd.revents & (POLLHUP | POLLERR)) {
+                break; // far end closed: same "child gone or we closed our end" case as above
+            }
+
+            if (poll_result == 0 || (pfd.revents & POLLIN) == 0) {
+                continue;
+            }
+
+            const auto num_read = ::read(mOwner.mChildStderrRead, chunk, sizeof(chunk));
+
+            if (num_read <= 0) {
+                break;
+            }
+
+            mBuffer.append(chunk, static_cast<size_t>(num_read));
+#endif
+
+            _deliverCompleteLines();
+        }
+
+        // The child's very last line, if it did not end in its own newline, would otherwise be
+        // silently dropped just because the pipe closed a moment too soon.
+        if (!mBuffer.empty() && mOwner.onStderrLine) {
+            mOwner.onStderrLine(juce::String::fromUTF8(mBuffer.data(), static_cast<int>(mBuffer.size())));
+        }
+    }
+
+private:
+    void _deliverCompleteLines()
+    {
+        for (;;) {
+            const auto newline_pos = mBuffer.find('\n');
+
+            if (newline_pos == std::string::npos) {
+                return;
+            }
+
+            auto line = mBuffer.substr(0, newline_pos);
+            mBuffer.erase(0, newline_pos + 1);
+
+            if (!line.empty() && line.back() == '\r') {
+                line.pop_back();
+            }
+
+            if (mOwner.onStderrLine) {
+                mOwner.onStderrLine(juce::String::fromUTF8(line.data(), static_cast<int>(line.size())));
+            }
+        }
+    }
+
+    SidecarClient& mOwner;
+    std::string mBuffer;
+};
 
 SidecarClient::SidecarClient(const juce::String& inCommandLine) : mCommandLine(inCommandLine) {}
 
@@ -70,6 +189,38 @@ bool SidecarClient::hasEngineList() const
 const juce::String& SidecarClient::getDevice() const
 {
     return mDevice;
+}
+
+int SidecarClient::getProtocolVersion() const
+{
+    return mProtocolVersion;
+}
+
+SidecarClient::LineKind SidecarClient::classifyLine(const juce::var& inParsed, SidecarStage& outStage)
+{
+    // Not a JSON object at all: parse failure, a bare array, or stray non-protocol output on
+    // stdout. Nothing to read fields from, and definitely not a stage event.
+    if (inParsed.getDynamicObject() == nullptr) {
+        return LineKind::Other;
+    }
+
+    if (inParsed.getProperty("event", juce::var()).toString() != "stage") {
+        // Not a stage event: could be the response a caller is waiting for (transcribe/download's
+        // {"id":...,"ok":...}, or start()'s {"event":"ready",...}), or some event type this client
+        // does not know about. Classification stops here either way -- each call site already has
+        // its own "is this actually what I'm waiting for" check (an id match, or event=="ready"),
+        // and a line that fails that check is skipped there exactly as an unknown event would be.
+        return LineKind::Other;
+    }
+
+    outStage.stage = inParsed.getProperty("stage", juce::var()).toString();
+    outStage.text = inParsed.getProperty("text", juce::var()).toString();
+    outStage.t = static_cast<double>(inParsed.getProperty("t", 0.0));
+
+    const auto fraction = inParsed.getProperty("fraction", juce::var());
+    outStage.fraction = fraction.isVoid() ? -1.0 : static_cast<double>(fraction);
+
+    return LineKind::Stage;
 }
 
 bool SidecarClient::_writeLine(const juce::String& inLine, juce::String& outError)
@@ -136,13 +287,15 @@ bool SidecarClient::_readLine(juce::String& outLine, double inDeadlineStart, int
         DWORD available = 0;
 
         if (!PeekNamedPipe(mChildStdoutRead, nullptr, 0, nullptr, &available, nullptr)) {
-            outError = "sidecar stdout pipe closed";
+            // Reported once the far end (the child) is gone -- either it exited on its own, or
+            // kill() just terminated it; mKilled tells the two apart for outError's sake.
+            outError = mKilled ? "sidecar terminated" : "sidecar stdout pipe closed";
             return false;
         }
 
         if (available == 0) {
             if (!isRunning()) {
-                outError = "sidecar process exited unexpectedly";
+                outError = mKilled ? "sidecar terminated" : "sidecar process exited unexpectedly";
                 return false;
             }
 
@@ -154,7 +307,7 @@ bool SidecarClient::_readLine(juce::String& outLine, double inDeadlineStart, int
         const DWORD to_read = std::min<DWORD>(available, static_cast<DWORD>(sizeof(chunk)));
 
         if (!ReadFile(mChildStdoutRead, chunk, to_read, &num_read, nullptr) || num_read == 0) {
-            outError = "failed to read sidecar stdout";
+            outError = mKilled ? "sidecar terminated" : "failed to read sidecar stdout";
             return false;
         }
 
@@ -166,13 +319,20 @@ bool SidecarClient::_readLine(juce::String& outLine, double inDeadlineStart, int
         const auto poll_result = ::poll(&pfd, 1, 5);
 
         if (poll_result < 0) {
-            outError = "failed to poll sidecar stdout";
+            outError = mKilled ? "sidecar terminated" : "failed to poll sidecar stdout";
+            return false;
+        }
+
+        if (pfd.revents & (POLLHUP | POLLERR)) {
+            // The far end closed -- reported directly by poll() rather than waiting to learn it
+            // the hard way from a subsequent read() returning 0.
+            outError = mKilled ? "sidecar terminated" : "sidecar stdout pipe closed";
             return false;
         }
 
         if (poll_result == 0 || (pfd.revents & POLLIN) == 0) {
             if (!isRunning()) {
-                outError = "sidecar process exited unexpectedly";
+                outError = mKilled ? "sidecar terminated" : "sidecar process exited unexpectedly";
                 return false;
             }
 
@@ -182,7 +342,7 @@ bool SidecarClient::_readLine(juce::String& outLine, double inDeadlineStart, int
         const auto num_read = ::read(mChildStdoutRead, chunk, sizeof(chunk));
 
         if (num_read <= 0) {
-            outError = "failed to read sidecar stdout";
+            outError = mKilled ? "sidecar terminated" : "failed to read sidecar stdout";
             return false;
         }
 
@@ -208,18 +368,35 @@ bool SidecarClient::_readResponse(const juce::String& inAwaitedId,
         juce::var parsed;
         juce::JSON::parse(line, parsed);
 
-        // Not a JSON object at all (parse failure, a bare array, stray non-protocol output on
-        // stdout): garbage per the protocol's own terms. Skip and keep waiting.
-        if (parsed.getDynamicObject() == nullptr) {
-            continue;
+        SidecarStage stage;
+        const auto kind = classifyLine(parsed, stage);
+
+        if (kind == LineKind::Stage) {
+            if (onStage) {
+                onStage(stage);
+            }
+
+            continue; // same deadline_start/inTimeoutMs: a stage event does not buy more time
         }
 
+        // Not a stage event: either garbage (malformed line, stray non-protocol output -- not a
+        // JSON object at all, so getProperty below just falls back to its default) or a
+        // well-formed line that is not this request's response. Either way, skip and keep
+        // waiting.
         if (parsed.getProperty("id", juce::var()).toString() != inAwaitedId) {
             continue;
         }
 
         outResponse = parsed;
         return true;
+    }
+}
+
+void SidecarClient::_stopStderrPump()
+{
+    if (mStderrPump != nullptr) {
+        mStderrPump->stopThread(kStderrPumpStopMs);
+        mStderrPump.reset();
     }
 }
 
@@ -236,9 +413,21 @@ void SidecarClient::_closeHandles()
         mChildStdoutRead = nullptr;
     }
 
+    if (mChildStderrRead != nullptr) {
+        CloseHandle(mChildStderrRead);
+        mChildStderrRead = nullptr;
+    }
+
     if (mProcessHandle != nullptr) {
         CloseHandle(mProcessHandle);
         mProcessHandle = nullptr;
+    }
+
+    // Last, and after the process handle: closing the job is what would kill the child if it were
+    // somehow still running, and by this point shutdown()/kill() have already ended it deliberately.
+    if (mJobHandle != nullptr) {
+        CloseHandle(mJobHandle);
+        mJobHandle = nullptr;
     }
 #else
     if (mChildStdinWrite >= 0) {
@@ -249,6 +438,11 @@ void SidecarClient::_closeHandles()
     if (mChildStdoutRead >= 0) {
         close(mChildStdoutRead);
         mChildStdoutRead = -1;
+    }
+
+    if (mChildStderrRead >= 0) {
+        close(mChildStderrRead);
+        mChildStderrRead = -1;
     }
 
     if (mChildPid > 0) {
@@ -275,6 +469,8 @@ bool SidecarClient::start(juce::String& outError)
     HANDLE child_stdin_write = nullptr;
     HANDLE child_stdout_read = nullptr;
     HANDLE child_stdout_write = nullptr;
+    HANDLE child_stderr_read = nullptr;
+    HANDLE child_stderr_write = nullptr;
 
     if (!CreatePipe(&child_stdin_read, &child_stdin_write, &security_attributes, 0)
         || !SetHandleInformation(child_stdin_write, HANDLE_FLAG_INHERIT, 0)) {
@@ -290,23 +486,25 @@ bool SidecarClient::start(juce::String& outError)
         return false;
     }
 
-    // stderr is logging per the protocol and must not block the sidecar even if nothing ever
-    // looks at it. Sending it to NUL drains it for free, instead of a thread whose only job is
-    // to discard a pipe.
-    HANDLE nul_handle = CreateFileW(L"NUL",
-                                    GENERIC_WRITE,
-                                    FILE_SHARE_WRITE | FILE_SHARE_READ,
-                                    &security_attributes,
-                                    OPEN_EXISTING,
-                                    FILE_ATTRIBUTE_NORMAL,
-                                    nullptr);
+    // stderr is logging per the protocol, piped rather than discarded so onStderrLine (via
+    // StderrPump) can hand it to a caller's own activity log; see StderrPump's docs above for why
+    // this still has to be drained continuously regardless of whether anyone is listening.
+    if (!CreatePipe(&child_stderr_read, &child_stderr_write, &security_attributes, 0)
+        || !SetHandleInformation(child_stderr_read, HANDLE_FLAG_INHERIT, 0)) {
+        outError = "failed to create sidecar stderr pipe";
+        CloseHandle(child_stdin_read);
+        CloseHandle(child_stdin_write);
+        CloseHandle(child_stdout_read);
+        CloseHandle(child_stdout_write);
+        return false;
+    }
 
     STARTUPINFOW startup_info{};
     startup_info.cb = sizeof(startup_info);
     startup_info.dwFlags = STARTF_USESTDHANDLES;
     startup_info.hStdInput = child_stdin_read;
     startup_info.hStdOutput = child_stdout_write;
-    startup_info.hStdError = nul_handle;
+    startup_info.hStdError = child_stderr_write;
 
     PROCESS_INFORMATION process_info{};
 
@@ -315,12 +513,30 @@ bool SidecarClient::start(juce::String& outError)
     const auto* wide_command_line = mCommandLine.toWideCharPointer();
     std::vector<wchar_t> command_buffer(wide_command_line, wide_command_line + mCommandLine.length() + 1);
 
+    // See mJobHandle: the net that catches the child when this process is terminated rather than
+    // closed. Best-effort -- a null job here just means the child outlives an abnormal exit, which
+    // is exactly the behaviour this had before, so it is not worth failing the start over.
+    HANDLE job = CreateJobObjectW(nullptr, nullptr);
+
+    if (job != nullptr) {
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
+        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+
+        if (!SetInformationJobObject(job, JobObjectExtendedLimitInformation, &limits, sizeof(limits))) {
+            CloseHandle(job);
+            job = nullptr;
+        }
+    }
+
+    // CREATE_SUSPENDED so the child is in the job before it runs a single instruction. Assigning
+    // afterwards would leave a window in which it could spawn a grandchild (or exit) outside the
+    // job, and a model-loading python is exactly the sort of process that spawns things early.
     const auto created = CreateProcessW(nullptr,
                                         command_buffer.data(),
                                         nullptr,
                                         nullptr,
                                         TRUE,
-                                        CREATE_NO_WINDOW,
+                                        CREATE_NO_WINDOW | (job != nullptr ? CREATE_SUSPENDED : 0u),
                                         nullptr,
                                         nullptr,
                                         &startup_info,
@@ -329,28 +545,51 @@ bool SidecarClient::start(juce::String& outError)
 
     CloseHandle(child_stdin_read);
     CloseHandle(child_stdout_write);
-
-    if (nul_handle != nullptr && nul_handle != INVALID_HANDLE_VALUE) {
-        CloseHandle(nul_handle);
-    }
+    CloseHandle(child_stderr_write);
 
     if (!created) {
         outError = "failed to launch sidecar: " + mCommandLine;
+
+        if (job != nullptr) {
+            CloseHandle(job);
+        }
+
         CloseHandle(child_stdin_write);
         CloseHandle(child_stdout_read);
+        CloseHandle(child_stderr_read);
         return false;
+    }
+
+    if (job != nullptr) {
+        // A failure to assign or resume leaves a suspended child that will never speak, so this is
+        // the one place the job is worth dying over: kill it and report, rather than starting a
+        // sidecar that silently answers nothing.
+        if (!AssignProcessToJobObject(job, process_info.hProcess) || ResumeThread(process_info.hThread) == (DWORD) -1) {
+            outError = "failed to place the sidecar in its job object";
+            TerminateProcess(process_info.hProcess, 1);
+            CloseHandle(process_info.hThread);
+            CloseHandle(process_info.hProcess);
+            CloseHandle(job);
+            CloseHandle(child_stdin_write);
+            CloseHandle(child_stdout_read);
+            CloseHandle(child_stderr_read);
+            return false;
+        }
     }
 
     CloseHandle(process_info.hThread);
 
+    mJobHandle = job;
     mProcessHandle = process_info.hProcess;
     mChildStdinWrite = child_stdin_write;
     mChildStdoutRead = child_stdout_read;
+    mChildStderrRead = child_stderr_read;
 #else
     int stdin_pipe[2];
     int stdout_pipe[2];
+    int stderr_pipe[2];
 
-    if (pipe(stdin_pipe) != 0 || pipe(stdout_pipe) != 0) {
+    if (pipe(stdin_pipe) != 0 || pipe(stdout_pipe) != 0 || pipe(stderr_pipe) != 0) {
         outError = "failed to create sidecar pipes";
         return false;
     }
@@ -363,22 +602,19 @@ bool SidecarClient::start(juce::String& outError)
     }
 
     if (pid == 0) {
-        // Child: wire the pipes onto the standard streams, discard stderr, and hand off to a
-        // shell so the command line gets the same quoting/splitting a caller typing it would
-        // expect.
+        // Child: wire the pipes onto the standard streams and hand off to a shell so the command
+        // line gets the same quoting/splitting a caller typing it would expect. stderr is piped
+        // rather than discarded now -- see the stderr-pipe comment on the Windows branch above.
         dup2(stdin_pipe[0], STDIN_FILENO);
         dup2(stdout_pipe[1], STDOUT_FILENO);
-
-        const auto dev_null = open("/dev/null", O_WRONLY);
-
-        if (dev_null >= 0) {
-            dup2(dev_null, STDERR_FILENO);
-        }
+        dup2(stderr_pipe[1], STDERR_FILENO);
 
         close(stdin_pipe[0]);
         close(stdin_pipe[1]);
         close(stdout_pipe[0]);
         close(stdout_pipe[1]);
+        close(stderr_pipe[0]);
+        close(stderr_pipe[1]);
 
         execl("/bin/sh", "sh", "-c", mCommandLine.toRawUTF8(), (char*) nullptr);
         _exit(127);
@@ -386,13 +622,20 @@ bool SidecarClient::start(juce::String& outError)
 
     close(stdin_pipe[0]);
     close(stdout_pipe[1]);
+    close(stderr_pipe[1]);
 
     mChildStdinWrite = stdin_pipe[1];
     mChildStdoutRead = stdout_pipe[0];
+    mChildStderrRead = stderr_pipe[0];
     mChildPid = pid;
 #endif
 
     mStarted = true;
+
+    // Draining from here (right after the process exists) rather than only once the "ready" wait
+    // below succeeds, so nothing the child logs during its own startup is lost.
+    mStderrPump = std::make_unique<StderrPump>(*this);
+    mStderrPump->startThread();
 
     const auto deadline_start = juce::Time::getMillisecondCounterHiRes();
 
@@ -400,6 +643,7 @@ bool SidecarClient::start(juce::String& outError)
         juce::String line;
 
         if (!_readLine(line, deadline_start, kReadyTimeoutMs, outError)) {
+            _stopStderrPump();
             _closeHandles();
             mStarted = false;
             return false;
@@ -407,6 +651,17 @@ bool SidecarClient::start(juce::String& outError)
 
         juce::var parsed;
         juce::JSON::parse(line, parsed);
+
+        SidecarStage stage;
+        const auto kind = classifyLine(parsed, stage);
+
+        if (kind == LineKind::Stage) {
+            if (onStage) {
+                onStage(stage);
+            }
+
+            continue; // a stage event before "ready" would be unusual, but costs nothing to forward
+        }
 
         if (parsed.getDynamicObject() == nullptr) {
             continue; // not a protocol line; keep waiting for "ready"
@@ -427,6 +682,7 @@ bool SidecarClient::start(juce::String& outError)
             }
 
             mDevice = parsed.getProperty("device", juce::var()).toString();
+            mProtocolVersion = static_cast<int>(parsed.getProperty("protocol", 0));
 
             return true;
         }
@@ -518,10 +774,59 @@ bool SidecarClient::transcribe(const juce::File& inWav,
     return true;
 }
 
+bool SidecarClient::download(const juce::String& inUrl,
+                             const juce::File& inOutDir,
+                             juce::File& outFile,
+                             juce::String& outTitle,
+                             juce::String& outError,
+                             int inTimeoutMs)
+{
+    if (!mStarted || !isRunning()) {
+        outError = "sidecar is not running";
+        return false;
+    }
+
+    const auto id = juce::String(++mNextId);
+
+    auto* request = new juce::DynamicObject();
+    request->setProperty("id", id);
+    request->setProperty("cmd", "download");
+    request->setProperty("url", inUrl);
+    request->setProperty("out_dir", inOutDir.getFullPathName());
+
+    if (!_writeLine(juce::JSON::toString(juce::var(request), true), outError)) {
+        return false;
+    }
+
+    juce::var response;
+
+    if (!_readResponse(id, response, inTimeoutMs, outError)) {
+        return false;
+    }
+
+    if (!static_cast<bool>(response.getProperty("ok", false))) {
+        outError = response.getProperty("error", "sidecar reported failure without a message").toString();
+        return false;
+    }
+
+    outFile = juce::File(response.getProperty("path", juce::var()).toString());
+    outTitle = response.getProperty("title", juce::var()).toString();
+
+    return true;
+}
+
 void SidecarClient::shutdown()
 {
-    if (!mStarted) {
-        return;
+    {
+        // See kill()'s docs: the two are idempotent against each other via this same lock, so
+        // whichever runs first does the teardown and the other is a no-op.
+        const juce::ScopedLock lock(mLifecycleLock);
+
+        if (!mStarted) {
+            return;
+        }
+
+        mStarted = false;
     }
 
     if (isRunning()) {
@@ -562,14 +867,50 @@ void SidecarClient::shutdown()
         }
 
         if (!exited) {
-            kill(mChildPid, SIGKILL);
+            ::kill(mChildPid, SIGKILL);
         }
     }
 #endif
 
+    _stopStderrPump();
     _closeHandles();
     mReadBuffer.clear();
-    mStarted = false;
+}
+
+void SidecarClient::kill()
+{
+    {
+        // Idempotent against shutdown() via the same lock: see shutdown()'s own comment on this.
+        const juce::ScopedLock lock(mLifecycleLock);
+
+        if (!mStarted) {
+            return;
+        }
+
+        mStarted = false;
+    }
+
+    // Set before terminating, not after: the whole point is for _readLine, on whatever thread is
+    // blocked reading a response right now, to see this the moment it notices the pipe is gone.
+    mKilled = true;
+
+#if JUCE_WINDOWS
+    if (mProcessHandle != nullptr) {
+        TerminateProcess(mProcessHandle, 1);
+    }
+#else
+    if (mChildPid > 0) {
+        ::kill(mChildPid, SIGKILL);
+    }
+#endif
+
+    _stopStderrPump();
+    _closeHandles();
+
+    // mReadBuffer is deliberately left alone here (shutdown() clears it; kill() does not): a
+    // blocked transcribe()/download() call may still be appending to it on another thread for a
+    // few more iterations of its read loop before it notices mKilled and returns, and clearing it
+    // out from under that would be a real data race, not just an untidy handoff.
 }
 
 std::vector<Notes::Event> toNotesEvents(const std::vector<SidecarNote>& inNotes)

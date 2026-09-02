@@ -8,11 +8,17 @@ tools/bakeoff/.venv/Scripts/python.exe tools/sidecar/test_sidecar.py
     file (tools/bakeoff/out/maestro_real/<engine>/maestro_low1_2008_c4ab.mid), and a non-empty
     pedal list for kong on that pedalled corpus.
 (b) `serve` mode driven as a real subprocess over its stdin/stdout pipe: the ready line, two
-    transcribe requests (kong, transkun), an intentionally bad request (missing "wav") that must
-    come back ok:false without killing the process, then a clean shutdown.
+    transcribe requests (kong, transkun) -- checking that "stage" events arrive before each
+    response, carry that request's id, and include the `infer` stage the engine reports from
+    inside transcribe()'s stdout redirect -- an intentionally bad request (missing
+    "wav") that must come back ok:false without killing the process, then a clean shutdown.
+(c) `download`, over the same `serve` subprocess: only runs when QUARRY_TEST_DOWNLOAD_URL is set
+    in the environment (skipped with a printed note otherwise, since it needs network access and
+    a real URL); checks a wav lands on disk, stage events arrive, and the response schema.
 """
 
 import json
+import os
 import pathlib
 import queue
 import subprocess
@@ -136,6 +142,68 @@ def test_one_shot():
                 check(len(pedal) > 0, "kong: pedal non-empty on the pedalled maestro corpus")
 
 
+class _ServeHarness:
+    """A `serve`-mode subprocess plus the send/recv plumbing every test that drives one needs.
+    Factored out of test_serve() so test_download() (a second serve-mode test) does not have to
+    duplicate the pump threads and the stage-event-aware recv loop."""
+
+    def __init__(self):
+        self.proc = subprocess.Popen(
+            [str(PYTHON), str(SIDECAR), "serve"],
+            cwd=str(SCRIPT_DIR), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, bufsize=1,
+        )
+        self.stdout_q: "queue.Queue" = queue.Queue()
+        self.stderr_lines = []
+
+        threading.Thread(target=self._pump_stdout, daemon=True).start()
+        threading.Thread(target=self._pump_stderr, daemon=True).start()
+
+    def _pump_stdout(self):
+        for line in self.proc.stdout:
+            self.stdout_q.put(line)
+        self.stdout_q.put(None)
+
+    def _pump_stderr(self):
+        for line in self.proc.stderr:
+            self.stderr_lines.append(line)
+
+    def send(self, obj):
+        self.proc.stdin.write(json.dumps(obj) + "\n")
+        self.proc.stdin.flush()
+
+    def recv_line(self, timeout=240):
+        """One parsed JSON line, whatever it is (a response, or an event like "ready" or
+        "stage")."""
+        try:
+            line = self.stdout_q.get(timeout=timeout)
+        except queue.Empty:
+            check(False, f"got a response line within {timeout}s")
+            return None
+        if line is None:
+            check(False, "stdout closed (EOF) before a response arrived")
+            return None
+        return json.loads(line)
+
+    def recv_response(self, timeout=240):
+        """Reads lines until the request's response arrives (an "ok" line, not an "event" line),
+        collecting any "stage" events seen along the way. Returns (response, stage_events)."""
+        stages = []
+        while True:
+            obj = self.recv_line(timeout=timeout)
+            if obj is None:
+                return None, stages
+            if obj.get("event") == "stage":
+                stages.append(obj)
+                continue
+            return obj, stages
+
+    def close(self):
+        if self.proc.poll() is None:
+            self.proc.kill()
+            self.proc.wait(timeout=10)
+
+
 def test_serve():
     print("\n=== (b) serve mode ===")
     wav, _ = find_wav()
@@ -149,92 +217,114 @@ def test_serve():
     if engine_a is None:
         return
 
-    proc = subprocess.Popen(
-        [str(PYTHON), str(SIDECAR), "serve"],
-        cwd=str(SCRIPT_DIR), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        text=True, bufsize=1,
-    )
-
-    stdout_q: "queue.Queue" = queue.Queue()
-    stderr_lines = []
-
-    def pump_stdout():
-        for line in proc.stdout:
-            stdout_q.put(line)
-        stdout_q.put(None)
-
-    def pump_stderr():
-        for line in proc.stderr:
-            stderr_lines.append(line)
-
-    threading.Thread(target=pump_stdout, daemon=True).start()
-    threading.Thread(target=pump_stderr, daemon=True).start()
-
-    def send(obj):
-        proc.stdin.write(json.dumps(obj) + "\n")
-        proc.stdin.flush()
-
-    def recv(timeout=240):
-        try:
-            line = stdout_q.get(timeout=timeout)
-        except queue.Empty:
-            check(False, f"got a response line within {timeout}s")
-            return None
-        if line is None:
-            check(False, "stdout closed (EOF) before a response arrived")
-            return None
-        return json.loads(line)
+    harness = _ServeHarness()
 
     try:
-        ready = recv(timeout=60)
+        ready = harness.recv_line(timeout=60)
         check(ready is not None and ready.get("event") == "ready", f"ready event: {ready!r}")
         if ready:
-            check(ready.get("protocol") == 1, f"protocol version 1: {ready.get('protocol')!r}")
+            check(ready.get("protocol") == 2, f"protocol version 2: {ready.get('protocol')!r}")
             check(isinstance(ready.get("engines"), list) and ready["engines"], f"engines list non-empty: {ready.get('engines')!r}")
             check(ready.get("device") in ("cuda", "cpu"), f"device is cuda or cpu: {ready.get('device')!r}")
 
         print(f"-- transcribe request 1 ({engine_a})...")
-        send({"id": "req-1", "cmd": "transcribe", "wav": str(wav), "engine": engine_a})
-        resp1 = recv()
+        harness.send({"id": "req-1", "cmd": "transcribe", "wav": str(wav), "engine": engine_a})
+        resp1, stages1 = harness.recv_response()
         check(resp1 is not None and resp1.get("id") == "req-1", f"req-1 id echoed: {resp1.get('id') if resp1 else None!r}")
+        check(len(stages1) > 0, "at least one stage event arrived before the transcribe response")
+        if stages1:
+            check(all(s.get("id") == "req-1" for s in stages1), "stage events carry the request's id")
+
+            # Named explicitly, not just counted. transcribe() runs the engine under
+            # contextlib.redirect_stdout(sys.stderr) to keep library chatter off the wire, and
+            # that redirect used to swallow every stage the engine itself reported -- `infer`
+            # above all -- while `received`/`load-model`/`post`/`done` still arrived from outside
+            # the block. A "len(stages) > 0" check passes happily through that bug; the caller's
+            # progress readout does not, since `infer` is the long part of the request.
+            slugs = {s.get("stage") for s in stages1}
+            check("infer" in slugs, f"the infer stage reached the caller, not just stderr: {sorted(slugs)}")
+            check("done" in slugs, f"the done stage reached the caller: {sorted(slugs)}")
         if resp1 is not None:
             validate_schema(resp1)
 
         print(f"-- transcribe request 2 ({engine_b})...")
-        send({"id": "req-2", "cmd": "transcribe", "wav": str(wav), "engine": engine_b})
-        resp2 = recv()
+        harness.send({"id": "req-2", "cmd": "transcribe", "wav": str(wav), "engine": engine_b})
+        resp2, _stages2 = harness.recv_response()
         check(resp2 is not None and resp2.get("id") == "req-2", f"req-2 id echoed: {resp2.get('id') if resp2 else None!r}")
         if resp2 is not None:
             validate_schema(resp2)
 
         print("-- intentionally bad request (missing wav)...")
-        send({"id": "req-bad", "cmd": "transcribe", "engine": engine_a})
-        resp_bad = recv()
+        harness.send({"id": "req-bad", "cmd": "transcribe", "engine": engine_a})
+        resp_bad, _stages_bad = harness.recv_response()
         check(resp_bad is not None and resp_bad.get("id") == "req-bad", f"bad request id echoed: {resp_bad!r}")
         if resp_bad is not None:
             check(resp_bad.get("ok") is False, f"bad request returns ok:false: {resp_bad!r}")
             check(isinstance(resp_bad.get("error"), str) and resp_bad["error"], "bad request carries an error message")
 
-        check(proc.poll() is None, "process still alive after the bad request")
+        check(harness.proc.poll() is None, "process still alive after the bad request")
 
         print("-- shutdown...")
-        send({"cmd": "shutdown"})
+        harness.send({"cmd": "shutdown"})
         try:
-            exit_code = proc.wait(timeout=30)
+            exit_code = harness.proc.wait(timeout=30)
         except subprocess.TimeoutExpired:
-            proc.kill()
+            harness.proc.kill()
             exit_code = None
         check(exit_code == 0, f"clean shutdown, exit code {exit_code!r}")
     finally:
-        if proc.poll() is None:
-            proc.kill()
-            proc.wait(timeout=10)
-        print(f"(serve stderr: {len(stderr_lines)} line(s), suppressed)")
+        harness.close()
+        print(f"(serve stderr: {len(harness.stderr_lines)} line(s), suppressed)")
+
+
+def test_download():
+    print("\n=== (c) download ===")
+    url = os.environ.get("QUARRY_TEST_DOWNLOAD_URL")
+    if not url:
+        print("-- skip: QUARRY_TEST_DOWNLOAD_URL is not set")
+        return
+
+    with tempfile.TemporaryDirectory(prefix="quarry_sidecar_download_test_") as tmp:
+        harness = _ServeHarness()
+
+        try:
+            ready = harness.recv_line(timeout=60)
+            check(ready is not None and ready.get("event") == "ready", f"ready event: {ready!r}")
+
+            print(f"-- download request ({url})...")
+            harness.send({"id": "dl-1", "cmd": "download", "url": url, "out_dir": tmp})
+            resp, stages = harness.recv_response(timeout=300)
+
+            check(resp is not None and resp.get("id") == "dl-1", f"dl-1 id echoed: {resp.get('id') if resp else None!r}")
+            check(len(stages) > 0, "at least one stage event arrived before the download response")
+            if stages:
+                check(all(s.get("id") == "dl-1" for s in stages), "download stage events carry the request's id")
+
+            if resp is not None:
+                check(resp.get("ok") is True, f"download ok:true (error={resp.get('error')!r})")
+                if resp.get("ok"):
+                    path = resp.get("path")
+                    check(isinstance(path, str) and pathlib.Path(path).is_file(), f"downloaded wav exists on disk: {path!r}")
+                    check(isinstance(resp.get("title"), str) and resp["title"], f"title is a non-empty str: {resp.get('title')!r}")
+                    duration = resp.get("duration_s")
+                    check(duration is None or isinstance(duration, (int, float)), f"duration_s is a number or null: {duration!r}")
+                    elapsed = resp.get("elapsed_s")
+                    check(isinstance(elapsed, (int, float)) and elapsed >= 0, f"elapsed_s is a non-negative number: {elapsed!r}")
+
+            print("-- shutdown...")
+            harness.send({"cmd": "shutdown"})
+            try:
+                harness.proc.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                harness.proc.kill()
+        finally:
+            harness.close()
 
 
 def main():
     test_one_shot()
     test_serve()
+    test_download()
 
     print("\n=== summary ===")
     if FAILURES:
