@@ -108,10 +108,10 @@ inline bool sample_bar_test()
     {
         // Measured in the font the picker is actually drawn in, which is not the platform
         // default: Obsidian's getComboBoxFont is ui(14.0f), and ui() resolves to whatever the
-        // editor handed setUiTypefaces -- Montserrat. Measuring in the default sans, as this
-        // first did, was wrong on the typeface and on the size at once, and Montserrat is the
-        // wider of the two, so it was wrong in the direction that lets an overflow through.
-        okstudio::obsidian::setUiTypefaces(UIDefines::MONTSERRAT_REGULAR(), UIDefines::MONTSERRAT_SEMIBOLD());
+        // editor handed setUiTypefaces -- Montserrat, which main() sets for the whole run.
+        // Measuring in the default sans, as this first did, was wrong on the typeface and on the
+        // size at once, and Montserrat is the wider of the two, so it was wrong in the direction
+        // that lets an overflow through.
 
         // What JUCE's default LookAndFeel leaves the label after the arrow button and its
         // padding: positionComboBoxText insets by the button width plus a small margin.
@@ -132,10 +132,9 @@ inline bool sample_bar_test()
     // shows the last two components and keeps the rest on its tooltip.
     {
         // The status label carries no font of its own, so it draws in the default sans at the
-        // default height -- and the editor points that at Montserrat too. Same correction as
-        // the picker above: the platform default is narrower, and measuring against it would
-        // have said a sentence fits when the window clips it.
-        juce::LookAndFeel::getDefaultLookAndFeel().setDefaultSansSerifTypeface(UIDefines::MONTSERRAT_REGULAR());
+        // default height -- and the editor points that at Montserrat too, as main() does here.
+        // Same correction as the picker above: the platform default is narrower, and measuring
+        // against it would have said a sentence fits when the window clips it.
 
         const auto font = juce::Font(juce::FontOptions(15.0f));
 
