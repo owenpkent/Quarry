@@ -72,6 +72,8 @@ inline bool icon_test()
         {"unmute", okstudio::icons::unmute},
         {"trash", okstudio::icons::trash},
         {"folderOpen", okstudio::icons::folderOpen},
+        {"chevronDown", okstudio::icons::chevronDown},
+        {"close", okstudio::icons::close},
     };
 
     for (const auto& icon : all)

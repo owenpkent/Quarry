@@ -707,7 +707,11 @@ void QuarryMainView::updateEnablements()
         mPlayPauseButton->setEnabled(true);
         mBackButton->setEnabled(true);
         mCenterButton->setEnabled(true);
-        mVisualizationPanel.setMidiFileDragComponentVisible();
+        // On there being notes, not on having got this far. The state says the take is
+        // finished and its audio is playable, which is true of a transcription that was
+        // cancelled before it produced anything -- and that take has nothing to drag out.
+        mVisualizationPanel.setMidiFileDragComponentVisible(
+            !mProcessor.getTranscriptionManager()->getNoteEventVector().empty());
     }
 
     if (mAudioInputView != nullptr)

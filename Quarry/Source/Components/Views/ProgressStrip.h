@@ -59,6 +59,11 @@ private:
 
     bool mPageShowing = true;
 
+    // Whether the timer is currently running at kActiveTimerHz rather than kIdleTimerHz -- see
+    // the constants' own comment in ProgressStrip.cpp for why this can never just stop instead.
+    // Tracked so _applyStage only calls startTimerHz on an actual change of rate.
+    bool mTimerIsFast = false;
+
     TranscriptionManager::Stage mCurrentStage;
 
     // What the last _applyStage call already told the accessibility tree, so a call that changes

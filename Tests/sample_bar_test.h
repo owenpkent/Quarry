@@ -164,6 +164,27 @@ inline bool sample_bar_test()
                   << std::endl;
     }
 
+    // The other half of the same split, which had no check at all -- which is how the activity
+    // toggle took 36 px off this button without anything noticing. The status has a measured
+    // floor; the folder gets whatever is left, and what is left has to still fit the one label
+    // this button shows before a person has ever picked a folder.
+    {
+        // The font the button is actually drawn in: Obsidian's getTextButtonFont is
+        // uiSemi(jmin(14, height * 0.45)), and QuarryLookAndFeel insets a button taller than
+        // 20 px by 8 px on each side before drawing the text into what is left.
+        const auto font = okstudio::obsidian::uiSemi(juce::jmin(14.0f, (float) INNER_HEIGHT * 0.45f));
+        const auto room = (float) (folder - 16);
+
+        // What every first run shows: the default folder is Music/Quarry Samples, and
+        // SampleBar::_folderLabel renders a folder as its parent name and its own.
+        const auto label = juce::String("Music") + juce::File::getSeparatorString() + "Quarry Samples";
+        const auto width = font.getStringWidthFloat(label);
+
+        check(width <= room, "the default save folder's label fits the button that shows it");
+        std::cout << "  default folder label: \"" << label << "\" at " << width << " px of " << room
+                  << std::endl;
+    }
+
     if (sample_bar_test_utils::failures == 0)
     {
         std::cout << "  PASSED" << std::endl;

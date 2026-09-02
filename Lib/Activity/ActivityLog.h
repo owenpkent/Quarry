@@ -8,6 +8,7 @@
 #ifndef ActivityLog_h
 #define ActivityLog_h
 
+#include <algorithm>
 #include <atomic>
 #include <deque>
 #include <vector>
@@ -44,6 +45,11 @@ class ActivityLog
 {
 public:
     explicit ActivityLog(int inCapacity = 4000) : mCapacity(inCapacity) {}
+
+    /** The most lines this log will ever retain at once. What a UI mirroring the log into its
+     *  own widget (a JUCE TextEditor, say) should trim its own copy down to, rather than
+     *  guessing at or duplicating the number. */
+    int capacity() const noexcept { return mCapacity; }
 
     /** Appends one line, evicting the oldest line(s) if the log is now over capacity. Callable
      *  from any thread. */
@@ -85,16 +91,18 @@ public:
     {
         const juce::ScopedLock lock(mLock);
 
-        std::vector<ActivityLine> result;
-        result.reserve(mLines.size());
+        // mLines is in seq order -- add() only ever appends a larger seq than the one before it
+        // -- so "everything past inSeq" is always a contiguous run at the back, not something
+        // that needs walking the whole deque to find. A drawer polling at 10 Hz against a log at
+        // its 4000-line capacity was doing 40,000 seq comparisons and a 4000-element reserve()
+        // a second to hand back the one or two lines that actually arrived; a binary search for
+        // where the run starts, then a range-construct sized to exactly what is returned, makes
+        // that cost proportional to the new lines instead of to the whole log.
+        const auto begin = std::upper_bound(
+            mLines.begin(), mLines.end(), inSeq,
+            [](juce::int64 inTargetSeq, const ActivityLine& inLine) { return inTargetSeq < inLine.seq; });
 
-        for (const auto& line: mLines) {
-            if (line.seq > inSeq) {
-                result.push_back(line);
-            }
-        }
-
-        return result;
+        return std::vector<ActivityLine>(begin, mLines.end());
     }
 
     /** Every line currently retained, oldest first. Equivalent to linesSince(0) except when the

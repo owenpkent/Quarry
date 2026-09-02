@@ -65,45 +65,87 @@ public:
             }
 
 #if JUCE_WINDOWS
-            DWORD available = 0;
-
-            if (!PeekNamedPipe(mOwner.mChildStderrRead, nullptr, 0, nullptr, &available, nullptr)) {
-                break; // pipe closed: the child exited, or shutdown()/kill() closed our own end
-            }
-
-            if (available == 0) {
-                juce::Thread::sleep(2);
-                continue;
-            }
-
             DWORD num_read = 0;
-            const DWORD to_read = std::min<DWORD>(available, static_cast<DWORD>(sizeof(chunk)));
+            bool nothing_available = false;
 
-            if (!ReadFile(mOwner.mChildStderrRead, chunk, to_read, &num_read, nullptr) || num_read == 0) {
-                break;
+            {
+                // Every touch of the handle happens under the owner's I/O lock, so shutdown()/
+                // kill() cannot close it between the load here and the call that uses it.
+                const juce::ScopedLock lock(mOwner.mIoLock);
+
+                const HANDLE stderr_read = mOwner.mChildStderrRead.load();
+                DWORD available = 0;
+
+                if (stderr_read == nullptr
+                    || !PeekNamedPipe(stderr_read, nullptr, 0, nullptr, &available, nullptr)) {
+                    break; // pipe closed: the child exited, or shutdown()/kill() closed our own end
+                }
+
+                if (available == 0) {
+                    nothing_available = true;
+                } else {
+                    const DWORD to_read = std::min<DWORD>(available, static_cast<DWORD>(sizeof(chunk)));
+
+                    if (!ReadFile(stderr_read, chunk, to_read, &num_read, nullptr) || num_read == 0) {
+                        break;
+                    }
+                }
+            }
+
+            if (nothing_available) {
+                // 20 ms rather than the 2 ms this started at, matching the POSIX branch's poll
+                // timeout below. PeekNamedPipe reports nothing available for almost all of a
+                // sidecar's life -- it logs in bursts and is idle between requests -- so the
+                // shorter grain bought no latency anybody could perceive (the drawer that reads
+                // these lines repaints at 10 Hz) and cost 500 wakeups a second, per loaded plugin
+                // instance, for as long as the child lived.
+                juce::Thread::sleep(20);
+                continue;
             }
 
             mBuffer.append(chunk, num_read);
 #else
-            pollfd pfd{mOwner.mChildStderrRead, POLLIN, 0};
-            const auto poll_result = ::poll(&pfd, 1, 20);
+            ssize_t num_read = 0;
+            bool nothing_to_read = false;
 
-            if (poll_result < 0) {
-                break;
+            {
+                const juce::ScopedLock lock(mOwner.mIoLock);
+
+                const int stderr_read = mOwner.mChildStderrRead.load();
+
+                if (stderr_read < 0) {
+                    break;
+                }
+
+                pollfd pfd{stderr_read, POLLIN, 0};
+                const auto poll_result = ::poll(&pfd, 1, 20);
+
+                if (poll_result < 0) {
+                    break;
+                }
+
+                // POLLIN is tested before POLLHUP, and the hangup is only honoured once there is
+                // nothing left to read. A child that writes a traceback and exits sets both flags
+                // at once, and a loop that breaks on the hangup first throws away the very lines
+                // this pump exists to collect: the drawer would show a sidecar that died with no
+                // word about why, which is the state this whole feed was added to end.
+                if ((pfd.revents & POLLIN) == 0) {
+                    if (pfd.revents & (POLLHUP | POLLERR)) {
+                        break; // far end closed and drained: child gone, or we closed our end
+                    }
+
+                    nothing_to_read = true; // poll timed out
+                } else {
+                    num_read = ::read(stderr_read, chunk, sizeof(chunk));
+
+                    if (num_read <= 0) {
+                        break; // EOF: the writer is gone and the pipe is empty
+                    }
+                }
             }
 
-            if (pfd.revents & (POLLHUP | POLLERR)) {
-                break; // far end closed: same "child gone or we closed our end" case as above
-            }
-
-            if (poll_result == 0 || (pfd.revents & POLLIN) == 0) {
+            if (nothing_to_read) {
                 continue;
-            }
-
-            const auto num_read = ::read(mOwner.mChildStderrRead, chunk, sizeof(chunk));
-
-            if (num_read <= 0) {
-                break;
             }
 
             mBuffer.append(chunk, static_cast<size_t>(num_read));
@@ -230,20 +272,28 @@ bool SidecarClient::_writeLine(const juce::String& inLine, juce::String& outErro
     const auto* payload = line.toRawUTF8();
     const auto num_bytes = static_cast<size_t>(strlen(payload));
 
+    // Under the I/O lock for the same reason the reads are: shutdown()/kill() closes stdin, and
+    // between the "is it open" check and the write there is otherwise nothing stopping it.
+    const juce::ScopedLock lock(mIoLock);
+
 #if JUCE_WINDOWS
-    if (mChildStdinWrite == nullptr) {
+    const HANDLE stdin_write = mChildStdinWrite.load();
+
+    if (stdin_write == nullptr) {
         outError = "sidecar stdin is not open";
         return false;
     }
 
     DWORD written = 0;
-    if (!WriteFile(mChildStdinWrite, payload, static_cast<DWORD>(num_bytes), &written, nullptr)
+    if (!WriteFile(stdin_write, payload, static_cast<DWORD>(num_bytes), &written, nullptr)
         || written != num_bytes) {
         outError = "failed to write to sidecar stdin";
         return false;
     }
 #else
-    if (mChildStdinWrite < 0) {
+    const int stdin_write = mChildStdinWrite.load();
+
+    if (stdin_write < 0) {
         outError = "sidecar stdin is not open";
         return false;
     }
@@ -251,7 +301,7 @@ bool SidecarClient::_writeLine(const juce::String& inLine, juce::String& outErro
     size_t total_written = 0;
 
     while (total_written < num_bytes) {
-        const auto n = ::write(mChildStdinWrite, payload + total_written, num_bytes - total_written);
+        const auto n = ::write(stdin_write, payload + total_written, num_bytes - total_written);
 
         if (n <= 0) {
             outError = "failed to write to sidecar stdin";
@@ -284,16 +334,40 @@ bool SidecarClient::_readLine(juce::String& outLine, double inDeadlineStart, int
         char chunk[4096];
 
 #if JUCE_WINDOWS
-        DWORD available = 0;
+        DWORD num_read = 0;
+        bool nothing_available = false;
 
-        if (!PeekNamedPipe(mChildStdoutRead, nullptr, 0, nullptr, &available, nullptr)) {
-            // Reported once the far end (the child) is gone -- either it exited on its own, or
-            // kill() just terminated it; mKilled tells the two apart for outError's sake.
-            outError = mKilled ? "sidecar terminated" : "sidecar stdout pipe closed";
-            return false;
+        {
+            // The handle is loaded and used under the same lock _closeHandles() takes, so kill()
+            // on another thread cannot close it between the two. Held for one Peek and one Read,
+            // never across the sleep below, so kill() waits microseconds rather than on a
+            // response that may never come.
+            const juce::ScopedLock lock(mIoLock);
+
+            const HANDLE stdout_read = mChildStdoutRead.load();
+            DWORD available = 0;
+
+            if (stdout_read == nullptr
+                || !PeekNamedPipe(stdout_read, nullptr, 0, nullptr, &available, nullptr)) {
+                // Reported once the far end (the child) is gone -- either it exited on its own, or
+                // kill() just terminated it; mKilled tells the two apart for outError's sake.
+                outError = mKilled ? "sidecar terminated" : "sidecar stdout pipe closed";
+                return false;
+            }
+
+            if (available == 0) {
+                nothing_available = true;
+            } else {
+                const DWORD to_read = std::min<DWORD>(available, static_cast<DWORD>(sizeof(chunk)));
+
+                if (!ReadFile(stdout_read, chunk, to_read, &num_read, nullptr) || num_read == 0) {
+                    outError = mKilled ? "sidecar terminated" : "failed to read sidecar stdout";
+                    return false;
+                }
+            }
         }
 
-        if (available == 0) {
+        if (nothing_available) {
             if (!isRunning()) {
                 outError = mKilled ? "sidecar terminated" : "sidecar process exited unexpectedly";
                 return false;
@@ -303,47 +377,59 @@ bool SidecarClient::_readLine(juce::String& outLine, double inDeadlineStart, int
             continue;
         }
 
-        DWORD num_read = 0;
-        const DWORD to_read = std::min<DWORD>(available, static_cast<DWORD>(sizeof(chunk)));
-
-        if (!ReadFile(mChildStdoutRead, chunk, to_read, &num_read, nullptr) || num_read == 0) {
-            outError = mKilled ? "sidecar terminated" : "failed to read sidecar stdout";
-            return false;
-        }
-
         mReadBuffer.append(chunk, num_read);
 #else
-        pollfd pfd{mChildStdoutRead, POLLIN, 0};
-        // Short poll granularity, mirroring the Windows branch's 1 ms sleep: this loop's own
-        // deadline check is what actually bounds the wait, not this number.
-        const auto poll_result = ::poll(&pfd, 1, 5);
+        ssize_t num_read = 0;
+        bool nothing_to_read = false;
 
-        if (poll_result < 0) {
-            outError = mKilled ? "sidecar terminated" : "failed to poll sidecar stdout";
-            return false;
+        {
+            const juce::ScopedLock lock(mIoLock);
+
+            const int stdout_read = mChildStdoutRead.load();
+
+            if (stdout_read < 0) {
+                outError = mKilled ? "sidecar terminated" : "sidecar stdout pipe closed";
+                return false;
+            }
+
+            pollfd pfd{stdout_read, POLLIN, 0};
+            // Short poll granularity, mirroring the Windows branch's 1 ms sleep: this loop's own
+            // deadline check is what actually bounds the wait, not this number.
+            const auto poll_result = ::poll(&pfd, 1, 5);
+
+            if (poll_result < 0) {
+                outError = mKilled ? "sidecar terminated" : "failed to poll sidecar stdout";
+                return false;
+            }
+
+            // POLLIN before POLLHUP, and the hangup honoured only once the pipe is drained. A
+            // sidecar that writes its response and exits in the same breath sets both at once,
+            // and reading the hangup first turned a transcribe that had actually succeeded into
+            // "sidecar stdout pipe closed" -- the answer was sitting in the pipe, unread.
+            if ((pfd.revents & POLLIN) == 0) {
+                if (pfd.revents & (POLLHUP | POLLERR)) {
+                    outError = mKilled ? "sidecar terminated" : "sidecar stdout pipe closed";
+                    return false;
+                }
+
+                nothing_to_read = true; // poll timed out
+            } else {
+                num_read = ::read(stdout_read, chunk, sizeof(chunk));
+
+                if (num_read <= 0) {
+                    outError = mKilled ? "sidecar terminated" : "failed to read sidecar stdout";
+                    return false;
+                }
+            }
         }
 
-        if (pfd.revents & (POLLHUP | POLLERR)) {
-            // The far end closed -- reported directly by poll() rather than waiting to learn it
-            // the hard way from a subsequent read() returning 0.
-            outError = mKilled ? "sidecar terminated" : "sidecar stdout pipe closed";
-            return false;
-        }
-
-        if (poll_result == 0 || (pfd.revents & POLLIN) == 0) {
+        if (nothing_to_read) {
             if (!isRunning()) {
                 outError = mKilled ? "sidecar terminated" : "sidecar process exited unexpectedly";
                 return false;
             }
 
             continue;
-        }
-
-        const auto num_read = ::read(mChildStdoutRead, chunk, sizeof(chunk));
-
-        if (num_read <= 0) {
-            outError = mKilled ? "sidecar terminated" : "failed to read sidecar stdout";
-            return false;
         }
 
         mReadBuffer.append(chunk, static_cast<size_t>(num_read));
@@ -402,6 +488,12 @@ void SidecarClient::_stopStderrPump()
 
 void SidecarClient::_closeHandles()
 {
+    // The other half of mIoLock's contract: a reader or writer holding this lock is inside a
+    // syscall on one of these handles right now, and closing one under it would hand that thread
+    // a descriptor the OS is free to give to something else. Waiting here costs a single Peek or
+    // a 5 ms poll, which is nothing next to the child this is tearing down.
+    const juce::ScopedLock lock(mIoLock);
+
 #if JUCE_WINDOWS
     if (mChildStdinWrite != nullptr) {
         CloseHandle(mChildStdinWrite);
@@ -838,20 +930,33 @@ void SidecarClient::shutdown()
     }
 
     // Closing stdin is what actually ends the child per the protocol (EOF after "shutdown"), so
-    // that happens before the wait below, not as part of the general handle cleanup.
+    // that happens before the wait below, not as part of the general handle cleanup. Under
+    // mIoLock all the same: this is a handle _writeLine may be inside right now, and this close
+    // is subject to exactly the reuse that member's note describes.
 #if JUCE_WINDOWS
-    if (mChildStdinWrite != nullptr) {
-        CloseHandle(mChildStdinWrite);
-        mChildStdinWrite = nullptr;
+    {
+        const juce::ScopedLock lock(mIoLock);
+
+        if (mChildStdinWrite != nullptr) {
+            CloseHandle(mChildStdinWrite);
+            mChildStdinWrite = nullptr;
+        }
     }
 
+    // Deliberately outside the lock: this waits up to kShutdownWaitMs for the child to go, and
+    // holding mIoLock across it would stall the stderr pump for the whole five seconds -- which
+    // is precisely the window in which the child writes whatever it has to say about exiting.
     if (mProcessHandle != nullptr && WaitForSingleObject(mProcessHandle, kShutdownWaitMs) != WAIT_OBJECT_0) {
         TerminateProcess(mProcessHandle, 0);
     }
 #else
-    if (mChildStdinWrite >= 0) {
-        close(mChildStdinWrite);
-        mChildStdinWrite = -1;
+    {
+        const juce::ScopedLock lock(mIoLock);
+
+        if (mChildStdinWrite >= 0) {
+            close(mChildStdinWrite);
+            mChildStdinWrite = -1;
+        }
     }
 
     bool exited = false;

@@ -133,8 +133,10 @@ public:
      * call's read loop notices on its own (PeekNamedPipe reports a broken pipe on Windows, poll()
      * reports POLLHUP on POSIX) and returns from promptly, with outError set to
      * "sidecar terminated" rather than the generic "sidecar process exited unexpectedly" a crash
-     * would produce. Not wired to anything yet (no cancel button, no manager-level timeout); it
-     * exists as the primitive a future one will call.
+     * would produce. The handles that loop is reading are closed under mIoLock, not out from
+     * under it -- see that member's own note for what went wrong when they were not.
+     *
+     * This is what the footer's CANCEL calls.
      */
     void kill();
 
@@ -258,12 +260,26 @@ private:
     // be handed to onStderrLine as they arrive rather than only after the child exits.
     std::unique_ptr<StderrPump> mStderrPump;
 
+    // Held for one read or write on the child's pipes, and by _closeHandles() for as long as it
+    // is closing them. Never held across a read loop, so kill() waits on a single syscall rather
+    // than on the child.
+    //
+    // The atomics below are not enough on their own, and this file used to claim they were: it
+    // said the OS handle "tolerates being closed out from under a concurrent read (that just
+    // fails the read)". That is true of the load, and false of the use. CloseHandle returns the
+    // HANDLE value to the process, and the next CreateFile or CreateEvent anywhere in the host --
+    // a DAW, with its own threads -- may be handed the same number. A reader that loaded the
+    // handle a moment before then peeks and reads a live, unrelated kernel object: not a failed
+    // read, but foreign bytes appended to mReadBuffer, or a fault. close(2) and fd reuse are the
+    // same story on POSIX, and there the recycled descriptor could be an open file.
+    //
+    // So the handles are only touched under this lock, and closed under it too, which is what
+    // actually makes kill() safe to call while transcribe()/download() is blocked reading.
+    juce::CriticalSection mIoLock;
+
     // HANDLE (Windows, a void*) and int (POSIX, a file descriptor / pid) are trivially copyable,
-    // so wrapping them in std::atomic costs nothing and closes the one real cross-thread hazard
-    // kill() introduces: a plain (non-atomic) write to one of these racing a plain read of the
-    // same variable on the thread blocked inside _readLine is undefined behaviour at the language
-    // level even though the underlying OS handle/fd itself tolerates being closed out from under
-    // a concurrent read (that just fails the read, which _readLine already treats as an error).
+    // so wrapping them in std::atomic costs nothing, and it keeps isRunning() and the like able
+    // to read one without taking mIoLock. The lock above is what makes a *use* of the value safe.
 #if JUCE_WINDOWS
     std::atomic<HANDLE> mChildStdinWrite { nullptr };
     std::atomic<HANDLE> mChildStdoutRead { nullptr };

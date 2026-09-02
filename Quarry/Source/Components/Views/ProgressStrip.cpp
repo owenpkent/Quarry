@@ -13,7 +13,19 @@
 
 namespace
 {
-constexpr int kTimerHz = 15;
+// 15 Hz while a stage is actually showing: fast enough for the sweep and a moving percentage to
+// read as live. The strip's own visibility is a side effect of this same timer noticing
+// mStageProvider() go active (see _applyStage) rather than of some outside event, so unlike
+// ActivityDrawer's timer this one can never just stop while hidden -- nothing else would be
+// left to notice the next job starting. It idles at kIdleTimerHz instead, for what is
+// overwhelmingly the whole life of an open editor: time with no job running, where 15 Hz was
+// waking the message thread to lock mStageLock and copy a Stage (String included) for nothing.
+constexpr int kActiveTimerHz = 15;
+// 4 Hz idle rather than lower: this poll is also what notices a job starting, so the idle
+// rate is the worst-case delay before the bar appears at all. A quarter-second is under
+// what reads as lag; half a second is not, and this whole feature exists because a slow
+// take showed nothing.
+constexpr int kIdleTimerHz = 4;
 
 // The unknown-fraction sweep: how long one pass of the lit segment takes, and how wide it is.
 // Slow enough to read as "busy" rather than "alarmed", wide enough to be seen at 160 px.
@@ -43,7 +55,7 @@ ProgressStrip::ProgressStrip(std::function<TranscriptionManager::Stage()> inStag
     setVisible(false);
 
     mLastTimerMs = Time::getMillisecondCounterHiRes();
-    startTimerHz(kTimerHz);
+    startTimerHz(kIdleTimerHz);
 }
 
 ProgressStrip::~ProgressStrip()
@@ -82,6 +94,14 @@ void ProgressStrip::_applyStage(const TranscriptionManager::Stage& inStage)
 
     if (show != was_visible)
         setVisible(show);
+
+    // Only calls startTimerHz when the rate actually needs to flip, not on every tick this
+    // already runs at -- the guard is what keeps a strip sitting idle from restarting its own
+    // timer twice a second forever.
+    if (show != mTimerIsFast) {
+        mTimerIsFast = show;
+        startTimerHz(mTimerIsFast ? kActiveTimerHz : kIdleTimerHz);
+    }
 
     if (!show) {
         if (was_visible) {

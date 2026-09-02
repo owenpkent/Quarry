@@ -51,9 +51,23 @@ public:
     void timerCallback() override;
 
 private:
-    /** Appends inLines to the log view in their own colours and advances mLastSeq past the
-        last of them. Keeps a live selection where it is rather than scrolling under it. */
+    /** Appends inLines to the log view, advances mLastSeq past the last of them, and trims the
+        view if that pushed it meaningfully over the log's own capacity. Keeps a live selection
+        where it is rather than scrolling under it, unless a trim happened underneath it. */
     void _appendLines(const std::vector<quarry::ActivityLine>& inLines);
+
+    /** Inserts inLines into mLogView, batching consecutive same-Kind lines into one setColour
+        plus one insertTextAtCaret rather than paying both costs per line. Does not touch
+        mLastSeq, mDisplayedLines, the caret, or the selection -- callers own all of that,
+        because both _appendLines and the trim in _appendLines need this same insertion but with
+        different bookkeeping around it. */
+    void _insertLines(const std::vector<quarry::ActivityLine>& inLines);
+
+    /** If mDisplayedLines has grown far enough past the log's capacity to be worth the cost,
+        rebuilds mLogView from mLog.snapshot() (which is already capped there) and returns true.
+        Otherwise does nothing and returns false. Called from _appendLines, not on every append:
+        see the comment on mDisplayedLines. */
+    bool _trimIfNeeded();
 
     /** Rebuilds the log view from scratch, for the moment the drawer opens: the log can have
         moved while it was hidden and a timer that only diffs would miss all of it. */
@@ -71,6 +85,12 @@ private:
 
     juce::int64 mLastSeq = 0;
     String mLastStatus;
+
+    // How many lines mLogView currently holds. Kept as a running count, updated alongside every
+    // insert and every trim, rather than asked of the editor on each append: JUCE has no O(1)
+    // line count, only getTotalNumChars() plus a scan for newlines, and this is checked on every
+    // single append just to decide whether a trim is due. See _trimIfNeeded.
+    int mDisplayedLines = 0;
 
     std::unique_ptr<TextEditor> mLogView;
     std::unique_ptr<TextEditor> mPrompt;

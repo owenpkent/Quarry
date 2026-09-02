@@ -145,22 +145,79 @@ void ActivityDrawer::_appendLines(const std::vector<quarry::ActivityLine>& inLin
 
     mLogView->setCaretPosition(mLogView->getTotalNumChars());
 
+    _insertLines(inLines);
+    mLastSeq = inLines.back().seq;
+    mDisplayedLines += static_cast<int>(inLines.size());
+
+    // A trim rewrites the whole document out from under any selection the reader had -- the
+    // same thing _rebuildFromSnapshot already does unconditionally when the drawer reopens --
+    // so once one happens there is nothing meaningful left in `selection` to restore.
+    if (_trimIfNeeded()) {
+        mLogView->setCaretPosition(mLogView->getTotalNumChars());
+    } else if (has_selection) {
+        mLogView->setHighlightedRegion(selection);
+    } else {
+        mLogView->setCaretPosition(mLogView->getTotalNumChars());
+    }
+}
+
+void ActivityDrawer::_insertLines(const std::vector<quarry::ActivityLine>& inLines)
+{
+    // Each insertTextAtCaret is a full relayout of the document and each setColour fires
+    // colourChanged() -> repaint(): flat per-call costs that do not care how much text moves,
+    // so one insert of everything beats one insert per line regardless of how long the text is.
+    // A burst of stderr from the sidecar arrives here as a run of same-Kind lines; batched into
+    // a single setColour plus a single insertTextAtCaret per run, that burst costs two calls
+    // total instead of two per line.
+    String run;
+    auto run_kind = inLines.front().kind;
+
     for (const auto& line: inLines) {
-        mLogView->setColour(TextEditor::textColourId, _colourFor(line.kind));
-        mLogView->insertTextAtCaret(quarry::formatActivityLine(line) + "\n");
-        mLastSeq = line.seq;
+        if (line.kind != run_kind && !run.isEmpty()) {
+            mLogView->setColour(TextEditor::textColourId, _colourFor(run_kind));
+            mLogView->insertTextAtCaret(run);
+            run.clear();
+        }
+
+        run_kind = line.kind;
+        run << quarry::formatActivityLine(line) << "\n";
     }
 
-    if (has_selection)
-        mLogView->setHighlightedRegion(selection);
-    else
-        mLogView->setCaretPosition(mLogView->getTotalNumChars());
+    if (!run.isEmpty()) {
+        mLogView->setColour(TextEditor::textColourId, _colourFor(run_kind));
+        mLogView->insertTextAtCaret(run);
+    }
+}
+
+bool ActivityDrawer::_trimIfNeeded()
+{
+    const auto capacity = mLog.capacity();
+
+    // ActivityLog caps at capacity but nothing ever evicted mLogView's copy, so a long session
+    // with a chatty sidecar grew it without bound and every one of those unbounded lines paid
+    // the insert cost above forever. Trimming means replacing the whole document with its tail,
+    // which is its own full relayout -- so instead of paying that on every append (trading a
+    // per-line cost for a per-append one), it is paid only once a quarter-capacity of slack has
+    // built up, amortising a rebuild's cost over the many appends between rebuilds.
+    if (mDisplayedLines <= capacity + capacity / 4)
+        return false;
+
+    const auto lines = mLog.snapshot();
+
+    mLogView->clear();
+
+    if (!lines.empty())
+        _insertLines(lines);
+
+    mDisplayedLines = static_cast<int>(lines.size());
+    return true;
 }
 
 void ActivityDrawer::_rebuildFromSnapshot()
 {
     mLogView->clear();
     mLastSeq = 0;
+    mDisplayedLines = 0;
 
     _appendLines(mLog.snapshot());
 }
@@ -188,6 +245,7 @@ void ActivityDrawer::_handleReturn()
         mLog.clear();
         mLogView->clear();
         mLastSeq = 0;
+        mDisplayedLines = 0;
     } else if (mOnCommand != nullptr) {
         mOnCommand(text);
     }
@@ -206,13 +264,27 @@ void ActivityDrawer::paint(Graphics& g)
     g.setColour(TEXT_DIM.withAlpha(0.25f));
     g.drawHorizontalLine(0, 0.0f, (float) getWidth());
 
-    g.setFont(UIDefines::TITLE_FONT());
+    // The title and the status used to share mHeaderTextArea outright, each drawText'd into the
+    // whole rectangle with opposite justification. JUCE ellipsises against the rectangle's own
+    // edge, not against where the other string ends, so a long status line (a real one: "cuda .
+    // kong, muscriptor, transkun . received transcribe request: engine=kong device=cuda") ran
+    // left straight across "ACTIVITY" and the two painted on top of each other. Giving the title
+    // exactly the width it measures at plus a gap, and the status whatever is left, means the
+    // status's own ellipsis boundary is a wall it cannot get past.
+    const auto title_font = UIDefines::TITLE_FONT();
+    const String title("ACTIVITY");
+
+    auto header = mHeaderTextArea;
+    const auto title_width = GlyphArrangement::getStringWidthInt(title_font, title);
+    const auto title_area = header.removeFromLeft(title_width + ActivityDrawerLayout::PAD);
+
+    g.setFont(title_font);
     g.setColour(TEXT_MAIN);
-    g.drawText("ACTIVITY", mHeaderTextArea, Justification::centredLeft);
+    g.drawText(title, title_area, Justification::centredLeft);
 
     g.setFont(UIDefines::LABEL_FONT());
     g.setColour(TEXT_DIM);
-    g.drawText(mLastStatus, mHeaderTextArea, Justification::centredRight);
+    g.drawText(mLastStatus, header, Justification::centredRight);
 
     g.setFont(mMonoPromptFont);
     g.setColour(TEXT_DIM);

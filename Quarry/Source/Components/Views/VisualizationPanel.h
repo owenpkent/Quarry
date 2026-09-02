@@ -36,7 +36,11 @@ public:
 
     void repaintPianoRoll();
 
-    void setMidiFileDragComponentVisible();
+    /** Shows or hides the drag-out handle. Hidden when the take has no notes: a take can
+        reach PopulatedAudioAndMidiRegions with an empty note vector -- cancel the first
+        transcribe of a dropped file and the audio is real but nothing was ever
+        transcribed -- and the handle would drag out an empty .mid. */
+    void setMidiFileDragComponentVisible(bool inVisible);
 
     void mouseEnter(const MouseEvent& event) override;
 

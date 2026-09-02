@@ -195,7 +195,7 @@ void TranscriptionManager::parameterChanged(const String& parameterID, float new
 
 bool TranscriptionManager::_ensureSidecarStarted(juce::String& outError)
 {
-    if (mSidecarClient != nullptr) {
+    if (mSidecarClient != nullptr && mSidecarClient->isRunning()) {
         // Re-recorded rather than returned from early, so a status left saying "unreachable" by
         // a failure that has since been recovered from cannot outlive it. Nothing else re-probes
         // once the editor's first probe has run, so without this the MODEL panel would grey all
@@ -203,6 +203,21 @@ bool TranscriptionManager::_ensureSidecarStarted(juce::String& outError)
         // transcribing perfectly well on the engine the panel called unreachable.
         _recordSidecarStatus(mSidecarClient.get(), {});
         return true;
+    }
+
+    if (mSidecarClient != nullptr) {
+        // Non-null but dead. This used to return true on the pointer alone, which handed the next
+        // job a corpse: transcribe() rejects it with "sidecar is not running", and
+        // _tryTranscribeWithSidecar cannot tell that from an engine that genuinely failed, so it
+        // spent a strike. Two strikes retire the sidecar tier for the rest of the session -- the
+        // whole seven-engine list gone, over a client nobody had asked whether it was alive.
+        //
+        // Starting a fresh one is what the caller wanted in the first place, and is what would
+        // have happened had the pointer been cleared on whatever path left it like this.
+        mActivityLog.add(quarry::ActivityLine::Kind::Quarry, "sidecar: the previous process is gone, starting another");
+
+        const ScopedLock pointer_lock(mSidecarClientPointerLock);
+        mSidecarClient.reset();
     }
 
     mActivityLog.add(quarry::ActivityLine::Kind::Quarry, "sidecar: starting " + mSidecarActivation.commandLine);
@@ -227,6 +242,14 @@ bool TranscriptionManager::_ensureSidecarStarted(juce::String& outError)
     if (!client->start(outError)) {
         mActivityLog.add(quarry::ActivityLine::Kind::Error, "sidecar: " + outError);
         _recordSidecarStatus(nullptr, outError);
+
+        // The stage the onStage above may already have set, taken back down. start() deliberately
+        // forwards stage events it sees before the "ready" line, which is the whole reason that
+        // callback is wired before this call -- so a start that then fails can leave the strip
+        // showing a stage with nothing behind it. Nothing would ever clear it: the job that would
+        // have is the one that just failed to begin, and the strip's CANCEL only shows for a
+        // cancellable stage. The bar swept, for the rest of the session.
+        _setStage({}, -1.0, false);
         return false;
     }
 
@@ -272,6 +295,12 @@ void TranscriptionManager::_probeSidecar()
     if (!_ensureSidecarStarted(error)) {
         DBG("Sidecar probe failed: " << error);
     }
+
+    // And on the way out, whether it worked or not. A probe runs no job, so any stage the model
+    // load reported while start() was blocked belongs to nothing: opening the plugin window on a
+    // cold sidecar left the strip sweeping under a caption like "loading the model" that no take
+    // was ever going to finish and no CANCEL was ever going to clear.
+    _setStage({}, -1.0, false);
 }
 
 void TranscriptionManager::_recordSidecarStatus(const SidecarClient* inClient, const juce::String& inError)
@@ -359,7 +388,17 @@ bool TranscriptionManager::_tryTranscribeWithSidecar(const juce::File& inSourceF
     const bool transcribed = mSidecarClient->transcribe(inSourceFile, wire_name, sidecar_notes, outPedal, error);
     _setCancellable(false);
 
-    if (!transcribed) {
+    // Read after _setCancellable(false), and that order is the point. cancelCurrentJob holds
+    // mStageLock across its own check and its kill(), so by the time this line runs a cancel has
+    // either already happened -- and set this -- or has found cancellable clear and done nothing.
+    // There is no third answer, which is what makes the two threads agree.
+    //
+    // A cancel that got in counts even when transcribe() came back true: the response and the
+    // kill() can genuinely cross, and the child is dead either way. Honouring the result instead
+    // would keep notes from a take the person asked to stop, and leave the killed client in place.
+    const bool cancelled = mCancelRequested.load();
+
+    if (!transcribed || cancelled) {
         // Discarded either way: a killed client is done, and so is one that failed outright --
         // both leave the next job's _ensureSidecarStarted starting fresh.
         {
@@ -367,7 +406,7 @@ bool TranscriptionManager::_tryTranscribeWithSidecar(const juce::File& inSourceF
             mSidecarClient.reset();
         }
 
-        if (mCancelRequested.load()) {
+        if (cancelled) {
             mActivityLog.add(quarry::ActivityLine::Kind::Quarry, "cancelled");
             return false;
         }
@@ -474,8 +513,20 @@ void TranscriptionManager::_runModel()
             // started; neither is touched, so PopulatedAudioAndMidiRegions (the state a finished
             // take already sits in) is where this lands, not Processing (which would leave the
             // transport disabled over notes that are still perfectly good) or Empty (which would
-            // throw away notes this job never came near).
+            // throw away notes this job never came near, and disable playback of audio that is
+            // sitting right there either way).
+            //
+            // That holds for the first transcribe of a dropped file too, where clear() emptied
+            // the notes when the file arrived and this job never replaced them: the audio is real
+            // and playable, so the state is still the right one. What is not right is what the
+            // state used to imply on its own -- see QuarryMainView, where the MIDI drag is now
+            // offered on there being notes rather than on having reached this state, because it
+            // was handing out an empty .mid for exactly this cancel.
+            //
+            // The revision bump goes with it. Without one, a piano roll that had notes before a
+            // re-transcribe has no reason to repaint, and goes on drawing them.
             _setStage({}, -1.0, false);
+            mRawNoteEventsRevision.fetch_add(1);
             mProcessor->setStateToPopulatedAudioAndMidiRegions();
             return;
         }
@@ -674,7 +725,21 @@ void TranscriptionManager::cancelCurrentJob()
 {
     jassert(MessageManager::getInstance()->isThisTheMessageThread());
 
-    if (!getCurrentStage().cancellable)
+    // The check, the flag and the kill all under mStageLock, which is the lock _setCancellable
+    // writes through. Reading cancellable and then dropping the lock -- as this did -- left a gap
+    // exactly the width of two statements on the job thread: transcribe() returns true, and the
+    // _setCancellable(false) on the very next line has not run yet. A click landing there found
+    // cancellable still set and terminated a child that had already answered. The take then
+    // completed normally off the response it had, so nothing looked wrong, while a loaded model
+    // and its VRAM were thrown away and a dead client was left in mSidecarClient for the next
+    // take to trip over.
+    //
+    // Held across all three, the job thread's own _setCancellable(false) either gets the lock
+    // first -- and this returns having killed nothing -- or waits behind this and then reads the
+    // mCancelRequested set below. Either way the two agree on whether this take was cancelled.
+    const ScopedLock stage_lock(mStageLock);
+
+    if (!mCurrentStage.cancellable)
         return;
 
     mCancelRequested.store(true);
@@ -682,6 +747,9 @@ void TranscriptionManager::cancelCurrentJob()
     // See mSidecarClientPointerLock's own comment: this is the read-and-kill() side of it. Not
     // mSidecarClientLock -- the job holds that for the whole call, which is exactly what a cancel
     // has to reach past rather than wait behind.
+    //
+    // Taken under mStageLock, and only ever in that order: nothing anywhere takes this one first
+    // and then reaches for the stage.
     const ScopedLock lock(mSidecarClientPointerLock);
 
     if (mSidecarClient != nullptr)
@@ -749,6 +817,19 @@ void TranscriptionManager::_runDownload(const juce::String& inUrl, const juce::F
         mSidecarClient.reset();
     } else {
         mActivityLog.add(quarry::ActivityLine::Kind::Error, "download failed: " + error);
+
+        // The same treatment _tryTranscribeWithSidecar gives the same class of failure, which
+        // this branch used to skip entirely. A download fails this way when the child died under
+        // it -- ffmpeg out of memory, yt-dlp segfaulting, something outside killing the process --
+        // and the client left behind is non-null and dead. The MODEL panel went on advertising all
+        // seven engines off a status nobody had corrected, and the next take inherited the corpse.
+        {
+            const ScopedLock pointer_lock(mSidecarClientPointerLock);
+            mSidecarClient.reset();
+        }
+
+        _recordSidecarStatus(nullptr, error);
+        _registerSidecarFailure();
     }
 
     _setStage({}, -1.0, false);
