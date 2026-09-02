@@ -317,17 +317,18 @@ public:
         targetPid   = targetProcessId;
         scope       = scopeToUse;
         requestedChannelCap = channelCap;
-        sink        = &sinkToUse;
+        sink.store(&sinkToUse);
         startupError = {};
         deviceFailed.store(false);
         startupComplete.reset();
 
         startThread(juce::Thread::Priority::high);
 
-        // The thread does the COM work and reports back. Five seconds is far longer than an
-        // activation takes and still short enough that a wedged audio service is a message
-        // rather than a hang.
-        if (! startupComplete.wait(5000))
+        // The thread does the COM work and reports back. Long enough that an activation is
+        // never cut short, short enough that a wedged audio service is a message rather
+        // than a hang. Every wait the capture thread performs is derived from this same
+        // budget, so start() cannot give up while that thread is still inside one.
+        if (! startupComplete.wait(startupBudgetMs))
         {
             stop();
             return juce::Result::fail("Windows did not answer in time");
@@ -347,8 +348,8 @@ public:
     void stop()
     {
         signalThreadShouldExit();
-        stopThread(2000);
-        sink = nullptr;
+        stopThread(teardownWaitMs);
+        sink.store(nullptr);
     }
 
     double sampleRate() const noexcept { return rate; }
@@ -473,6 +474,10 @@ private:
         initialised, used and torn down in one place. */
     void run() override
     {
+        // Stamped before any COM call, so every wait below spends the same budget start()
+        // is counting down.
+        startupDeadline = juce::Time::getMillisecondCounterHiRes() + (double) startupBudgetMs;
+
         detail::ComScope com;
 
         detail::ComPtr<IAudioClient> client;
@@ -605,10 +610,14 @@ private:
 
         bool ok = false;
 
-        // Shorter than start()'s own five seconds on purpose: this wait has to finish first,
-        // or start() gives up while this thread is still blocked here and stopThread() finds
-        // a thread that cannot answer.
-        if (SUCCEEDED(hr) && handler->waitFor(3000) && SUCCEEDED(handler->result) && handler->client)
+        // Whatever is LEFT of start()'s budget, capped at activationWaitMs - never a flat
+        // 3000. A flat number is only shorter than start()'s five seconds when everything
+        // ahead of it on this thread was instant, and defaultMixFormat() is an untimed COM
+        // call: a slow front half used to push this wait past start()'s deadline, and then
+        // stop() ran stopThread() against a thread parked right here. Running out of budget
+        // now fails the activation, which start() reports, instead of racing it.
+        if (SUCCEEDED(hr) && handler->waitFor(remainingStartupMs()) && SUCCEEDED(handler->result)
+            && handler->client)
         {
             *clientOut.resetAndGetPointerAddress() = handler->client.get();
             handler->client->AddRef();
@@ -617,6 +626,14 @@ private:
 
         handler->Release();
         return ok;
+    }
+
+    /** What is left of start()'s budget, in milliseconds, capped at activationWaitMs.
+        Zero when it is already spent, which turns a wait into an immediate failure. */
+    DWORD remainingStartupMs() const
+    {
+        const auto left = startupDeadline - juce::Time::getMillisecondCounterHiRes();
+        return (DWORD) juce::jlimit(0, activationWaitMs, (int) left);
     }
 
     //==========================================================================
@@ -633,7 +650,11 @@ private:
         always float32 because we asked for it, so there is no sample type to guess at. */
     void deliver(const BYTE* data, int frames, bool silent)
     {
-        if (frames <= 0 || sink == nullptr)
+        // Loaded ONCE. Reading the member again at the bottom could see the nullptr that
+        // stop() writes in between, which is the crash this is here to avoid.
+        auto* destination = sink.load();
+
+        if (frames <= 0 || destination == nullptr)
             return;
 
         if (frames > scratchFrames)
@@ -660,7 +681,7 @@ private:
         for (int ch = 0; ch < channels; ++ch)
             pointers[(size_t) ch] = channelStart(ch);
 
-        sink->loopbackBlock(pointers.data(), channels, frames);
+        destination->loopbackBlock(pointers.data(), channels, frames);
     }
 
     void deliverSilence(juce::int64 frames)
@@ -680,14 +701,33 @@ private:
     {
         deviceFailed.store(true);
 
-        if (sink != nullptr)
-            sink->loopbackFailed();
+        if (auto* destination = sink.load())
+            destination->loopbackFailed();
     }
 
     //==========================================================================
     static constexpr double maxSilencePadSeconds = 30.0;
 
-    LoopbackSink* sink = nullptr;
+    // ONE BUDGET, three numbers derived from it, because they only work as a nest.
+    //
+    // start() waits startupBudgetMs for the capture thread to report. The thread's own
+    // waits have to finish inside that, or start() gives up on a thread that is still
+    // blocked - and then stop() runs stopThread() against it. juce::Thread::stopThread
+    // TERMINATES a thread that misses its timeout, and terminating one parked in COM
+    // leaves the apartment corrupt for the whole process, host included.
+    //
+    // Bounding the activation wait alone is not enough: everything before it on that
+    // thread (defaultMixFormat, Initialize, Start) is an untimed COM call, so a slow
+    // front half used to push the activation past start()'s deadline. The activation
+    // deadline is therefore taken from what is LEFT of the budget, never a fixed 3000.
+    static constexpr int startupBudgetMs   = 5000;
+    static constexpr int activationWaitMs  = 3000;
+    static constexpr int teardownWaitMs    = activationWaitMs + 2000; // > any wait it can be in
+
+    // Read on the capture thread, written on the message thread by start() and stop().
+    // Atomic because stop() clears it after a stopThread() that may have timed out, and
+    // the one path where that matters is the path where the thread is still running.
+    std::atomic<LoopbackSink*> sink { nullptr };
 
     juce::uint32 targetPid = 0;
     Scope scope = Scope::targetTree;
@@ -708,6 +748,7 @@ private:
     // message thread after. The event is the handoff, so no further guard is needed.
     juce::WaitableEvent startupComplete { true };
     juce::String startupError;
+    double startupDeadline = 0.0; // capture thread only, set first thing in run()
 
     std::atomic<bool> deviceFailed { false };
 

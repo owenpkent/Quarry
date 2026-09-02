@@ -44,11 +44,39 @@ VENDOR_INCLUDE = os.path.join(REPO_ROOT, "ThirdParty", "okstudio", "include")
 PIN_FILE = os.path.join(REPO_ROOT, "ThirdParty", "okstudio", "UPSTREAM.txt")
 
 
+def copy_as_lf(src, dst):
+    """Copy one header, normalising CRLF to LF.
+
+    The kit stores text LF in its index and its .gitattributes lets a Windows checkout have
+    CRLF on disk, so a straight copy from a developer's kit brings CRLF into ThirdParty, where
+    every header is stored LF. Git then reports the whole file as changed. That is not cosmetic:
+    the last sync turned a 73-line change to WasapiProcessLoopback.h into a 1479-line diff with
+    the real edit somewhere inside it, and buried a second header whose content had not moved at
+    all. The kit's own CLAUDE.md records the same trap being sprung there.
+
+    Bytes, not text mode: these are C++ headers whose encoding is nobody's business here, and a
+    decode/encode round trip would be a second way to change a file nobody asked to change.
+    """
+    with open(src, "rb") as f:
+        data = f.read()
+
+    with open(dst, "wb") as f:
+        f.write(data.replace(b"\r\n", b"\n"))
+
+    shutil.copystat(src, dst)
+
+
 def sha256(path):
+    """Hash one header for drift detection, with line endings normalised out of it.
+
+    Same reason copy_as_lf exists, and it has to agree with it: the kit's Windows checkout can
+    hold CRLF while ThirdParty holds LF, and hashing the raw bytes then calls an identical
+    header drifted on every single run. That is worse than noise -- it trains a reader to skim
+    past the drift report, which is the one place a genuine kit change announces itself.
+    """
     h = hashlib.sha256()
     with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(65536), b""):
-            h.update(chunk)
+        h.update(f.read().replace(b"\r\n", b"\n"))
     return h.hexdigest()
 
 
@@ -164,7 +192,7 @@ def main():
     print()
     for rel, src, dst in drifted:
         os.makedirs(os.path.dirname(dst), exist_ok=True)
-        shutil.copy2(src, dst)
+        copy_as_lf(src, dst)
         print("copied " + rel + " (" + str(os.path.getsize(dst)) + " bytes)")
 
     dirty = bool(git(kit, "status", "--porcelain"))
