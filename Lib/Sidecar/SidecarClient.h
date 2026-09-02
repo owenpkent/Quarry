@@ -1,11 +1,16 @@
 //
-// Blocking client for the transcription sidecar protocol (version 1): newline-delimited JSON
-// over a child process's stdio.
+// Blocking client for the transcription sidecar protocol (tools/sidecar/PROTOCOL.md, version 2):
+// newline-delimited JSON over a child process's stdio. A version-1 sidecar still works with this
+// client -- it just never sends a "stage" event, which this client treats the same as any other
+// line it does not recognise (see classifyLine).
 //
 
 #ifndef SidecarClient_h
 #define SidecarClient_h
 
+#include <atomic>
+#include <functional>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -92,10 +97,50 @@ public:
                     juce::String& outError,
                     int inTimeoutMs = 600000);
 
-    /** Send {"cmd":"shutdown"}, close stdin, and wait briefly for the child to exit on its own. */
+    /**
+     * Send one download request and block for its matching response (see PROTOCOL.md's
+     * "download request"). Mirrors transcribe()'s request/response handling.
+     * @param inUrl The URL to fetch audio from.
+     * @param inOutDir Folder the sidecar should write the wav into (created if it does not exist).
+     * @param outFile Set to the written wav's path on success.
+     * @param outTitle Set to the source's title, as the sidecar reports it, on success.
+     * @param outError Set to the sidecar's own error message on a well-formed failure response,
+     *  or to a description of a transport failure (timeout, dead child, ...).
+     * @param inTimeoutMs How long to wait for the response line before giving up. Long by default:
+     *  a download is bytes over the network plus an ffmpeg pass, not a model inference call, but
+     *  neither is it bounded the way a local file read would be.
+     * @return true on a well-formed {"ok":true, ...} response.
+     */
+    bool download(const juce::String& inUrl,
+                  const juce::File& inOutDir,
+                  juce::File& outFile,
+                  juce::String& outTitle,
+                  juce::String& outError,
+                  int inTimeoutMs = 600000);
+
+    /** Send {"cmd":"shutdown"}, close stdin, and wait briefly for the child to exit on its own.
+     *  Idempotent against itself and against kill() -- whichever of the two runs first does the
+     *  work; the other finds the child already gone and returns immediately. */
     void shutdown();
 
-    /** Whether the child process is still alive. False before start() and after shutdown(). */
+    /**
+     * Terminates the child immediately (TerminateProcess / SIGKILL) rather than asking it to exit,
+     * and closes this client's handles. Idempotent against itself and against shutdown(), same as
+     * shutdown() itself.
+     *
+     * Safe to call from another thread while a transcribe()/download() call is blocked waiting on
+     * a response: killing the child closes the far end of the stdout pipe, which the blocked
+     * call's read loop notices on its own (PeekNamedPipe reports a broken pipe on Windows, poll()
+     * reports POLLHUP on POSIX) and returns from promptly, with outError set to
+     * "sidecar terminated" rather than the generic "sidecar process exited unexpectedly" a crash
+     * would produce. The handles that loop is reading are closed under mIoLock, not out from
+     * under it -- see that member's own note for what went wrong when they were not.
+     *
+     * This is what the footer's CANCEL calls.
+     */
+    void kill();
+
+    /** Whether the child process is still alive. False before start() and after shutdown()/kill(). */
     bool isRunning() const;
 
     /**
@@ -125,7 +170,40 @@ public:
      */
     const juce::String& getDevice() const;
 
+    /** The "protocol" number from the "ready" line (see PROTOCOL.md's "Startup"). 0 until
+     *  start() has succeeded, or if a pre-version-2 "ready" line ever omitted the field. */
+    int getProtocolVersion() const;
+
+    /**
+     * Stage-event and raw-stderr sinks. Settable any time (including before start(), the usual
+     * case); either may be left null, in which case that kind of line is simply not delivered
+     * anywhere. Neither is called under any lock this class holds, so the receiver is responsible
+     * for its own thread safety -- onStage and onStderrLine are not called on the same thread as
+     * each other (see each field's own doc), and a caller touching shared state from either one
+     * needs to guard it itself.
+     */
+    std::function<void(const SidecarStage&)> onStage;      // called on the thread blocked in transcribe()/download()/start()
+    std::function<void(const juce::String&)> onStderrLine; // called on the stderr pump thread
+
+    /** What kind of line a parsed stdout line is: a stage event to forward and keep waiting past,
+     *  or anything else (the response a caller is waiting for -- transcribe/download's
+     *  {"id":...,"ok":...}, start()'s {"event":"ready",...} -- or a malformed/unrecognised line,
+     *  which the caller's own "is this what I'm waiting for" check already skips over the same
+     *  way it would skip an unrelated well-formed line). Static and free of instance state so it
+     *  can be unit-tested directly; see Tests/sidecar_client_test.h. */
+    enum class LineKind { Stage, Other };
+
+    /** Classifies inParsed (already run through juce::JSON::parse). When the result is Stage,
+     *  outStage is filled in from the event's "stage"/"text"/"t"/"fraction" fields (fraction left
+     *  at its struct default, -1.0, when the field is absent); outStage is left untouched
+     *  otherwise. inParsed being anything other than a JSON object (parse failure, a bare array,
+     *  stray non-protocol output) classifies as Other, the same as a well-formed line that is not
+     *  a stage event. */
+    static LineKind classifyLine(const juce::var& inParsed, SidecarStage& outStage);
+
 private:
+    class StderrPump;
+
     /** Write one line (with the trailing newline) to the child's stdin. */
     bool _writeLine(const juce::String& inLine, juce::String& outError);
 
@@ -133,33 +211,96 @@ private:
      * Block for one newline-terminated line from the child's stdout, or until inTimeoutMs has
      * elapsed since inDeadlineStart. Bytes read past the newline are kept in mReadBuffer for the
      * next call, since the child's writes have no reason to land on line boundaries.
+     *
+     * On a broken pipe or a dead child, outError is "sidecar terminated" if mKilled is set (this
+     * is kill()'s doing) or a description of the unexpected failure otherwise -- see kill()'s docs.
      */
     bool _readLine(juce::String& outLine, double inDeadlineStart, int inTimeoutMs, juce::String& outError);
 
-    /** Read one JSON object line matching inAwaitedId, skipping anything else (see class docs). */
+    /**
+     * Reads lines until one classifies as LineKind::Other and matches inAwaitedId (see
+     * classifyLine); every LineKind::Stage line along the way is forwarded to onStage (if set)
+     * and skipped without resetting inDeadlineStart. Used by transcribe() and download(); start()
+     * has its own version of this loop since it is waiting for "ready", not an id match.
+     */
     bool _readResponse(const juce::String& inAwaitedId, juce::var& outResponse, int inTimeoutMs, juce::String& outError);
+
+    /** Stops and destroys the stderr pump thread, if one is running. Called before _closeHandles()
+     *  everywhere a shutdown path closes the stderr pipe, so the pump is never left reading from a
+     *  handle another thread just closed out from under it. */
+    void _stopStderrPump();
 
     void _closeHandles();
 
     juce::String mCommandLine;
     std::string mReadBuffer;
     int mNextId = 0;
-    bool mStarted = false;
+    std::atomic<bool> mStarted { false };
+
+    // Set by kill() before it tears anything down, so _readLine can tell "the child died because
+    // kill() was called" apart from "the child died on its own" and report each with a different
+    // outError. Never cleared -- a killed client is done; start() is not meant to be called again
+    // on it (nothing currently stops that, but nothing resets mKilled if it happens either).
+    std::atomic<bool> mKilled { false };
+
+    // Guards the mStarted check-and-clear at the top of shutdown() and kill(), so the two are
+    // idempotent against each other: whichever call gets here first does the teardown, the other
+    // sees mStarted already false and returns having done nothing.
+    juce::CriticalSection mLifecycleLock;
 
     // Filled from the "ready" line and then left alone: the child re-reports nothing, so these
     // describe this child for as long as it lives.
     juce::StringArray mAvailableEngines;
     bool mEngineListReported = false;
     juce::String mDevice;
+    int mProtocolVersion = 0;
 
+    // Drains the child's stderr from just after the process launches until shutdown()/kill(), so
+    // the pipe can never fill (see the pump's own docs in SidecarClient.cpp) and so its lines can
+    // be handed to onStderrLine as they arrive rather than only after the child exits.
+    std::unique_ptr<StderrPump> mStderrPump;
+
+    // Held for one read or write on the child's pipes, and by _closeHandles() for as long as it
+    // is closing them. Never held across a read loop, so kill() waits on a single syscall rather
+    // than on the child.
+    //
+    // The atomics below are not enough on their own, and this file used to claim they were: it
+    // said the OS handle "tolerates being closed out from under a concurrent read (that just
+    // fails the read)". That is true of the load, and false of the use. CloseHandle returns the
+    // HANDLE value to the process, and the next CreateFile or CreateEvent anywhere in the host --
+    // a DAW, with its own threads -- may be handed the same number. A reader that loaded the
+    // handle a moment before then peeks and reads a live, unrelated kernel object: not a failed
+    // read, but foreign bytes appended to mReadBuffer, or a fault. close(2) and fd reuse are the
+    // same story on POSIX, and there the recycled descriptor could be an open file.
+    //
+    // So the handles are only touched under this lock, and closed under it too, which is what
+    // actually makes kill() safe to call while transcribe()/download() is blocked reading.
+    juce::CriticalSection mIoLock;
+
+    // HANDLE (Windows, a void*) and int (POSIX, a file descriptor / pid) are trivially copyable,
+    // so wrapping them in std::atomic costs nothing, and it keeps isRunning() and the like able
+    // to read one without taking mIoLock. The lock above is what makes a *use* of the value safe.
 #if JUCE_WINDOWS
-    HANDLE mChildStdinWrite = nullptr;
-    HANDLE mChildStdoutRead = nullptr;
-    HANDLE mProcessHandle = nullptr;
+    std::atomic<HANDLE> mChildStdinWrite { nullptr };
+    std::atomic<HANDLE> mChildStdoutRead { nullptr };
+    std::atomic<HANDLE> mChildStderrRead { nullptr };
+    std::atomic<HANDLE> mProcessHandle { nullptr };
+
+    // The child's kill-on-close job. Its only job (so to speak) is the abnormal exit: shutdown()
+    // and kill() already end the child on every path this class controls, but neither runs if the
+    // host process is terminated rather than closed -- a crash, a force-quit, the debugger's stop
+    // button. Windows closes this handle with the rest of them on the way down, and because it is
+    // the last handle to the job, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE takes the sidecar with it.
+    // Without this the child survives its parent, still holding whatever VRAM its model loaded.
+    //
+    // Null when the job could not be created; that degrades to the old behaviour rather than
+    // refusing to start, since a sidecar with no safety net still beats no sidecar.
+    std::atomic<HANDLE> mJobHandle { nullptr };
 #else
-    int mChildStdinWrite = -1;
-    int mChildStdoutRead = -1;
-    pid_t mChildPid = -1;
+    std::atomic<int> mChildStdinWrite { -1 };
+    std::atomic<int> mChildStdoutRead { -1 };
+    std::atomic<int> mChildStderrRead { -1 };
+    std::atomic<pid_t> mChildPid { -1 };
 #endif
 };
 

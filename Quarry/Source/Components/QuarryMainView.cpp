@@ -6,6 +6,9 @@
 
 #include "QuarryLookAndFeel.h"
 
+#include "TakeNaming.h"
+#include "Views/ActivityDrawerLayout.h"
+#include "Views/ProgressStripLayout.h"
 #include "Views/SampleBarLayout.h"
 
 // Last, deliberately: this reaches the Windows audio stack, and windows.h defines a
@@ -336,6 +339,63 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
     addChildComponent(mUpdateCheck.get());
     mUpdateCheck->checkForUpdate(false);
 
+    // The header's own progress readout: the stage feed the drawer's status line shows, in the
+    // one free band of toolbar above the transport, for whoever never opens the drawer.
+    mProgressStrip = std::make_unique<ProgressStrip>(
+        [this]() { return mProcessor.getTranscriptionManager()->getCurrentStage(); },
+        [this]() { mProcessor.getTranscriptionManager()->cancelCurrentJob(); });
+    addChildComponent(*mProgressStrip);
+
+    // Added last of everything in this view, so it paints over the left column and the footer
+    // rather than under them -- an overlay has to actually sit on top to be one.
+    auto* transcription_manager = mProcessor.getTranscriptionManager();
+
+    // Middle dot as a separator, written as UTF-8 bytes rather than a literal character: MSVC
+    // reads a source file's non-ASCII bytes by the machine's codepage unless told otherwise, and
+    // a byte-escaped CharPointer_UTF8 sidesteps that regardless of how this file is saved.
+    const String dot(CharPointer_UTF8("\xC2\xB7"));
+
+    mActivityDrawer = std::make_unique<ActivityDrawer>(
+        transcription_manager->getActivityLog(),
+        [this, dot]() -> String {
+            auto* manager = mProcessor.getTranscriptionManager();
+            const auto status = manager->getSidecarStatus();
+
+            String text;
+
+            if (!status.configured) {
+                text = "sidecar not configured";
+            } else if (!status.probed) {
+                text = "sidecar starting";
+            } else if (status.error.isNotEmpty()) {
+                text = "sidecar unreachable: " + status.error;
+            } else {
+                text = status.device;
+
+                if (status.enginesKnown)
+                    text += " " + dot + " " + status.engines.joinIntoString(", ");
+            }
+
+            const auto stage = manager->getCurrentStage();
+            text += stage.active ? (" " + dot + " " + stage.text) : (" " + dot + " idle");
+
+            return text;
+        },
+        [this](const String& inText) {
+            auto* manager = mProcessor.getTranscriptionManager();
+
+            if (inText.startsWithIgnoreCase("http://") || inText.startsWithIgnoreCase("https://")) {
+                manager->requestDownload(inText, TakeNaming::folder(mProcessor.getValueTree()));
+            } else {
+                manager->getActivityLog().add(quarry::ActivityLine::Kind::Error, "not a URL: " + inText);
+            }
+        });
+
+    mActivityDrawer->onClosed = [this]() { grabKeyboardFocus(); };
+    addChildComponent(*mActivityDrawer);
+
+    mSampleBar->onToggleActivity = [this]() { _toggleActivityDrawer(); };
+
     startTimerHz(30);
 }
 
@@ -366,6 +426,16 @@ void QuarryMainView::resized()
 
     // The window grew by 60 px to seat this; nothing above it moved.
     mSampleBar->setBounds(contentMargin, LeftColumnLayout::SAMPLE_BAR_TOP, wideContentWidth, SampleBarLayout::HEIGHT);
+
+    mActivityDrawer->setBounds(ActivityDrawerLayout::X,
+                               ActivityDrawerLayout::top(),
+                               ActivityDrawerLayout::WIDTH,
+                               ActivityDrawerLayout::HEIGHT);
+
+    mProgressStrip->setBounds(ProgressStripLayout::X,
+                              ProgressStripLayout::Y,
+                              ProgressStripLayout::WIDTH,
+                              ProgressStripLayout::HEIGHT);
 
 #if JUCE_WINDOWS
     const auto narrow = getWidth() < wideContentWidth + 2 * contentMargin;
@@ -447,6 +517,24 @@ void QuarryMainView::_applyWindowSize()
 #endif
 }
 
+void QuarryMainView::_toggleActivityDrawer()
+{
+    if (mActivityDrawer->isVisible()) {
+        mActivityDrawer->close();
+        return;
+    }
+
+#if JUCE_WINDOWS
+    // The drawer sits in Transcribe's absolute coordinates, and the Sample page can be a narrow
+    // window those coordinates fall outside of. Opened there it would hang half off screen, so
+    // the key and the footer button both go quiet until Transcribe is showing.
+    if (mSamplePage != nullptr && mSamplePage->isVisible())
+        return;
+#endif
+
+    mActivityDrawer->open();
+}
+
 void QuarryMainView::_showSamplePage(bool inShouldShow)
 {
 #if JUCE_WINDOWS
@@ -455,9 +543,19 @@ void QuarryMainView::_showSamplePage(bool inShouldShow)
 
     mSamplePage->setVisible(inShouldShow);
 
+    // Leaving Transcribe takes its overlay with it: the drawer is laid out in Transcribe's
+    // coordinates, and nothing on Sample can reopen it (see _toggleActivityDrawer).
+    if (inShouldShow && mActivityDrawer != nullptr && mActivityDrawer->isVisible())
+        mActivityDrawer->close();
+
     const auto transcribing = ! inShouldShow;
 
     mVisualizationPanel.setVisible(transcribing);
+
+    // Not setVisible: the strip decides its own visibility from the stage, and only needs to know
+    // which page is up so a take running behind Sample cannot surface over it.
+    if (mProgressStrip != nullptr)
+        mProgressStrip->setPageShowing(transcribing);
     mModelOptions.setVisible(transcribing);
     mNoteOptions.setVisible(transcribing);
     mQuantizePanel.setVisible(transcribing);
@@ -560,6 +658,11 @@ bool QuarryMainView::keyPressed(const KeyPress& key)
         return true;
     }
 
+    if (key == KeyPress('`', juce::ModifierKeys::noModifiers, 0)) {
+        _toggleActivityDrawer();
+        return true;
+    }
+
 #if JUCE_WINDOWS
     // Escape is free here and reads as "back out of this". The guard matches the one the
     // button is built under, and the null check covers the window between construction of
@@ -604,7 +707,11 @@ void QuarryMainView::updateEnablements()
         mPlayPauseButton->setEnabled(true);
         mBackButton->setEnabled(true);
         mCenterButton->setEnabled(true);
-        mVisualizationPanel.setMidiFileDragComponentVisible();
+        // On there being notes, not on having got this far. The state says the take is
+        // finished and its audio is playable, which is true of a transcription that was
+        // cancelled before it produced anything -- and that take has nothing to drag out.
+        mVisualizationPanel.setMidiFileDragComponentVisible(
+            !mProcessor.getTranscriptionManager()->getNoteEventVector().empty());
     }
 
     if (mAudioInputView != nullptr)

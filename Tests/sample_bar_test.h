@@ -55,10 +55,12 @@ inline bool sample_bar_test()
     check(status >= STATUS_FLOOR, "the status label keeps its floor at the shipped width");
     check(folder <= FOLDER_IDEAL, "the folder button never exceeds what a path needs");
 
-    // The two of them plus the gap are the middle exactly. A split that does not add up leaves a
-    // strip of panel showing between them, or runs the status off the end of the bar.
-    check(folder + OPEN_GAP + OPEN_BUTTON + MIDDLE_GAP + status == middleWidth(WIDTH),
-          "the folder, the Open button and the two gaps are the whole middle");
+    // The two of them plus every gap and fixed button between them are the middle exactly. A
+    // split that does not add up leaves a strip of panel showing between them, or runs the
+    // status off the end of the bar.
+    check(folder + OPEN_GAP + OPEN_BUTTON + ACTIVITY_GAP + ACTIVITY_BUTTON + MIDDLE_GAP + status
+              == middleWidth(WIDTH),
+          "the folder, the Open button, the activity toggle and their gaps are the whole middle");
 
     // What the regression looked like, as a number rather than as a description. The status is
     // the half with nowhere else to say what it says, so it is the half that keeps its room.
@@ -75,7 +77,8 @@ inline bool sample_bar_test()
         const int narrow = WIDTH - 200;
         check(folderWidth(narrow) >= 0 && statusWidth(narrow) >= 0,
               "a bar too narrow for both floors still divides into two real widths");
-        check(folderWidth(narrow) + OPEN_GAP + OPEN_BUTTON + MIDDLE_GAP + statusWidth(narrow)
+        check(folderWidth(narrow) + OPEN_GAP + OPEN_BUTTON + ACTIVITY_GAP + ACTIVITY_BUTTON + MIDDLE_GAP
+                      + statusWidth(narrow)
                   == middleWidth(narrow),
               "a narrow bar's split still adds up");
         check(folderWidth(narrow) <= folder, "a narrower bar gives the folder no more than a wide one");
@@ -92,6 +95,8 @@ inline bool sample_bar_test()
     // box it is given. A box narrower than it is tall would letterbox the icon and put it out of
     // square with every other icon in the window, so the width has to clear the bar's own height.
     check(OPEN_BUTTON >= INNER_HEIGHT, "the Open button is at least square, so its icon is not squashed");
+    check(ACTIVITY_BUTTON >= INNER_HEIGHT,
+          "the activity toggle is at least square, so its icon is not squashed");
     check(INNER_HEIGHT == HEIGHT - MARGIN_Y * 2, "the inner height is what the inset actually leaves");
 
     // The picker carries the parameter's own choice names now that the "PITCH BEND" caption is
@@ -155,6 +160,27 @@ inline bool sample_bar_test()
 
         check(widest <= (float) STATUS_FLOOR, "the status label's fixed sentences fit the floor it keeps");
         std::cout << "  widest fixed status: \"" << widestText << "\" at " << widest << " px of " << STATUS_FLOOR
+                  << std::endl;
+    }
+
+    // The other half of the same split, which had no check at all -- which is how the activity
+    // toggle took 36 px off this button without anything noticing. The status has a measured
+    // floor; the folder gets whatever is left, and what is left has to still fit the one label
+    // this button shows before a person has ever picked a folder.
+    {
+        // The font the button is actually drawn in: Obsidian's getTextButtonFont is
+        // uiSemi(jmin(14, height * 0.45)), and QuarryLookAndFeel insets a button taller than
+        // 20 px by 8 px on each side before drawing the text into what is left.
+        const auto font = okstudio::obsidian::uiSemi(juce::jmin(14.0f, (float) INNER_HEIGHT * 0.45f));
+        const auto room = (float) (folder - 16);
+
+        // What every first run shows: the default folder is Music/Quarry Samples, and
+        // SampleBar::_folderLabel renders a folder as its parent name and its own.
+        const auto label = juce::String("Music") + juce::File::getSeparatorString() + "Quarry Samples";
+        const auto width = font.getStringWidthFloat(label);
+
+        check(width <= room, "the default save folder's label fits the button that shows it");
+        std::cout << "  default folder label: \"" << label << "\" at " << width << " px of " << room
                   << std::endl;
     }
 

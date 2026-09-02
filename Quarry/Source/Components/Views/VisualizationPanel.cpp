@@ -129,9 +129,9 @@ void VisualizationPanel::repaintPianoRoll()
     mCombinedAudioMidiRegion.repaintPianoRoll();
 }
 
-void VisualizationPanel::setMidiFileDragComponentVisible()
+void VisualizationPanel::setMidiFileDragComponentVisible(bool inVisible)
 {
-    mMidiFileDrag.setVisible(true);
+    mMidiFileDrag.setVisible(inVisible);
 }
 
 void VisualizationPanel::mouseEnter(const MouseEvent& event)

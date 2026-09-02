@@ -1,6 +1,6 @@
 # Quarry transcription sidecar protocol
 
-Version 1. Implemented by `quarry_sidecar.py`; engine adapters live in `engines.py`.
+Version 2. Implemented by `quarry_sidecar.py`; engine adapters live in `engines.py`.
 
 ## Transport
 
@@ -13,14 +13,18 @@ bars), so every call into a model, whether loading it or running it, is wrapped 
 `contextlib.redirect_stdout(sys.stderr)`. transkun is invoked as a subprocess (see "Engines"
 below), so that wrapping cannot reach across the process boundary; its subprocess is instead
 launched with `stdout=sys.stderr` directly. A caller of `serve` mode should treat every stderr
-line as unstructured and non-protocol: logging only, never parsed.
+line as unstructured and non-protocol: logging only, never parsed. A `serve`-mode caller now
+typically pipes that stderr into its own activity log rather than discarding it, so every line
+written there should be readable on its own, one line at a time, in plain English -- not a
+partial line, not a stack of `\r`-carriage-returned progress updates, not something that only
+makes sense next to the line before it.
 
 ## Startup
 
 On entering `serve` mode, before reading any request, the sidecar emits one line:
 
 ```json
-{"event": "ready", "protocol": 1, "engines": ["kong", "muscriptor", "transkun"], "device": "cuda"}
+{"event": "ready", "protocol": 2, "engines": ["kong", "muscriptor", "transkun"], "device": "cuda"}
 ```
 
 - `engines` lists which engine packages import cleanly in this interpreter (sorted), not which
@@ -45,8 +49,9 @@ One JSON object per line:
 
 - `id`: caller-chosen, opaque, echoed back unchanged on the matching response. Required for a
   well-formed request; a malformed one gets `id: null` back (see "Malformed requests").
-- `cmd`: `"transcribe"` or `"shutdown"` (see below). Anything else gets an `ok:false` response
-  naming the unrecognized command; the process stays alive.
+- `cmd`: `"transcribe"`, `"download"` (see "download request" below) or `"shutdown"` (see below).
+  Anything else gets an `ok:false` response naming the unrecognized command; the process stays
+  alive.
 - `wav`: absolute path to a WAV file, read directly by the chosen engine's own loader.
 - `engine`: one of `"kong"`, `"transkun"`, `"muscriptor"`, `"auto"`, or any of those three base
   names prefixed with `"sep+"` (`"sep+kong"`, `"sep+transkun"`, `"sep+muscriptor"`) -- see
@@ -113,6 +118,36 @@ On success, one JSON object per line, echoing the request's `id`:
 - `warnings`: non-fatal notices, e.g. `["no notes detected"]` when transcription succeeded but
   produced zero notes. `[]` when there is nothing to say.
 
+## Stage events
+
+While a `transcribe` or `download` request is being served, the sidecar may write zero or more
+event lines to stdout before the matching response, reporting progress:
+
+```json
+{"event": "stage", "id": "<request id>", "stage": "load-model", "text": "loading kong model", "t": 0.42}
+```
+
+- `id`: the request this event belongs to, same value as the request's own `id`.
+- `stage`: a short slug naming which part of the pipeline is running (see below).
+- `text`: one human-readable line, English, meant to be shown or logged as-is.
+- `t`: seconds since this request started, float.
+- `fraction`: optional, `0..1`, present only when a percentage is actually known (e.g. bytes
+  downloaded of a known total). Absent, not `null`, when there is nothing to report.
+
+A stage event is not a response: the caller keeps waiting for the line carrying this request's
+`id` with an `ok` field. An older or third-party caller that does not know about `"event":"stage"`
+can safely ignore any line that has an `event` field instead of an `ok` field.
+
+Slugs, in the order a `transcribe` request can emit them: `received` (request accepted, names the
+resolved engine and device), `load-model` (start/done, only when a model is actually being
+loaded -- a cached transcriber emits neither), `separate` (start/done, `sep+` requests only, the
+demucs pre-stage), `stem` (once per remaining stem inside a `sep+` request, with `fraction` set to
+that stem's position), `infer` (start/done, the base engine's own run), `post` (sorting notes and
+pedal, checking for warnings), `done` (final, with the note count and elapsed time in `text`).
+For `download`: `download` (start, and periodically while bytes are arriving, with `fraction` from
+bytes downloaded of the total when known), `extract-audio` (the ffmpeg postprocessing step that
+turns the downloaded audio into the response's wav), `done`.
+
 ## Error response
 
 ```json
@@ -131,6 +166,34 @@ Not strictly part of the happy-path schema above, but specified here so a client
 expect: a line that is not valid JSON, or valid JSON that is not an object, gets
 `{"id": null, "ok": false, "error": "..."}` back (there is no `id` to echo). A well-formed object
 missing `wav` gets `{"id": <echoed>, "ok": false, "error": "missing required field: wav"}`.
+
+## download request
+
+```json
+{"id": "<opaque string>", "cmd": "download", "url": "<url>", "out_dir": "<folder>"}
+```
+
+Fetches `url`'s audio with `yt-dlp` and writes a wav file into `out_dir` (created if it does not
+exist). Exists for the developer's own workflow -- pulling reference audio into a corpus or a
+manual test without leaving the sidecar -- and is not part of the shipped plugin. The one thing in
+Quarry that sends it is the activity drawer's prompt line, a developer surface. Requires
+`yt-dlp` importable in this interpreter and `ffmpeg` on `PATH`; see `docs/SIDECAR.md`.
+
+On success:
+
+```json
+{"id": "<opaque string>", "ok": true, "path": "<wav path>", "title": "<title>", "duration_s": 4.2, "elapsed_s": 12.7}
+```
+
+- `path`: absolute path to the written wav.
+- `title`: the source's title, as `yt-dlp` reports it.
+- `duration_s`: the source's duration in seconds, or `null` when `yt-dlp` did not report one.
+- `elapsed_s`: wall-clock seconds for the whole request (download plus audio extraction).
+
+On failure, the usual `{"id": ..., "ok": false, "error": "<message>"}`, covering: `yt-dlp` not
+installed (names the `pip install` to run), the URL failing to resolve or download, and a missing
+`url` or `out_dir` field. The process stays alive after a failed download, same as a failed
+`transcribe`. See "Stage events" above for the progress reported while a download runs.
 
 ## Shutdown
 

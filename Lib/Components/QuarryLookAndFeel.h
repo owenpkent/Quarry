@@ -358,11 +358,23 @@ public:
         else
             c = TEXT_MAIN;
 
+        const auto font = getTextButtonFont(button, button.getHeight());
+        const auto text_area = button.getLocalBounds().reduced(button.getHeight() > 20 ? 8 : 4, 0);
+
+        // Two lines only where two lines fit. drawFittedText breaks at a space before it will
+        // elide, so a button handed more text than it has room for wraps rather than truncating,
+        // and a button too short for the second line then draws both of them squashed into the
+        // one it has. The footer's folder button is where that shows: 30 px tall, 130 px of text
+        // room, and showing a path a person chose, of no bounded length -- "Documents\My
+        // Recordings" arrives as two clipped halves instead of one line ending in an ellipsis.
+        // The full path is on the tooltip either way, so eliding loses nothing.
+        //
+        // Buttons with the height for two lines are unaffected and still get them.
+        const int max_lines = (float) text_area.getHeight() >= font.getHeight() * 2.0f ? 2 : 1;
+
         g.setColour(c);
-        g.setFont(getTextButtonFont(button, button.getHeight()));
-        g.drawFittedText(button.getButtonText(),
-                         button.getLocalBounds().reduced(button.getHeight() > 20 ? 8 : 4, 0),
-                         Justification::centred, 2, 1.0f);
+        g.setFont(font);
+        g.drawFittedText(button.getButtonText(), text_area, Justification::centred, max_lines, 1.0f);
 
         ignoreUnused(down);
     }

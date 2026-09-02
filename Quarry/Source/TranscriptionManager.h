@@ -8,6 +8,7 @@
 #include <cstdint>
 
 #include <JuceHeader.h>
+#include "ActivityLog.h"
 #include "BasicPitch.h"
 #include "EngineCatalog.h"
 #include "NoteOptions.h"
@@ -110,6 +111,44 @@ public:
      */
     void requestSidecarProbe();
 
+    /** Any thread: the sidecar's stage/stderr lines and Quarry's own, in one feed the drawer polls. */
+    quarry::ActivityLog& getActivityLog();
+
+    /** What the current job (a take or a download) is doing right now, for the activity drawer's
+     *  header line. text/fraction/cancellable are only meaningful while active is true. */
+    struct Stage {
+        juce::String text;
+        double fraction = -1.0;
+        bool active = false;
+        /** True only while a sidecar transcription or a download is blocked in the client call
+         *  that cancelCurrentJob() can actually interrupt -- not while the child is starting, and
+         *  never for a built-in take, which has no cancellation point. */
+        bool cancellable = false;
+    };
+
+    /** Any thread: copies the current stage out from under mStageLock. */
+    Stage getCurrentStage() const;
+
+    /**
+     * Message thread; no-op unless a cancellable job is active right now. Marks mCancelRequested
+     * and kills the sidecar child out from under whichever job is blocked in it; that job's own
+     * transcribe()/download() call notices the broken pipe and returns false with "sidecar
+     * terminated", which _tryTranscribeWithSidecar/_runDownload read as a cancel rather than a
+     * failure (see their own comments) -- no failure count, no fallback to built-in, no pending
+     * download file. The killed client is discarded, so the next job starts a fresh one.
+     */
+    void cancelCurrentJob();
+
+    /**
+     * Fetches inUrl through the sidecar (the only tier that can reach a URL) and, once the file is
+     * on disk, drops it in exactly where a user's own drag-and-drop would have: see timerCallback,
+     * which drains the finished download into mProcessor->getSourceAudioManager()->onFileDrop() on
+     * the message thread. Message thread in, because it queues on mThreadPool and logs to
+     * mActivityLog immediately (a same-thread caller wants "queued" to show up before this
+     * returns); the fetch itself happens on that pool, same as a take.
+     */
+    void requestDownload(const juce::String& inUrl, const juce::File& inOutDir);
+
     /**
      * Called on the message thread when the recorded sidecar status has changed, so the MODEL
      * panel can rewrite its lines when the probe lands or a take moves the answer.
@@ -163,6 +202,10 @@ private:
      * a transport failure are the only "malformed result" cases the protocol can produce -- both
      * already come back as false from SidecarClient::transcribe, so there is nothing further to
      * validate here.
+     *
+     * A cancel (cancelCurrentJob() killed the client mid-transcribe) is also a false return, but
+     * a distinct one: mCancelRequested is set, nothing above is counted against the sidecar's
+     * give-up budget, and the caller does not fall back to BasicPitch for it. See _runModel.
      */
     bool _tryTranscribeWithSidecar(const juce::File& inSourceFile,
                                    int inEngineIndex,
@@ -194,6 +237,20 @@ private:
     /** The current take's note events before post-processing, from whichever engine produced them. */
     const std::vector<Notes::Event>& _rawNoteEvents() const;
 
+    /** Copies inText/inFraction/inActive into mCurrentStage under mStageLock. Leaves cancellable
+     *  untouched -- see _setCancellable, its only mutator -- so a stage progress update arriving
+     *  mid-transcribe (client->onStage) cannot flip the Cancel button off underneath the job. */
+    void _setStage(const juce::String& inText, double inFraction, bool inActive);
+
+    /** Flips mCurrentStage.cancellable under mStageLock. Set true just before the blocking
+     *  transcribe()/download() call and false right after, on the job's own thread. */
+    void _setCancellable(bool inCancellable);
+
+    /** Body of one requestDownload() job, on mThreadPool. Starts mSidecarClient lazily (same helper
+     *  _tryTranscribeWithSidecar uses), downloads, logs the result, and on success leaves the file
+     *  in mPendingDownloadFile for timerCallback to drain. */
+    void _runDownload(const juce::String& inUrl, const juce::File& inOutDir);
+
     QuarryAudioProcessor* mProcessor;
 
     BasicPitch mBasicPitch;
@@ -220,6 +277,20 @@ private:
     int mSidecarFailureCount = 0;
     bool mSidecarUnavailable = false;
 
+    // Guards only the mSidecarClient pointer itself (every assignment and reset of it), not the
+    // call a job is mid-way through -- that is mSidecarClientLock above, held for a whole start-
+    // or-transcribe, which cancelCurrentJob() (message thread) must never wait on. Taken around
+    // cancel's read-and-kill() too, so the object it calls kill() on cannot be destroyed out from
+    // under it; whichever of the two gets here first goes first, and kill() is bounded (at most
+    // 2 s for its pump stop, see SidecarClient::kill()), so the loser just waits that long.
+    mutable juce::CriticalSection mSidecarClientPointerLock;
+
+    // Set by cancelCurrentJob() before it calls kill(); cleared at the start of every job (a take
+    // on the sidecar, a take on the built-in engine, or a download). A false return from the
+    // client call together with this set is a cancel, not a failure -- see
+    // _tryTranscribeWithSidecar and _runDownload.
+    std::atomic<bool> mCancelRequested {false};
+
     // Read on the message thread by the picker, written on the transcription thread where the
     // client lives. Copied out under the lock rather than handing out a pointer to the client,
     // which the transcription thread is free to destroy between any two of the reader's lines.
@@ -240,6 +311,26 @@ private:
     std::atomic<int> mEngineRunFallback {0};
 
     std::atomic<bool> mShouldProbeSidecar {false};
+
+    // Every line the sidecar and Quarry itself have produced, for the activity drawer. Its own
+    // lock, separate from mSidecarStatusLock: that one guards a snapshot answer that changes
+    // rarely, this is an append-only feed written from three different threads (a take, a probe,
+    // and whichever thread onStage/onStderrLine land on) and polled independently of it.
+    quarry::ActivityLog mActivityLog;
+
+    // What the current job is doing, for the drawer's header line. Separate from mSidecarStatus:
+    // that describes what the sidecar tier can do, this describes what is happening right now,
+    // and a take on the built-in engine has a stage but no sidecar status to speak of.
+    mutable juce::CriticalSection mStageLock;
+    Stage mCurrentStage;
+
+    // Set by _runDownload on success, drained by timerCallback into onFileDrop on the message
+    // thread -- the same thread a UI drop uses. Not a callback: the editor that called
+    // requestDownload can be destroyed and recreated by the host while this manager (owned by the
+    // processor) lives on, and a callback capturing it would dangle.
+    mutable juce::CriticalSection mPendingDownloadLock;
+    juce::File mPendingDownloadFile;
+    bool mHasPendingDownload = false;
 
     // This take's sidecar results, valid only while mUsingSidecarForCurrentTake is true.
     std::vector<Notes::Event> mSidecarNoteEvents;

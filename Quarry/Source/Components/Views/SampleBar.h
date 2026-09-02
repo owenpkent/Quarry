@@ -34,6 +34,10 @@ public:
 
     void timerCallback() override;
 
+    /** Toggles the activity drawer. Set by whoever owns both this bar and the drawer; the bar
+        only knows it has a button to click, not what the drawer is. */
+    std::function<void()> onToggleActivity;
+
 private:
     /** The stem shared by both files, without an extension. Walks inFolder, so the timer
         reads mNextBaseName instead of calling this.
@@ -74,6 +78,12 @@ private:
     // "open the folder I have been saving to" had no control at all. Two narrow buttons that read
     // as one, rather than one button whose two jobs a person has to guess between.
     std::unique_ptr<DrawableButton> mOpenFolderButton;
+
+    // Beside the folder pair for the same reason Open sits beside the path: a dev-facing panel
+    // with its own toggle earns its own icon rather than a menu entry nobody working on the
+    // product would think to open. The bar only fires onToggleActivity -- it does not know the
+    // drawer exists, the same way it does not know what "open" shows in the file manager.
+    std::unique_ptr<DrawableButton> mActivityToggleButton;
 
     // Pitch bend is an export setting, not a transcription one: it changes the MIDI written
     // from a take and nothing about what the model heard from it. docs/UI.md draws that line

@@ -39,7 +39,13 @@ tools/bakeoff/.venv/Scripts/python -m pip install numpy scipy mir_eval pretty_mi
 tools/bakeoff/.venv/Scripts/python -m pip install torch --index-url https://download.pytorch.org/whl/cu128
 tools/bakeoff/.venv/Scripts/python -m pip install piano-transcription-inference transkun muscriptor
 tools/bakeoff/.venv/Scripts/python -m pip install --no-deps demucs julius lameenc sphn
+tools/bakeoff/.venv/Scripts/python -m pip install yt-dlp
 ```
+
+`yt-dlp` backs the sidecar's `download` request, which exists for the developer's own workflow
+(pulling reference audio into a corpus without leaving the sidecar) and is not shipped with the
+plugin; it also needs `ffmpeg` on `PATH` (either winget package, `Gyan.FFmpeg` or
+`yt-dlp.FFmpeg`, will do).
 
 Traps met once so nobody meets them twice:
 

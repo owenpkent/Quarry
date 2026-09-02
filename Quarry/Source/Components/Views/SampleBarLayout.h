@@ -64,6 +64,15 @@ constexpr int OPEN_GAP = 6;
     glyph says the same thing in 30 px that four letters needed 52 for. */
 constexpr int OPEN_BUTTON = 30;
 
+/** Between the Open button and the activity toggle beside it: the same two controls that read
+    as one pair, joined by the same gap Open keeps from the folder button. */
+constexpr int ACTIVITY_GAP = 6;
+
+/** The button that shows or hides the activity drawer. Sized and shaped like Open rather than
+    given its own idea of what an icon button looks like: two glyphs of different sizes sitting
+    in a row of otherwise-uniform controls would read as a mistake rather than as two things. */
+constexpr int ACTIVITY_BUTTON = 30;
+
 /** Between the folder pair and the status label. */
 constexpr int MIDDLE_GAP = 12;
 
@@ -92,10 +101,11 @@ constexpr int middleWidth(int inBarWidth)
 }
 
 /** The middle minus the fixed things standing in it: what the two stretching controls share.
-    The Open button is fixed-width, so it comes out before the division rather than competing in
-    it -- a button whose label is one word does not want a share of anything. */
+    The Open button and the activity toggle beside it are fixed-width, so both come out before
+    the division rather than competing in it -- a button whose label is one glyph does not want
+    a share of anything. */
 constexpr int shareableWidth(int inBarWidth)
-{ return middleWidth(inBarWidth) - OPEN_GAP - OPEN_BUTTON - MIDDLE_GAP; }
+{ return middleWidth(inBarWidth) - OPEN_GAP - OPEN_BUTTON - ACTIVITY_GAP - ACTIVITY_BUTTON - MIDDLE_GAP; }
 
 constexpr int folderWidth(int inBarWidth)
 {
