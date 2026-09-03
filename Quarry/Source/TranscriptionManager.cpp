@@ -713,12 +713,17 @@ void TranscriptionManager::_setStage(const juce::String& inText, double inFracti
     mCurrentStage.text = inText;
     mCurrentStage.fraction = inFraction;
     mCurrentStage.active = inActive;
+
+    // Bumped inside the lock, so a poller that sees the new number is guaranteed to find the new
+    // stage behind it rather than the one it replaced.
+    mStageRevision.fetch_add(1, std::memory_order_relaxed);
 }
 
 void TranscriptionManager::_setCancellable(bool inCancellable)
 {
     const ScopedLock lock(mStageLock);
     mCurrentStage.cancellable = inCancellable;
+    mStageRevision.fetch_add(1, std::memory_order_relaxed);
 }
 
 void TranscriptionManager::cancelCurrentJob()
@@ -750,6 +755,7 @@ void TranscriptionManager::cancelCurrentJob()
 
         mCurrentStage.cancellable = false;
         mCancelRequested.store(true);
+        mStageRevision.fetch_add(1, std::memory_order_relaxed);
     }
 
     // Outside mStageLock deliberately: kill() joins the stderr pump, which it gives up to two

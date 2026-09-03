@@ -51,8 +51,27 @@ constexpr int PITCH_BEND_GAP = 14;
     choice names rather than shortened ones under a separate "PITCH BEND" caption: the caption
     cost 80 px of a bar that had none to spare, and a control whose two values are "No Pitch
     Bend" and "Single Pitch Bend" has already said what it is. */
-constexpr int PITCH_BEND = 150;
+/*  143 rather than the 150 it was. "Single Pitch Bend" measures 102.892 px and the picker's
+    arrow and padding take 30, so 150 was carrying 17 px this control had no use for while the
+    folder button beside it was down to under two -- and the folder is the one showing a string
+    nobody here chose the length of. See MIN_TEXT_HEADROOM. */
+constexpr int PITCH_BEND = 143;
 constexpr int PITCH_BEND_TRAIL = 10;
+
+/** How much clear space every measured string in this bar has to keep between itself and the
+    edge of what it is drawn into.
+
+    A width that merely fits is not a width that holds. The folder button measured 128.045 px
+    into 130 px of room -- true, passing, and two pixels from wrapping the moment a font is
+    swapped, a longer default folder is chosen, or the next control lands in the middle of this
+    bar. That is the same "nothing looked wrong" failure STATUS_FLOOR's comment above already
+    records twice, arriving a third way.
+
+    So the tests assert clearance, not just fit, and this is the number they assert. Six pixels
+    is about half a character: enough that an ordinary change shows up as a red test rather than
+    as a clipped word somebody notices in a screenshot, and not so much that the bar cannot be
+    laid out at all. Every stretching control in the middle now clears it. */
+constexpr int MIN_TEXT_HEADROOM = 6;
 
 /** Between the folder button and the button that opens it, which are one control in two
     halves and sit closer together than either does to anything else. */

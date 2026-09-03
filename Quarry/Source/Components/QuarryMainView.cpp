@@ -343,6 +343,7 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
     // one free band of toolbar above the transport, for whoever never opens the drawer.
     mProgressStrip = std::make_unique<ProgressStrip>(
         [this]() { return mProcessor.getTranscriptionManager()->getCurrentStage(); },
+        [this]() { return mProcessor.getTranscriptionManager()->getStageRevision(); },
         [this]() { mProcessor.getTranscriptionManager()->cancelCurrentJob(); });
     addChildComponent(*mProgressStrip);
 
@@ -614,6 +615,11 @@ void QuarryMainView::timerCallback()
         mPrevState = processor_state;
         updateEnablements();
     }
+
+    // The strip has no timer of its own while it is idle, which is nearly always: this tick is
+    // what notices a job starting. Costs one atomic load unless the stage actually moved.
+    if (mProgressStrip != nullptr)
+        mProgressStrip->pollStage();
 }
 
 void QuarryMainView::repaintPianoRoll()
@@ -707,12 +713,23 @@ void QuarryMainView::updateEnablements()
         mPlayPauseButton->setEnabled(true);
         mBackButton->setEnabled(true);
         mCenterButton->setEnabled(true);
-        // On there being notes, not on having got this far. The state says the take is
-        // finished and its audio is playable, which is true of a transcription that was
-        // cancelled before it produced anything -- and that take has nothing to drag out.
-        mVisualizationPanel.setMidiFileDragComponentVisible(
-            !mProcessor.getTranscriptionManager()->getNoteEventVector().empty());
     }
+
+    // Derived every time, from the notes themselves, rather than switched on once inside the
+    // branch above. Two reasons it is not part of that branch.
+    //
+    // The affordance is a claim about the data, not about the state: a take reaches
+    // PopulatedAudioAndMidiRegions with an empty note vector whenever a transcription is
+    // cancelled before it produces anything, and its audio really is playable, so the state is
+    // right and only the drag is wrong. Reading the vector is the single source of truth for
+    // that; a state meaning "populated but empty" would be a second one, free to disagree.
+    //
+    // And setting it in one branch only ever set it true. Every other state left the handle
+    // showing whatever it last had, so hiding it depended on VisualizationPanel::clear happening
+    // to run. Computed here, every path through this function agrees on it.
+    mVisualizationPanel.setMidiFileDragComponentVisible(
+        current_state == PopulatedAudioAndMidiRegions
+        && !mProcessor.getTranscriptionManager()->getNoteEventVector().empty());
 
     if (mAudioInputView != nullptr)
         mAudioInputView->updateEnablements();

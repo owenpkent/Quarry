@@ -26,6 +26,7 @@ class ProgressStrip
 {
 public:
     ProgressStrip(std::function<TranscriptionManager::Stage()> inStageProvider,
+                 std::function<std::uint32_t()> inRevisionProvider,
                  std::function<void()> inOnCancel);
 
     ~ProgressStrip() override;
@@ -35,6 +36,15 @@ public:
         false, the strip stays hidden regardless of what the stage says, so a job left running
         behind the Sample page cannot surface over it. */
     void setPageShowing(bool inShowing);
+
+    /** Checks whether the stage has moved, and applies it if so. Cheap enough to call at a UI
+        frame rate: it is one relaxed atomic load unless something actually changed.
+
+        Called from QuarryMainView's own 30 Hz timer rather than from a timer of this component's.
+        The strip runs a timer only while it is visible, for the indeterminate sweep -- an idle
+        strip, which is nearly the whole life of an open editor, now wakes the message thread
+        exactly never, and still notices a job starting within a frame. */
+    void pollStage();
 
     void paint(Graphics& g) override;
 
@@ -53,16 +63,20 @@ private:
     void _paintBar(Graphics& g) const;
 
     std::function<TranscriptionManager::Stage()> mStageProvider;
+    std::function<std::uint32_t()> mRevisionProvider;
     std::function<void()> mOnCancel;
 
     std::unique_ptr<TextButton> mCancelButton;
 
     bool mPageShowing = true;
 
-    // Whether the timer is currently running at kActiveTimerHz rather than kIdleTimerHz -- see
-    // the constants' own comment in ProgressStrip.cpp for why this can never just stop instead.
-    // Tracked so _applyStage only calls startTimerHz on an actual change of rate.
-    bool mTimerIsFast = false;
+    // The stage revision this strip has already applied. Compared for inequality only -- the
+    // counter is free to wrap.
+    std::uint32_t mLastRevision = 0;
+
+    // Whether a first poll has happened yet, so an editor opened while a job is already running
+    // shows the strip rather than waiting for the next change to the stage.
+    bool mPolledOnce = false;
 
     TranscriptionManager::Stage mCurrentStage;
 
