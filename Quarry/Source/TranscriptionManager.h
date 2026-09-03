@@ -5,6 +5,7 @@
 #ifndef TranscriptionManager_h
 #define TranscriptionManager_h
 
+#include <atomic>
 #include <cstdint>
 
 #include <JuceHeader.h>
@@ -128,6 +129,15 @@ public:
 
     /** Any thread: copies the current stage out from under mStageLock. */
     Stage getCurrentStage() const;
+
+    /** Bumped once for every change to the stage, cancellable included. Any thread, no lock.
+     *
+     *  For pollers. getCurrentStage() has to take mStageLock and copy a juce::String, which is
+     *  a real cost to pay at a UI frame rate for an answer that is the same one all but a few
+     *  times a session -- a transcription runs for seconds and the editor is open for hours.
+     *  Reading this first turns "has anything changed" into one relaxed atomic load, and the
+     *  copy happens only when the answer is yes. */
+    std::uint32_t getStageRevision() const { return mStageRevision.load(std::memory_order_relaxed); }
 
     /**
      * Message thread; no-op unless a cancellable job is active right now. Marks mCancelRequested
@@ -323,6 +333,10 @@ private:
     // and a take on the built-in engine has a stage but no sidecar status to speak of.
     mutable juce::CriticalSection mStageLock;
     Stage mCurrentStage;
+
+    // Incremented inside mStageLock by every mutator of mCurrentStage, read without it. See
+    // getStageRevision. Wrapping is harmless: a poller compares for inequality, never order.
+    std::atomic<std::uint32_t> mStageRevision { 0 };
 
     // Set by _runDownload on success, drained by timerCallback into onFileDrop on the message
     // thread -- the same thread a UI drop uses. Not a callback: the editor that called

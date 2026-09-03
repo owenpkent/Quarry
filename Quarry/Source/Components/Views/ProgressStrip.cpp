@@ -13,19 +13,21 @@
 
 namespace
 {
-// 15 Hz while a stage is actually showing: fast enough for the sweep and a moving percentage to
-// read as live. The strip's own visibility is a side effect of this same timer noticing
-// mStageProvider() go active (see _applyStage) rather than of some outside event, so unlike
-// ActivityDrawer's timer this one can never just stop while hidden -- nothing else would be
-// left to notice the next job starting. It idles at kIdleTimerHz instead, for what is
-// overwhelmingly the whole life of an open editor: time with no job running, where 15 Hz was
-// waking the message thread to lock mStageLock and copy a Stage (String included) for nothing.
+// 15 Hz, and only while a stage is actually showing: fast enough for the sweep and a moving
+// percentage to read as live.
+//
+// The strip used to run this timer from construction to destruction, which meant waking the
+// message thread fifteen times a second to take the manager's stage lock and copy a Stage --
+// a juce::String included -- for what is overwhelmingly the whole life of an open editor: time
+// with no job running at all. It cannot simply stop while hidden the way ActivityDrawer's can,
+// because nothing else would be left to notice the next job start.
+//
+// So the noticing moved out. QuarryMainView already runs a 30 Hz timer and already owns this
+// strip; it calls pollStage() from there, and pollStage compares a lock-free revision counter
+// before it copies anything. An idle strip now costs one relaxed atomic load per frame on a
+// thread that was waking anyway, and still sees a job start within a frame rather than the
+// quarter-second a slower timer of its own would have cost.
 constexpr int kActiveTimerHz = 15;
-// 4 Hz idle rather than lower: this poll is also what notices a job starting, so the idle
-// rate is the worst-case delay before the bar appears at all. A quarter-second is under
-// what reads as lag; half a second is not, and this whole feature exists because a slow
-// take showed nothing.
-constexpr int kIdleTimerHz = 4;
 
 // The unknown-fraction sweep: how long one pass of the lit segment takes, and how wide it is.
 // Slow enough to read as "busy" rather than "alarmed", wide enough to be seen at 160 px.
@@ -34,8 +36,10 @@ constexpr int kSweepWidth = 40;
 } // namespace
 
 ProgressStrip::ProgressStrip(std::function<TranscriptionManager::Stage()> inStageProvider,
+                             std::function<std::uint32_t()> inRevisionProvider,
                              std::function<void()> inOnCancel)
     : mStageProvider(std::move(inStageProvider))
+    , mRevisionProvider(std::move(inRevisionProvider))
     , mOnCancel(std::move(inOnCancel))
 {
     mCancelButton = std::make_unique<TextButton>("CANCEL");
@@ -55,7 +59,8 @@ ProgressStrip::ProgressStrip(std::function<TranscriptionManager::Stage()> inStag
     setVisible(false);
 
     mLastTimerMs = Time::getMillisecondCounterHiRes();
-    startTimerHz(kIdleTimerHz);
+
+    // No timer here. It starts when a stage does; see pollStage.
 }
 
 ProgressStrip::~ProgressStrip()
@@ -69,14 +74,32 @@ void ProgressStrip::setPageShowing(bool inShowing)
     _applyStage(mCurrentStage);
 }
 
+void ProgressStrip::pollStage()
+{
+    if (mRevisionProvider == nullptr || mStageProvider == nullptr)
+        return;
+
+    const auto revision = mRevisionProvider();
+
+    // The early out that makes this cheap enough to call every frame. The first poll always goes
+    // through, so an editor opened onto a job already in flight shows the strip immediately
+    // rather than waiting for the stage to happen to change again.
+    if (mPolledOnce && revision == mLastRevision)
+        return;
+
+    mPolledOnce = true;
+    mLastRevision = revision;
+
+    _applyStage(mStageProvider());
+}
+
 void ProgressStrip::timerCallback()
 {
+    // Runs only while the strip is visible, and only to drive the sweep: what the stage says is
+    // pushed in by pollStage now, not pulled here.
     const auto now_ms = Time::getMillisecondCounterHiRes();
     const auto elapsed_ms = now_ms - mLastTimerMs;
     mLastTimerMs = now_ms;
-
-    if (mStageProvider != nullptr)
-        _applyStage(mStageProvider());
 
     if (isVisible() && mCurrentStage.fraction < 0.0) {
         mSweepPhase = std::fmod(mSweepPhase + elapsed_ms / kSweepPeriodMs, 1.0);
@@ -95,12 +118,16 @@ void ProgressStrip::_applyStage(const TranscriptionManager::Stage& inStage)
     if (show != was_visible)
         setVisible(show);
 
-    // Only calls startTimerHz when the rate actually needs to flip, not on every tick this
-    // already runs at -- the guard is what keeps a strip sitting idle from restarting its own
-    // timer twice a second forever.
-    if (show != mTimerIsFast) {
-        mTimerIsFast = show;
-        startTimerHz(mTimerIsFast ? kActiveTimerHz : kIdleTimerHz);
+    // The sweep timer lives exactly as long as the strip is on screen. Guarded on the change
+    // rather than called every time through, so a running job does not restart its own timer
+    // on every stage update.
+    if (show != was_visible) {
+        if (show) {
+            mLastTimerMs = Time::getMillisecondCounterHiRes();
+            startTimerHz(kActiveTimerHz);
+        } else {
+            stopTimer();
+        }
     }
 
     if (!show) {

@@ -120,9 +120,11 @@ inline bool sample_bar_test()
         const auto widest = okstudio::obsidian::ui(14.0f).getStringWidthFloat("Single Pitch Bend");
         const auto room = (float) (PITCH_BEND - arrowAndPadding);
 
-        check(widest <= room, "the longer pitch-bend choice fits its picker unclipped");
+        check(widest + (float) MIN_TEXT_HEADROOM <= room,
+              "the longer pitch-bend choice clears its picker by the bar's headroom");
 
-        std::cout << "  widest pitch bend choice: " << widest << " px of " << room << std::endl;
+        std::cout << "  widest pitch bend choice: " << widest << " px of " << room << " ("
+                  << (room - widest) << " clear)" << std::endl;
     }
 
     // STATUS_FLOOR is a claim about sentences, so it is checked against the sentences. These are
@@ -158,9 +160,10 @@ inline bool sample_bar_test()
             }
         }
 
-        check(widest <= (float) STATUS_FLOOR, "the status label's fixed sentences fit the floor it keeps");
+        check(widest + (float) MIN_TEXT_HEADROOM <= (float) STATUS_FLOOR,
+              "the status label's fixed sentences clear the floor it keeps");
         std::cout << "  widest fixed status: \"" << widestText << "\" at " << widest << " px of " << STATUS_FLOOR
-                  << std::endl;
+                  << " (" << ((float) STATUS_FLOOR - widest) << " clear)" << std::endl;
     }
 
     // The other half of the same split, which had no check at all -- which is how the activity
@@ -179,9 +182,10 @@ inline bool sample_bar_test()
         const auto label = juce::String("Music") + juce::File::getSeparatorString() + "Quarry Samples";
         const auto width = font.getStringWidthFloat(label);
 
-        check(width <= room, "the default save folder's label fits the button that shows it");
+        check(width + (float) MIN_TEXT_HEADROOM <= room,
+              "the default save folder's label clears the button that shows it");
         std::cout << "  default folder label: \"" << label << "\" at " << width << " px of " << room
-                  << std::endl;
+                  << " (" << (room - width) << " clear)" << std::endl;
     }
 
     if (sample_bar_test_utils::failures == 0)
