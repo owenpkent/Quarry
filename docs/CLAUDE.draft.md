@@ -65,8 +65,9 @@ py run.py --no-build   # just relaunch what is already built
 py run.py --hold       # keep the console open on success too
 ```
 
-Smart App Control is enforced on this machine and dev builds are unsigned, so the *launch* of
-a freshly linked exe can be held while Windows vets it. `run.py` waits that out with a counter
+Smart App Control was enforced on this machine until it was found off on 2026-10-13. Dev
+builds are unsigned, so while it is on the *launch* of a freshly linked exe can be held while
+Windows vets it. `run.py` waits that out with a counter
 on screen — **1200 seconds**, Ctrl+C to stop waiting. If you find a 240-second timeout in this
 repo, it is the fork's weaker version and it should be replaced, not tuned.
 
