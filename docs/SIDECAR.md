@@ -52,7 +52,7 @@ URL into the activity drawer (backtick key), pressing Ctrl+V (Cmd+V on macOS) wi
 the clipboard, and dragging a link from a browser onto the waveform. Paste and drop only fill the
 link box on the Sample page or the drawer's prompt on Transcribe; a download starts when you press
 Enter there or the DOWNLOAD button. Paste only claims the key when the clipboard holds a URL; any
-other paste behaves as before. The Sample page's "paste a link" box shows the download's progress
+other paste behaves as before. The Sample page's link box shows the download's progress
 and outcome in place (the drawer cannot open on that page).
 
 A download only saves files; nothing is loaded or transcribed afterwards. Where they go and in what

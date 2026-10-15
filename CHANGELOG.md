@@ -108,8 +108,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   drawer slides over the column: Quarry's own stage lines, the sidecar's stage events (protocol
   version 2 adds them; `tools/sidecar/PROTOCOL.md`), its raw stderr, and every error, in one
   monospace feed; `clear` empties it. The prompt under the feed takes a URL: the sidecar fetches
-  the audio with yt-dlp into the SAVE TO folder and the wav lands in a take exactly as a dropped
-  file would. That is a developer surface, not a shipped feature; `docs/SIDECAR.md` says what to
+  it with yt-dlp and saves it where the Sample page's download settings say. That is a
+  developer surface, not a shipped feature; `docs/SIDECAR.md` says what to
   install.
 - feat: a progress strip above the transport, and Cancel. The same stage feed drives a thin bar
   and a caption at the top right of the header while a job runs, with a percentage when the

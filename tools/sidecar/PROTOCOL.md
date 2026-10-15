@@ -185,7 +185,9 @@ single-video request older clients send:
 - `playlist`: `false` (the default) downloads the one video the URL names even if it also names a
   playlist. `true` downloads every entry of a playlist into a subfolder of `out_dir` named for the
   playlist, each file prefixed with its zero-padded index (`01 - Title.wav`), skipping entries that
-  fail rather than stopping. A URL that is not a playlist is downloaded as a single video. Exists for the developer's own workflow -- pulling reference audio into a corpus or a
+  fail rather than stopping. A URL that is not a playlist is downloaded as a single video.
+
+Exists for the developer's own workflow -- pulling reference audio into a corpus or a
 manual test without leaving the sidecar -- and is not part of the shipped plugin. The one thing in
 Quarry that sends it is the developer-only link surface: the activity drawer's prompt line,
 Ctrl+V of a link, a link dropped on the waveform, and the Sample page's link box. Requires

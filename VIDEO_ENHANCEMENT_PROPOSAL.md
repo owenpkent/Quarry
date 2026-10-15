@@ -327,6 +327,9 @@ onsets better than ±16 ms. Withdrawn, and left visible so it is not proposed ag
 1. **Plugin vs. Standalone:** Should video features be in the plugin or a separate preprocessing tool?
 2. **Real-time vs. Offline:** Video processing is likely offline-only due to latency
 3. **YouTube Integration:** Direct URL input vs. requiring local files?
+   *Partly answered:* the developer-only sidecar can download a link with yt-dlp (audio, video as
+   H.264/AAC MP4, or both) from the Sample page, but it only saves files; it does not load or
+   transcribe them. Not a shipped feature.
 4. **Licensing:** Some OMR tools are AGPL — compatibility concerns?
 
 ---
