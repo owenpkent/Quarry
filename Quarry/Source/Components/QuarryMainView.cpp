@@ -10,6 +10,7 @@
 #include "Views/ActivityDrawerLayout.h"
 #include "Views/ProgressStripLayout.h"
 #include "Views/SampleBarLayout.h"
+#include "Views/UrlDrop.h"
 
 // Last, deliberately: this reaches the Windows audio stack, and windows.h defines a
 // Rectangle() that makes juce::Rectangle ambiguous in anything parsed after it.
@@ -314,6 +315,9 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
     // reports that it happened and this decides what that means.
     mSamplePage->onTranscribeRequested = [this]() { _showSamplePage(false); };
 
+    mSamplePage->onDownloadRequested = [this](const String& inUrl, bool inPlaylist) {
+        _submitDownloadText(inUrl, inPlaylist);
+    };
     mSamplePage->onPreferredWidthChanged = [this]() { _applyWindowSize(); };
 
     _showSamplePage(true);
@@ -382,15 +386,13 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
 
             return text;
         },
-        [this](const String& inText) {
-            auto* manager = mProcessor.getTranscriptionManager();
+        [this](const String& inText) { _submitDownloadText(inText); });
 
-            if (inText.startsWithIgnoreCase("http://") || inText.startsWithIgnoreCase("https://")) {
-                manager->requestDownload(inText, TakeNaming::folder(mProcessor.getValueTree()));
-            } else {
-                manager->getActivityLog().add(quarry::ActivityLine::Kind::Error, "not a URL: " + inText);
-            }
-        });
+    // A link dragged from a browser onto the waveform is only offered: the drawer opens with it
+    // in the prompt, and Enter starts it.
+    mVisualizationPanel.getCombinedAudioMidiRegion().onUrlDropped = [this](const String& inUrl) {
+        _offerLink(inUrl);
+    };
 
     mActivityDrawer->onClosed = [this]() { grabKeyboardFocus(); };
     addChildComponent(*mActivityDrawer);
@@ -516,6 +518,46 @@ void QuarryMainView::_applyWindowSize()
         if (editor->getWidth() != width || editor->getHeight() != height)
             editor->setSize(width, height);
 #endif
+}
+
+void QuarryMainView::_submitDownloadText(const String& inText, bool inPlaylist)
+{
+    auto* manager = mProcessor.getTranscriptionManager();
+    const auto url = quarry::downloadableUrl(inText);
+
+    if (url.isNotEmpty()) {
+        // Where and in what form come from the settings the Sample page edits, so every way in
+        // (drawer, paste, drop, the link box) saves the same thing in the same place.
+        const auto& state = mProcessor.getValueTree();
+
+        TranscriptionManager::DownloadOptions options;
+        options.outDir = TakeNaming::downloadFolder(state);
+        options.libraryRoot = TakeNaming::captureFolder(state);
+        options.media = TakeNaming::downloadMedia(state);
+        options.playlist = inPlaylist;
+
+        manager->requestDownload(url, options);
+    } else {
+        manager->getActivityLog().add(quarry::ActivityLine::Kind::Error, "not a URL: " + inText);
+    }
+}
+
+void QuarryMainView::_showActivityDrawer()
+{
+    if (!mActivityDrawer->isVisible())
+        _toggleActivityDrawer();
+}
+
+void QuarryMainView::_offerLink(const String& inUrl)
+{
+    if (mSamplePage != nullptr && mSamplePage->isVisible()) {
+        mSamplePage->prefillLink(inUrl);
+        return;
+    }
+
+    mActivityDrawer->setPromptText(inUrl);
+    _showActivityDrawer();
+    mActivityDrawer->open();
 }
 
 void QuarryMainView::_toggleActivityDrawer()
@@ -662,6 +704,20 @@ bool QuarryMainView::keyPressed(const KeyPress& key)
     if (key == KeyPress(',', juce::ModifierKeys::noModifiers, 0)) {
         mSettingsButton->triggerClick();
         return true;
+    }
+
+    // Ctrl+V / Cmd+V with a link on the clipboard offers it (link box or drawer prompt) and starts
+    // nothing. A focused TextEditor consumes its own paste before the event bubbles up to this
+    // view, and anything that is not a link is left alone by returning false.
+    if (key == KeyPress('v', juce::ModifierKeys::commandModifier, 0)) {
+        const auto url = quarry::downloadableUrl(SystemClipboard::getTextFromClipboard());
+
+        if (url.isNotEmpty()) {
+            _offerLink(url);
+            return true;
+        }
+
+        return false;
     }
 
     if (key == KeyPress('`', juce::ModifierKeys::noModifiers, 0)) {

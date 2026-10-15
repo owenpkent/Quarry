@@ -47,6 +47,21 @@ tools/bakeoff/.venv/Scripts/python -m pip install yt-dlp
 plugin; it also needs `ffmpeg` on `PATH` (either winget package, `Gyan.FFmpeg` or
 `yt-dlp.FFmpeg`, will do).
 
+Three things can hand it a link, all developer-only, and none starts a download by itself: typing a
+URL into the activity drawer (backtick key), pressing Ctrl+V (Cmd+V on macOS) with an http(s) URL on
+the clipboard, and dragging a link from a browser onto the waveform. Paste and drop only fill the
+link box on the Sample page or the drawer's prompt on Transcribe; a download starts when you press
+Enter there or the DOWNLOAD button. Paste only claims the key when the clipboard holds a URL; any
+other paste behaves as before. The Sample page's "paste a link" box shows the download's progress
+and outcome in place (the drawer cannot open on that page).
+
+A download only saves files; nothing is loaded or transcribed afterwards. Where they go and in what
+form are settings: the folder defaults to the capture folder and is changed with "change" under the
+link box, and `audio / video / both` picks a wav, an H.264 mp4 Windows can play, or the mp4 plus a
+wav. "whole playlist" (off at every launch) takes every entry into a subfolder named for the
+playlist. When the files land under the capture folder the Sample page lists the wavs and selects
+the newest, so TRANSCRIBE is one click away. The settings apply to the drawer, paste and drop too.
+
 Traps met once so nobody meets them twice:
 
 - **The CUDA build must be forced.** The cu128 index tops out at torch 2.11, and pip does not

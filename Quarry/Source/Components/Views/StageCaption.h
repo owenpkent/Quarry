@@ -54,8 +54,16 @@ inline juce::String stageCaption(const juce::String& inSlug, const juce::String&
     if (inSlug == "post")
         return "sorting notes";
 
-    if (inSlug == "download")
+    // A playlist's sidecar text leads with which entry this is ("3/12 downloading..."), and that
+    // is the one part of the line worth the strip's room.
+    if (inSlug == "download") {
+        const auto lead = inText.upToFirstOccurrenceOf(" ", false, false);
+
+        if (lead.containsChar('/') && lead.containsOnly("0123456789/"))
+            return lead + " downloading";
+
         return "downloading";
+    }
 
     if (inSlug == "extract-audio")
         return "extracting audio";

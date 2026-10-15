@@ -11,6 +11,9 @@
 #include "NnId.h"
 #include "QuarryTooltips.h"
 #include "SourceAudioManager.h"
+#include "TakeNaming.h"
+#include "TranscriptionManager.h"
+#include "Views/UrlDrop.h"
 #include <okstudio/Obsidian.h>
 
 #include <algorithm>
@@ -241,6 +244,57 @@ SamplePageView::SamplePageView(QuarryAudioProcessor& inProcessor)
     mSearchBox->onTextChange = [this]() { _rebuildBrowse(); };
     addAndMakeVisible(*mSearchBox);
 
+    mLinkBox = std::make_unique<TextEditor>("Link");
+    mLinkBox->setTextToShowWhenEmpty("paste a YouTube or other video link", TEXT_DIM);
+    mLinkBox->setColour(TextEditor::backgroundColourId, PANEL_BOT);
+    mLinkBox->setColour(TextEditor::textColourId, TEXT_MAIN);
+    mLinkBox->setColour(TextEditor::outlineColourId, Colours::transparentBlack);
+    mLinkBox->onReturnKey = [this]() { _submitLink(mLinkBox->getText()); };
+    mLinkBox->addMouseListener(this, false);
+    addAndMakeVisible(*mLinkBox);
+
+    // The second row: where a download is saved, in what form, and whether the link is a whole
+    // playlist. The folder and the form are remembered; the playlist box deliberately is not.
+    mDownloadPathLabel = std::make_unique<Label>("DownloadPath");
+    mDownloadPathLabel->setColour(Label::textColourId, TEXT_DIM);
+    mDownloadPathLabel->setBorderSize({ 0, 6, 0, 0 });
+    mDownloadPathLabel->setFont(UIDefines::LABEL_FONT());
+    addAndMakeVisible(*mDownloadPathLabel);
+
+    mDownloadChangeButton = std::make_unique<TextButton>("change");
+    quarry::lnf::setRole(*mDownloadChangeButton, quarry::lnf::Role::quiet);
+    mDownloadChangeButton->setTitle("Change download folder");
+    mDownloadChangeButton->onClick = [this]() { _chooseDownloadFolder(); };
+    addAndMakeVisible(*mDownloadChangeButton);
+
+    {
+        const char* const labels[3] = { "audio", "video", "both" };
+        const auto chosen = TakeNaming::downloadMedia(mProcessor.getValueTree());
+
+        for (int i = 0; i < 3; ++i)
+        {
+            auto button = std::make_unique<TextButton>(labels[i]);
+            button->setClickingTogglesState(true);
+            button->setRadioGroupId(7101);
+            button->setColour(TextButton::buttonColourId, CONTROL_BG);
+            button->setColour(TextButton::textColourOffId, TEXT_MAIN);
+            button->setConnectedEdges((i > 0 ? Button::ConnectedOnLeft : 0)
+                                      | (i < 2 ? Button::ConnectedOnRight : 0));
+            button->setTitle(String("Download ") + labels[i]);
+            button->setToggleState(chosen == labels[i], dontSendNotification);
+            button->onClick = [this, label = String(labels[i])]() { _setMedia(label); };
+            addAndMakeVisible(*button);
+            mMediaButtons[i] = std::move(button);
+        }
+    }
+
+    mPlaylistToggle = std::make_unique<ToggleButton>("whole playlist");
+    mPlaylistToggle->setColour(ToggleButton::textColourId, TEXT_MAIN);
+    mPlaylistToggle->setTooltip("Download every video in a playlist link, not just the one");
+    addAndMakeVisible(*mPlaylistToggle);
+
+    _refreshDownloadPath();
+
     const auto makeLibraryButton = [this](const String& inText, std::function<void()> inAction) {
         auto button = std::make_unique<TextButton>(inText);
         button->setColour(TextButton::buttonColourId, CONTROL_BG);
@@ -249,6 +303,13 @@ SamplePageView::SamplePageView(QuarryAudioProcessor& inProcessor)
         addAndMakeVisible(*button);
         return button;
     };
+
+    mDownloadButton = makeLibraryButton("DOWNLOAD", [this]() {
+        if (mLinkBox->getText().trim().isEmpty())
+            _setLinkState(LinkState::failed, "paste a link first");
+        else
+            _submitLink(mLinkBox->getText());
+    });
 
     mTranscribeButton = makeLibraryButton("TRANSCRIBE", [this]() { _openSelectedInTranscribe(); });
     mRevealButton = makeLibraryButton("SHOW IN FOLDER", [this]() { _revealSelected(); });
@@ -405,6 +466,31 @@ void SamplePageView::resized()
     libraryFooter.removeFromLeft(10);
     mRevealButton->setBounds(libraryFooter.removeFromLeft(170));
     mDeleteButton->setBounds(libraryFooter.removeFromRight(120));
+
+    auto linkRow = library.removeFromTop(30);
+    mDownloadButton->setBounds(linkRow.removeFromRight(110));
+    linkRow.removeFromRight(6);
+    mLinkBox->setBounds(linkRow);
+    library.removeFromTop(6);
+
+    auto optionsRow = library.removeFromTop(26);
+    mPlaylistToggle->setBounds(optionsRow.removeFromRight(124));
+    optionsRow.removeFromRight(8);
+
+    for (int i = 2; i >= 0; --i)
+        mMediaButtons[i]->setBounds(optionsRow.removeFromRight(i == 2 ? 50 : 54));
+
+    optionsRow.removeFromRight(8);
+    mDownloadChangeButton->setBounds(optionsRow.removeFromRight(64));
+    mDownloadPathLabel->setBounds(optionsRow);
+    library.removeFromTop(6);
+
+    // The accent is resolved from the look and feel, which a component only has once it is in
+    // the hierarchy, so it is applied here rather than in the constructor. Set apart from the
+    // search field below it, which it otherwise reads as a twin of.
+    const auto accent = okstudio::obsidian::accentOf(*this).base;
+    mLinkBox->setColour(TextEditor::outlineColourId, accent);
+    mLinkBox->setColour(TextEditor::focusedOutlineColourId, accent);
 
     mSearchBox->setBounds(library.removeFromTop(26));
     library.removeFromTop(8);
@@ -574,8 +660,202 @@ void SamplePageView::_paintSelection(Graphics& g)
 }
 
 //==============================================================================
+void SamplePageView::_submitLink(const String& inText)
+{
+    const auto url = quarry::downloadableUrl(inText);
+
+    if (url.isEmpty()) {
+        if (inText.trim().isNotEmpty())
+            _setLinkState(LinkState::failed, "not a link (needs http:// or https://)");
+
+        return;
+    }
+
+    if (onDownloadRequested == nullptr)
+        return;
+
+    // Remembered before the request, so a refusal published synchronously (no sidecar) is seen.
+    mLinkResultSeq = mProcessor.getTranscriptionManager()->getDownloadResultSeq();
+
+    _setLinkState(LinkState::busy, "starting download...");
+    onDownloadRequested(url, mPlaylistToggle->getToggleState());
+}
+
+void SamplePageView::prefillLink(const String& inUrl)
+{
+    // Only fills the box: starting the download is the user's call (Enter or DOWNLOAD). A running
+    // download keeps the box, which is showing its progress.
+    if (mLinkState == LinkState::busy)
+        return;
+
+    _setLinkState(LinkState::idle, {});
+    mLinkBox->setText(inUrl, false);
+    mLinkBox->grabKeyboardFocus();
+}
+
+void SamplePageView::_setLinkState(LinkState inState, const String& inText)
+{
+    mLinkState = inState;
+
+    // Never notifying: this is the page speaking, not the user typing.
+    mLinkBox->setText(inState == LinkState::idle ? String() : inText, false);
+    mLinkBox->setReadOnly(inState != LinkState::idle);
+    mDownloadButton->setEnabled(inState != LinkState::busy);
+    mLinkBox->setColour(TextEditor::textColourId,
+                        inState == LinkState::failed ? Colour(0xffe06c6c) : TEXT_MAIN);
+    mLinkBox->applyColourToAllText(mLinkBox->findColour(TextEditor::textColourId));
+}
+
+void SamplePageView::mouseDown(const MouseEvent& event)
+{
+    // A failure stays until the field is clicked, which is the next thing a user does to type.
+    if ((mLinkState == LinkState::failed || mLinkState == LinkState::notice)
+        && event.eventComponent == mLinkBox.get())
+        _setLinkState(LinkState::idle, {});
+}
+
+void SamplePageView::_finishLink(const TranscriptionManager::DownloadResult& inResult)
+{
+    mLinkResultSeq = inResult.seq;
+
+    if (inResult.cancelled)
+    {
+        _setLinkState(LinkState::idle, {});
+        return;
+    }
+
+    if (! inResult.ok)
+    {
+        _setLinkState(LinkState::failed, inResult.message);
+        return;
+    }
+
+    const auto root = _libraryRoot();
+    File newest;
+
+    // Files come wav first, so the first one under the capture folder is the one worth selecting.
+    for (const auto& file : inResult.files)
+    {
+        if (file.hasFileExtension("wav") && file.isAChildOf(root))
+        {
+            newest = file;
+            break;
+        }
+    }
+
+    const auto failedText = inResult.failed > 0 ? ", " + String(inResult.failed) + " failed" : String();
+
+    if (newest != File())
+    {
+        mStatusText = "Downloaded " + String((int) inResult.files.size()) + " file(s)" + failedText + ".";
+        mPendingSelect = newest;
+        _setLinkState(LinkState::idle, {});
+        _rescanLibrary();
+        return;
+    }
+
+    _setLinkState(LinkState::notice,
+                  "saved " + String((int) inResult.files.size()) + " file(s) to "
+                      + inResult.outDir.getFullPathName() + failedText);
+}
+
+bool SamplePageView::_selectFile(const File& inAudio)
+{
+    for (const auto& entry : mAllEntries)
+    {
+        if (entry.audioFile != inAudio)
+            continue;
+
+        // Out of any search, into the folder the file is in, so the row is on screen to select.
+        if (mSearchBox != nullptr && mSearchBox->getText().isNotEmpty())
+            mSearchBox->setText({}, false);
+
+        mBrowseFolder = inAudio.getParentDirectory();
+        _rebuildBrowse();
+
+        for (size_t i = 0; i < mShownEntries.size(); ++i)
+        {
+            if (mShownEntries[i].audioFile == inAudio)
+            {
+                mSelectedEntryRow = (int) i;
+                mLibraryList->scrollToEnsureRowIsOnscreen(_upRowCount() + (int) mBrowseFolders.size() + (int) i);
+                mStatusText = mShownEntries[i].windowTitle.isNotEmpty() ? mShownEntries[i].windowTitle
+                                                                       : mShownEntries[i].displayName();
+                _updateEnablements();
+                mLibraryList->repaint();
+                repaint();
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+void SamplePageView::_setMedia(const String& inMedia)
+{
+    mProcessor.getValueTree().setProperty(NnId::DownloadMediaId, inMedia, nullptr);
+}
+
+void SamplePageView::_refreshDownloadPath()
+{
+    const auto folder = TakeNaming::downloadFolder(mProcessor.getValueTree()).getFullPathName();
+    const auto shown = folder.length() > 40 ? "..." + folder.substring(folder.length() - 37) : folder;
+
+    mDownloadPathLabel->setText("download to  " + shown, dontSendNotification);
+    mDownloadPathLabel->setTooltip(folder);
+}
+
+void SamplePageView::_chooseDownloadFolder()
+{
+    mFileChooser = std::make_unique<FileChooser>("Where downloads go",
+                                                 TakeNaming::downloadFolder(mProcessor.getValueTree()));
+
+    mFileChooser->launchAsync(FileBrowserComponent::openMode | FileBrowserComponent::canSelectDirectories,
+                              [this](const FileChooser& chooser)
+                              {
+                                  const auto chosen = chooser.getResult();
+
+                                  if (chosen == File())
+                                      return;
+
+                                  mProcessor.getValueTree().setProperty(NnId::DownloadFolderId,
+                                                                        chosen.getFullPathName(), nullptr);
+                                  _refreshDownloadPath();
+                              });
+}
+
+void SamplePageView::_pollLink()
+{
+    if (mLinkState != LinkState::busy)
+        return;
+
+    auto* manager = mProcessor.getTranscriptionManager();
+
+    // The manager publishes one result per download and bumps a counter after it; seeing the
+    // counter move is the whole completion signal.
+    if (manager->getDownloadResultSeq() != mLinkResultSeq)
+    {
+        _finishLink(manager->getLastDownloadResult());
+        return;
+    }
+
+    const auto stage = manager->getCurrentStage();
+
+    if (stage.active) {
+        auto text = stage.text.isNotEmpty() ? stage.text : String("downloading");
+
+        if (stage.fraction >= 0.0)
+            text += " " + String(roundToInt(stage.fraction * 100.0)) + "%";
+
+        mLinkBox->setText(text, false);
+    }
+}
+
 void SamplePageView::timerCallback()
 {
+    _pollLink();
+
     const auto recording = mRecorder != nullptr && mRecorder->isRecording();
 
     // Real elapsed time, not the interval the timer was asked for. A message thread that has
@@ -1083,12 +1363,7 @@ const SamplePageView::SourceRow* SamplePageView::_selectedSource() const
 
 File SamplePageView::_libraryRoot() const
 {
-    const String stored = mProcessor.getValueTree().getProperty(NnId::CaptureFolderId, String());
-
-    if (stored.isNotEmpty())
-        return File(stored);
-
-    return File::getSpecialLocation(File::userMusicDirectory).getChildFile("Quarry Captures");
+    return TakeNaming::captureFolder(mProcessor.getValueTree());
 }
 
 void SamplePageView::_updateEnablements()
@@ -1366,8 +1641,16 @@ const quarry::sampler::LibraryEntry* SamplePageView::_selectedEntry() const
 
 void SamplePageView::_rescanLibrary()
 {
-    if (mScanPool == nullptr || mScanRunning.exchange(true))
+    if (mScanPool == nullptr)
         return;
+
+    // A scan already running started before whatever asked for this one, so it may miss it:
+    // run again once it lands rather than dropping the request.
+    if (mScanRunning.exchange(true))
+    {
+        mRescanAgain.store(true);
+        return;
+    }
 
     const auto root = _libraryRoot();
 
@@ -1385,6 +1668,14 @@ void SamplePageView::_rescanLibrary()
             safe->mAllEntries = std::move(found);
             safe->mScanRunning.store(false);
             safe->_rebuildBrowse();
+
+            const auto again = safe->mRescanAgain.exchange(false);
+
+            if (safe->mPendingSelect != File() && (safe->_selectFile(safe->mPendingSelect) || ! again))
+                safe->mPendingSelect = File();
+
+            if (again)
+                safe->_rescanLibrary();
         });
     });
 }
@@ -1454,6 +1745,14 @@ void SamplePageView::_setCapturesVisible(bool shouldShow)
 
     for (auto* part : { static_cast<Component*>(mLibraryList.get()),
                         static_cast<Component*>(mSearchBox.get()),
+                        static_cast<Component*>(mLinkBox.get()),
+                        static_cast<Component*>(mDownloadButton.get()),
+                        static_cast<Component*>(mDownloadPathLabel.get()),
+                        static_cast<Component*>(mDownloadChangeButton.get()),
+                        static_cast<Component*>(mMediaButtons[0].get()),
+                        static_cast<Component*>(mMediaButtons[1].get()),
+                        static_cast<Component*>(mMediaButtons[2].get()),
+                        static_cast<Component*>(mPlaylistToggle.get()),
                         static_cast<Component*>(mTranscribeButton.get()),
                         static_cast<Component*>(mRevealButton.get()),
                         static_cast<Component*>(mDeleteButton.get()),

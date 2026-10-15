@@ -87,6 +87,21 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- feat: a link can be handed to the downloader without typing it. Ctrl+V (Cmd+V on macOS) with an
+  http(s) URL on the clipboard, or dragging a link from a browser onto the waveform, puts the link
+  in the Sample page's link box, or in the activity drawer's prompt on Transcribe, and starts
+  nothing. A download starts only on Enter or the Sample page's DOWNLOAD button. Anything that is
+  not a link leaves paste untouched. Still a developer surface: it needs the sidecar and yt-dlp,
+  and nothing about it ships in the plugin's UI.
+- feat: downloads save files and stop there. They no longer load into Transcribe and transcribe
+  themselves. The Sample page gains a second row under the link box: `download to <folder>` with
+  `change`, a remembered `audio / video / both` choice, and a `whole playlist` box that is off at
+  every launch. Video is an H.264 + AAC mp4 so Windows can decode it; `both` adds a wav. A playlist
+  goes in a subfolder, files numbered, one failed entry not stopping the rest, with the strip
+  reading `3/12 downloading`. Wavs saved under the capture folder get a capture sidecar, so they
+  show in the captures list and the newest is selected; elsewhere the box says
+  `saved N file(s) to <folder>`. The sidecar `download` request gains optional `media` and
+  `playlist`, and its response a `paths` list and a `failed` count (`path` stays for old clients).
 - feat: an activity drawer, so the app says what it is doing while it does it. A take on a
   slow engine showed nothing for minutes, and the sidecar's own logs went to NUL because
   nothing read them. Press ` on Transcribe (or the chevron in the footer) and a terminal-style

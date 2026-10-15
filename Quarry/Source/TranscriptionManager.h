@@ -149,15 +149,55 @@ public:
      */
     void cancelCurrentJob();
 
+    /** What a download is asked to do. */
+    struct DownloadOptions {
+        juce::File outDir;
+
+        /** If set, saved wavs under it also get a capture sidecar (.json), which is what makes
+         *  the Sample page's captures list show them. Empty: no sidecars written. */
+        juce::File libraryRoot;
+
+        /** "audio" (a wav), "video" (an mp4 Windows can decode) or "both". */
+        juce::String media = "audio";
+
+        /** Every entry of a playlist, into a subfolder, rather than the one video. */
+        bool playlist = false;
+    };
+
+    /** How the last download ended. seq is 0 until the first one finishes. */
+    struct DownloadResult {
+        std::uint32_t seq = 0;
+        bool ok = false;
+        bool cancelled = false;
+
+        /** The title on success, the error text otherwise. */
+        juce::String message;
+
+        /** Everything saved, wav first. */
+        std::vector<juce::File> files;
+
+        /** Playlist entries that failed; the rest are in files. */
+        int failed = 0;
+        juce::File outDir;
+    };
+
     /**
-     * Fetches inUrl through the sidecar (the only tier that can reach a URL) and, once the file is
-     * on disk, drops it in exactly where a user's own drag-and-drop would have: see timerCallback,
-     * which drains the finished download into mProcessor->getSourceAudioManager()->onFileDrop() on
-     * the message thread. Message thread in, because it queues on mThreadPool and logs to
+     * Fetches inUrl through the sidecar (the only tier that can reach a URL) and saves what it
+     * names into inOptions.outDir. Nothing is loaded or transcribed afterwards: a download only
+     * puts files on disk. Message thread in, because it queues on mThreadPool and logs to
      * mActivityLog immediately (a same-thread caller wants "queued" to show up before this
      * returns); the fetch itself happens on that pool, same as a take.
+     *
+     * Every request ends in exactly one published DownloadResult, including the ones refused up
+     * front for want of a sidecar.
      */
-    void requestDownload(const juce::String& inUrl, const juce::File& inOutDir);
+    void requestDownload(const juce::String& inUrl, const DownloadOptions& inOptions);
+
+    /** Bumped once per finished (or refused) download, after getLastDownloadResult() holds it.
+     *  Any thread, no lock: a poller compares it with the number it saw when it asked. */
+    std::uint32_t getDownloadResultSeq() const { return mDownloadResultSeq.load(); }
+
+    DownloadResult getLastDownloadResult() const;
 
     /**
      * Called on the message thread when the recorded sidecar status has changed, so the MODEL
@@ -257,9 +297,13 @@ private:
     void _setCancellable(bool inCancellable);
 
     /** Body of one requestDownload() job, on mThreadPool. Starts mSidecarClient lazily (same helper
-     *  _tryTranscribeWithSidecar uses), downloads, logs the result, and on success leaves the file
-     *  in mPendingDownloadFile for timerCallback to drain. */
-    void _runDownload(const juce::String& inUrl, const juce::File& inOutDir);
+     *  _tryTranscribeWithSidecar uses), downloads, logs the result and publishes it. */
+    void _runDownload(const juce::String& inUrl, const DownloadOptions& inOptions);
+
+    void _publishDownloadResult(DownloadResult inResult);
+
+    /** Writes the capture sidecar that lets the Sample page list a downloaded wav. */
+    static void _writeDownloadSidecar(const juce::File& inAudio, const juce::String& inUrl, const juce::String& inTitle);
 
     QuarryAudioProcessor* mProcessor;
 
@@ -338,13 +382,12 @@ private:
     // getStageRevision. Wrapping is harmless: a poller compares for inequality, never order.
     std::atomic<std::uint32_t> mStageRevision { 0 };
 
-    // Set by _runDownload on success, drained by timerCallback into onFileDrop on the message
-    // thread -- the same thread a UI drop uses. Not a callback: the editor that called
-    // requestDownload can be destroyed and recreated by the host while this manager (owned by the
-    // processor) lives on, and a callback capturing it would dangle.
-    mutable juce::CriticalSection mPendingDownloadLock;
-    juce::File mPendingDownloadFile;
-    bool mHasPendingDownload = false;
+    // How the last download ended, polled by whoever asked (see getDownloadResultSeq). Not a
+    // callback: the editor that called requestDownload can be destroyed and recreated by the host
+    // while this manager (owned by the processor) lives on, and a callback capturing it would dangle.
+    mutable juce::CriticalSection mDownloadResultLock;
+    DownloadResult mLastDownloadResult;
+    std::atomic<std::uint32_t> mDownloadResultSeq { 0 };
 
     // This take's sidecar results, valid only while mUsingSidecarForCurrentTake is true.
     std::vector<Notes::Event> mSidecarNoteEvents;

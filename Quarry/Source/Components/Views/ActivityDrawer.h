@@ -35,6 +35,9 @@ public:
         focus. */
     void open();
 
+    /** Replaces what is typed in the prompt, without running it. */
+    void setPromptText(const String& inText);
+
     /** Hides the drawer and calls onClosed, so the owner can take focus back. */
     void close();
 

@@ -15,6 +15,8 @@ tools/bakeoff/.venv/Scripts/python.exe tools/sidecar/test_sidecar.py
 (c) `download`, over the same `serve` subprocess: only runs when QUARRY_TEST_DOWNLOAD_URL is set
     in the environment (skipped with a printed note otherwise, since it needs network access and
     a real URL); checks a wav lands on disk, stage events arrive, and the response schema.
+(d) the download options (audio/video/both, playlist on/off) against a mocked yt_dlp module: no
+    network and no ffmpeg, always runs.
 """
 
 import json
@@ -321,10 +323,108 @@ def test_download():
             harness.close()
 
 
+def _install_fake_yt_dlp(playlist_titles):
+    """A stand-in for the yt_dlp module: no network, no ffmpeg. The probe (extract_flat) returns
+    a playlist of len(playlist_titles) entries; the real run writes one file per title into the
+    folder the sidecar's outtmpl names, and fails the entry whose title is None."""
+    import types
+
+    seen = {"opts": []}
+
+    class FakeYDL:
+        def __init__(self, opts):
+            self.opts = opts
+            seen["opts"].append(opts)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def extract_info(self, url, download=True):
+            if not download:
+                return {"_type": "playlist", "title": "My: List", "entries": [{}] * len(playlist_titles)}
+            folder = pathlib.Path(self.opts["outtmpl"]).parent
+            folder.mkdir(parents=True, exist_ok=True)
+            ext = "wav" if self.opts.get("postprocessors") else "mp4"
+            if not url.startswith("playlist:"):
+                path = folder / f"One.{ext}"
+                path.write_bytes(b"x")
+                return {"title": "One", "duration": 3, "requested_downloads": [{"filepath": str(path)}]}
+            entries = []
+            for index, title in enumerate(playlist_titles, start=1):
+                if title is None:
+                    entries.append(None)
+                    continue
+                path = folder / f"{index:02d} - {title}.{ext}"
+                path.write_bytes(b"x")
+                entries.append({"requested_downloads": [{"filepath": str(path)}]})
+            return {"_type": "playlist", "title": "My: List", "entries": entries}
+
+    module = types.ModuleType("yt_dlp")
+    module.YoutubeDL = FakeYDL
+    module.utils = types.SimpleNamespace(sanitize_filename=lambda t: t.replace(":", "#"))
+    sys.modules["yt_dlp"] = module
+    return seen
+
+
+def test_download_options():
+    print("\n=== (d) download options (mocked yt-dlp, no network) ===")
+    import quarry_sidecar
+
+    audio = quarry_sidecar._media_options("audio")
+    check(audio["format"] == "bestaudio/best" and audio["postprocessors"][0]["preferredcodec"] == "wav",
+          "audio: bestaudio converted to wav")
+    video = quarry_sidecar._media_options("video")
+    check(video["merge_output_format"] == "mp4" and "avc1" in video["format"] and "postprocessors" not in video,
+          "video: H.264 mp4, no audio extraction")
+    both = quarry_sidecar._media_options("both")
+    check(both.get("keepvideo") is True and both["postprocessors"], "both: keepvideo plus a wav extraction")
+    try:
+        quarry_sidecar._media_options("gif")
+        check(False, "unknown media is refused")
+    except engines.EngineError:
+        check(True, "unknown media is refused")
+
+    sidecar = quarry_sidecar.Sidecar()
+    original = sys.modules.get("yt_dlp")
+    try:
+        with tempfile.TemporaryDirectory(prefix="quarry_dl_mock_") as tmp:
+            seen = _install_fake_yt_dlp(["a", None, "c"])
+
+            single = sidecar.download("https://x/y", tmp, media="video", playlist=False)
+            check(single["failed"] == 0 and single["paths"] == [single["path"]] and single["path"].endswith("One.mp4"),
+                  f"single video: one mp4 saved ({single['paths']!r})")
+            check(seen["opts"][-1]["noplaylist"] is True and seen["opts"][-1]["ignoreerrors"] is False,
+                  "playlist off keeps noplaylist and does not ignore errors")
+
+            many = sidecar.download("playlist:https://x/list", tmp, media="audio", playlist=True)
+            check(len(many["paths"]) == 2 and many["failed"] == 1, f"playlist: 2 saved, 1 failed ({many['failed']})")
+            check(all(pathlib.Path(p).parent.name == "My# List" for p in many["paths"]),
+                  "playlist files land in a subfolder named for the playlist")
+            check(pathlib.Path(many["paths"][0]).name.startswith("01 - "), "playlist files carry their index")
+            check(seen["opts"][-1]["noplaylist"] is False and seen["opts"][-1]["ignoreerrors"] is True,
+                  "playlist on downloads the list and ignores per-entry errors")
+
+            seen = _install_fake_yt_dlp([None, None])
+            try:
+                sidecar.download("playlist:https://x/list", tmp, media="audio", playlist=True)
+                check(False, "an all-failed playlist is an error")
+            except engines.EngineError as exc:
+                check("all 2" in str(exc), f"an all-failed playlist is an error ({exc})")
+    finally:
+        if original is None:
+            sys.modules.pop("yt_dlp", None)
+        else:
+            sys.modules["yt_dlp"] = original
+
+
 def main():
     test_one_shot()
     test_serve()
     test_download()
+    test_download_options()
 
     print("\n=== summary ===")
     if FAILURES:

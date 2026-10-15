@@ -58,6 +58,12 @@ inline static Identifier CaptureFolderId = "CAPTURE_FOLDER";
 // recording and nothing else, and the source rail takes the whole window.
 inline static Identifier CaptureBrowserVisibleId = "CAPTURE_BROWSER_VISIBLE";
 
+// Where link downloads are saved, and which of audio / video / both they fetch. Empty folder means
+// the capture folder (TakeNaming::downloadFolder). Whether to take a whole playlist is deliberately
+// not stored: it is off at every launch.
+inline static Identifier DownloadFolderId = "DOWNLOAD_FOLDER";
+inline static Identifier DownloadMediaId = "DOWNLOAD_MEDIA";
+
 // --------------- Time quantization ----------------
 inline static Identifier TempoId = "TEMPO";
 
@@ -90,7 +96,9 @@ const std::vector<std::pair<Identifier, var>> OrderedStatePropertiesWithDefault 
     {SampleWriteWavId, true},
     {SampleWriteMidiId, true},
     {CaptureFolderId, String()},
-    {CaptureBrowserVisibleId, true}};
+    {CaptureBrowserVisibleId, true},
+    {DownloadFolderId, String()},
+    {DownloadMediaId, String("audio")}};
 
 } // namespace NnId
 

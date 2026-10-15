@@ -8,6 +8,7 @@
 #include <JuceHeader.h>
 
 #include "PluginProcessor.h"
+#include "TranscriptionManager.h"
 #include "Sampler/SampleLibrary.h"
 #include "UIDefines.h"
 #include "QuarryLookAndFeel.h"
@@ -52,6 +53,8 @@ public:
 
     void timerCallback() override;
 
+    void mouseDown(const MouseEvent& event) override;
+
     //==========================================================================
     int getNumRows() override;
 
@@ -63,6 +66,14 @@ public:
         there. This page knows nothing about where the other page lives; the view that owns
         both of them decides what following means. */
     std::function<void()> onTranscribeRequested;
+
+    /** Puts a link in the box and focuses it, without starting anything. */
+    void prefillLink(const String& inUrl);
+
+    /** Called with a cleaned URL when the "paste a link" field submits one. The page does not
+        know how a download starts; the view that owns the processor and both pages does, and
+        it is the same entry point the activity drawer, Ctrl+V and a link drop use. */
+    std::function<void(const String&, bool)> onDownloadRequested;
 
     /** Called when the page starts or stops wanting a narrow window, so whoever owns the
         window can resize it. */
@@ -184,6 +195,45 @@ private:
     std::unique_ptr<LibraryModel> mLibraryModel;
     std::unique_ptr<ListBox> mLibraryList;
     std::unique_ptr<TextEditor> mSearchBox;
+
+    /** "paste a link to download". Also the download's status line, because the activity
+        drawer cannot open on this page: busy it is read-only and shows the stage, failed it
+        shows the error until it is clicked again. */
+    std::unique_ptr<TextEditor> mLinkBox;
+
+    /** Reads the clipboard and submits it through the same path as Enter. */
+    std::unique_ptr<TextButton> mDownloadButton;
+
+    /** idle: waiting for a link. busy: a download is running. failed: the error, in red.
+        notice: a plain message (where the files went). Both of the last two clear when the
+        field is clicked. */
+    enum class LinkState { idle, busy, failed, notice };
+
+    /** The second row: where downloads go, in what form, and whether to take a whole playlist. */
+    std::unique_ptr<Label> mDownloadPathLabel;
+    std::unique_ptr<TextButton> mDownloadChangeButton;
+    std::unique_ptr<TextButton> mMediaButtons[3];
+    std::unique_ptr<ToggleButton> mPlaylistToggle;
+
+    std::uint32_t mLinkResultSeq = 0;
+
+    /** A file to select once the next library scan has found it. */
+    File mPendingSelect;
+    std::atomic<bool> mRescanAgain { false };
+
+    void _chooseDownloadFolder();
+    void _refreshDownloadPath();
+    void _setMedia(const String& inMedia);
+    void _finishLink(const TranscriptionManager::DownloadResult& inResult);
+
+    /** Browses to a capture and selects it. False if the library does not hold it (yet). */
+    bool _selectFile(const File& inAudio);
+
+    LinkState mLinkState = LinkState::idle;
+
+    void _submitLink(const String& inText);
+    void _setLinkState(LinkState inState, const String& inText);
+    void _pollLink();
     std::unique_ptr<TextButton> mTranscribeButton;
     std::unique_ptr<TextButton> mRevealButton;
     std::unique_ptr<TextButton> mDeleteButton;
