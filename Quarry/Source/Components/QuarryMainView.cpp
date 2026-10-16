@@ -550,10 +550,12 @@ void QuarryMainView::_showActivityDrawer()
 
 void QuarryMainView::_offerLink(const String& inUrl)
 {
+#if JUCE_WINDOWS
     if (mSamplePage != nullptr && mSamplePage->isVisible()) {
         mSamplePage->prefillLink(inUrl);
         return;
     }
+#endif
 
     mActivityDrawer->setPromptText(inUrl);
     _showActivityDrawer();
