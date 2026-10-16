@@ -71,6 +71,18 @@ private:
         both come here so the page rule lives in one place. */
     void _toggleActivityDrawer();
 
+    /** Hands a link to the user to confirm: into the Sample page's link box, or into the drawer's
+        prompt on Transcribe. Never starts the download. */
+    void _offerLink(const String& inUrl);
+
+    /** Opens the drawer if it is closed (never closes it). */
+    void _showActivityDrawer();
+
+    /** The one entry point for starting a URL download: drawer Enter and the link box (Enter or DOWNLOAD).
+        Returns the request's id (0 if nothing was queued), which the Sample page uses to wait only
+        for its own download. */
+    std::uint32_t _submitDownloadText(const String& inText, bool inPlaylist = false);
+
     /** Sizes the window to whatever is on screen. Only the Sample page with its captures hidden
         asks for anything but the full width; Transcribe's layout is absolute and assumes it. */
     void _applyWindowSize();

@@ -30,6 +30,34 @@ inline File folder(const ValueTree& inState)
     return File::getSpecialLocation(File::userMusicDirectory).getChildFile("Quarry Samples");
 }
 
+/** The folder the Sample page browses: raw captures, and by default downloads too. */
+inline File captureFolder(const ValueTree& inState)
+{
+    const String stored = inState.getProperty(NnId::CaptureFolderId, String());
+
+    if (stored.isNotEmpty())
+        return File(stored);
+
+    return File::getSpecialLocation(File::userMusicDirectory).getChildFile("Quarry Captures");
+}
+
+/** Where a link download is saved: the folder chosen for downloads, or the capture folder until
+    one is chosen, so a download lands where the Sample page can list it. */
+inline File downloadFolder(const ValueTree& inState)
+{
+    const String stored = inState.getProperty(NnId::DownloadFolderId, String());
+
+    return stored.isNotEmpty() ? File(stored) : captureFolder(inState);
+}
+
+/** "audio", "video" or "both"; anything else stored reads as audio. */
+inline String downloadMedia(const ValueTree& inState)
+{
+    const String stored = inState.getProperty(NnId::DownloadMediaId, String("audio"));
+
+    return stored == "video" || stored == "both" ? stored : String("audio");
+}
+
 /** A stem free for every extension the caller writes, so a pair cannot drift apart.
     Empty when every candidate is taken, which the caller has to report rather than
     write over somebody's take.

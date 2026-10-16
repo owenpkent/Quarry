@@ -868,8 +868,11 @@ bool SidecarClient::transcribe(const juce::File& inWav,
 
 bool SidecarClient::download(const juce::String& inUrl,
                              const juce::File& inOutDir,
-                             juce::File& outFile,
+                             const juce::String& inMedia,
+                             bool inPlaylist,
+                             std::vector<juce::File>& outFiles,
                              juce::String& outTitle,
+                             int& outFailed,
                              juce::String& outError,
                              int inTimeoutMs)
 {
@@ -886,6 +889,15 @@ bool SidecarClient::download(const juce::String& inUrl,
     request->setProperty("url", inUrl);
     request->setProperty("out_dir", inOutDir.getFullPathName());
 
+    // Optional fields, left off at their defaults so an older sidecar sees the request it knows.
+    if (inMedia.isNotEmpty() && inMedia != "audio") {
+        request->setProperty("media", inMedia);
+    }
+
+    if (inPlaylist) {
+        request->setProperty("playlist", true);
+    }
+
     if (!_writeLine(juce::JSON::toString(juce::var(request), true), outError)) {
         return false;
     }
@@ -901,7 +913,18 @@ bool SidecarClient::download(const juce::String& inUrl,
         return false;
     }
 
-    outFile = juce::File(response.getProperty("path", juce::var()).toString());
+    // "paths" from a current sidecar; the single "path" is all an older one sends.
+    outFiles.clear();
+
+    if (const auto paths = response.getProperty("paths", juce::var()); paths.isArray()) {
+        for (const auto& path : *paths.getArray()) {
+            outFiles.emplace_back(path.toString());
+        }
+    } else {
+        outFiles.emplace_back(response.getProperty("path", juce::var()).toString());
+    }
+
+    outFailed = static_cast<int>(response.getProperty("failed", 0));
     outTitle = response.getProperty("title", juce::var()).toString();
 
     return true;

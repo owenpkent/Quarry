@@ -4,6 +4,8 @@
 
 #include "CombinedAudioMidiRegion.h"
 
+#include "Views/UrlDrop.h"
+
 CombinedAudioMidiRegion::CombinedAudioMidiRegion(QuarryAudioProcessor* processor, Keyboard& keyboard)
     : mProcessor(processor)
     , mVBlankAttachment(this, [this]() { _onVBlankCallback(); })
@@ -115,6 +117,37 @@ void CombinedAudioMidiRegion::fileDragExit(const StringArray& files)
 {
     mAudioRegion.setIsFileOver(false);
     mAudioRegion.repaint();
+}
+
+bool CombinedAudioMidiRegion::isInterestedInTextDrag(const String& text)
+{
+    return quarry::downloadableUrl(text).isNotEmpty();
+}
+
+void CombinedAudioMidiRegion::textDragEnter(const String& text, int x, int y)
+{
+    ignoreUnused(text, x, y);
+    mAudioRegion.setIsFileOver(true);
+    mAudioRegion.repaint();
+}
+
+void CombinedAudioMidiRegion::textDragExit(const String& text)
+{
+    ignoreUnused(text);
+    mAudioRegion.setIsFileOver(false);
+    mAudioRegion.repaint();
+}
+
+void CombinedAudioMidiRegion::textDropped(const String& text, int x, int y)
+{
+    ignoreUnused(x, y);
+    mAudioRegion.setIsFileOver(false);
+    mAudioRegion.repaint();
+
+    const auto url = quarry::downloadableUrl(text);
+
+    if (url.isNotEmpty() && onUrlDropped != nullptr)
+        onUrlDropped(url);
 }
 
 void CombinedAudioMidiRegion::setBaseWidth(int inWidth)
