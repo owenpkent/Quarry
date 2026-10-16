@@ -6,6 +6,7 @@
 #include "SidecarClient.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 
 #if !JUCE_WINDOWS
@@ -168,6 +169,15 @@ private:
             const auto newline_pos = mBuffer.find('\n');
 
             if (newline_pos == std::string::npos) {
+                // A child that never writes a newline would otherwise grow this without end, so a
+                // line this long is passed on cut short and the rest starts a new one.
+                if (mBuffer.size() > kMaxStderrLineBytes) {
+                    if (mOwner.onStderrLine) {
+                        mOwner.onStderrLine(
+                            juce::String::fromUTF8(mBuffer.data(), static_cast<int>(mBuffer.size())) + "...");
+                    }
+                    mBuffer.clear();
+                }
                 return;
             }
 
@@ -183,6 +193,8 @@ private:
             }
         }
     }
+
+    static constexpr size_t kMaxStderrLineBytes = 64 * 1024;
 
     SidecarClient& mOwner;
     std::string mBuffer;
@@ -833,13 +845,29 @@ bool SidecarClient::transcribe(const juce::File& inWav,
                 continue;
             }
 
+            // The response is whatever the sidecar printed, and casting an out-of-range or NaN double
+            // to int is undefined behaviour, so every number is checked as a double first and an
+            // event that does not make sense is dropped rather than repaired.
+            const double onset = static_cast<double>(entry.getProperty("onset", 0.0));
+            const double offset = static_cast<double>(entry.getProperty("offset", 0.0));
+            const double pitch = static_cast<double>(entry.getProperty("pitch", 0));
+
+            if (!std::isfinite(onset) || !std::isfinite(offset) || !std::isfinite(pitch) || onset < 0.0
+                || offset < onset) {
+                continue;
+            }
+
             SidecarNote note;
-            note.onset = static_cast<double>(entry.getProperty("onset", 0.0));
-            note.offset = static_cast<double>(entry.getProperty("offset", 0.0));
-            note.pitch = static_cast<int>(entry.getProperty("pitch", 0));
+            note.onset = onset;
+            note.offset = offset;
+            note.pitch = static_cast<int>(std::clamp(std::round(pitch), 0.0, 127.0));
 
             const auto velocity = entry.getProperty("velocity", juce::var());
-            note.velocity = velocity.isVoid() ? -1 : static_cast<int>(velocity);
+            const double velocity_value = velocity.isVoid() ? -1.0 : static_cast<double>(velocity);
+            // -1 means "not reported"; anything else outside 0 to 127 is clamped into range.
+            note.velocity = std::isfinite(velocity_value)
+                                ? static_cast<int>(std::clamp(std::round(velocity_value), -1.0, 127.0))
+                                : -1;
 
             outNotes.push_back(note);
         }
@@ -855,9 +883,16 @@ bool SidecarClient::transcribe(const juce::File& inWav,
                 continue;
             }
 
+            const double time = static_cast<double>(entry.getProperty("time", 0.0));
+            const double value = static_cast<double>(entry.getProperty("value", 0));
+
+            if (!std::isfinite(time) || !std::isfinite(value) || time < 0.0) {
+                continue;
+            }
+
             SidecarPedalEvent event;
-            event.time = static_cast<double>(entry.getProperty("time", 0.0));
-            event.value = static_cast<int>(entry.getProperty("value", 0));
+            event.time = time;
+            event.value = static_cast<int>(std::clamp(std::round(value), 0.0, 127.0));
 
             outPedal.push_back(event);
         }

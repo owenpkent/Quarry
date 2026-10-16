@@ -77,7 +77,7 @@
 > ## Status, 2026-07-31
 >
 > **The day-one spike in Milestone 0 has landed and is committed** on branch
-> `audio-input-and-recording` in `c:/Users/owenp/dev/NeuralNoteVideo`. The fork's product has
+> `audio-input-and-recording` in the NeuralNoteVideo checkout. The fork's product has
 > also been renamed to Quarry, so "Quarry" now names both the shipped fork and the planned
 > new repo below; the checkout path and the git remote are still `NeuralNoteVideo`. See
 > `## [Unreleased]` in `CHANGELOG.md` for what the spike does, and the "What landed" note in
@@ -112,8 +112,8 @@ Estimates are working days for one person and are deliberately not optimistic: t
 estimates in the source proposals were off by 3x and one rested on an extraction nobody had
 verified.
 
-**Repos.** `c:/Users/owenp/dev/NeuralNoteVideo` is the donor fork and the vehicle for the
-day-one spike. `c:/Users/owenp/dev/Quarry` is the product. `../JUCE` and
+**Repos.** The NeuralNoteVideo checkout is the donor fork and the vehicle for the
+day-one spike. The Quarry repo is the product. `../JUCE` and
 `../okstudio-juce-kit` are siblings.
 
 *Superseded on the kit.* This plan said no `ThirdParty/` tree ever lands in Quarry. The fork

@@ -215,7 +215,7 @@ python scripts/sync_status.py
 
 **Navigating and running commands:**
 ```powershell
-cd C:\Users\Owen\dev\my-project; python src/main.py
+cd %USERPROFILE%\dev\my-project; python src/main.py
 ```
 
 **Checking file contents:**

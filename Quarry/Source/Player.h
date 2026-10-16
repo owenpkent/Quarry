@@ -59,6 +59,7 @@ private:
     std::unique_ptr<MPESynthesiser> mSynth;
 
     AudioBuffer<float> mInternalBuffer;
+    int mMaxBlockSize = 0;
 
     double mPlayheadTime = 0;
     double mSampleRate = 44100;

@@ -53,6 +53,9 @@ import urllib.error
 import urllib.request
 
 REPO_URL = "https://github.com/GiantSteps/giantsteps-key-dataset.git"
+# The label repo is pinned so the md5 files and annotations are the ones this script was written
+# against, not whatever the default branch holds today. Bump it deliberately.
+GIANTSTEPS_COMMIT = "6bcd492c825ac9b8597bc650a5f6fd18b6c43d2b"
 
 CACHE_DIR = pathlib.Path(os.environ.get("USERPROFILE", os.path.expanduser("~"))) / ".okstudio" / "giantsteps-cache"
 REPO_DIR = CACHE_DIR / "repo"
@@ -92,14 +95,18 @@ def clone_or_update(repo_dir, update):
             print(f"using existing clone at {repo_dir} (--no-update)")
             return repo_dir
         print(f"updating existing clone at {repo_dir}")
-        if run_git(["-C", str(repo_dir), "fetch", "--depth", "1", "origin"]) is None:
+        if run_git(["-C", str(repo_dir), "fetch", "--depth", "1", "origin", GIANTSTEPS_COMMIT]) is None:
             return None
-        if run_git(["-C", str(repo_dir), "reset", "--hard", "origin/HEAD"]) is None:
+        if run_git(["-C", str(repo_dir), "reset", "--hard", GIANTSTEPS_COMMIT]) is None:
             return None
         return repo_dir
 
     print(f"cloning {REPO_URL} into {repo_dir}")
     if run_git(["clone", "--depth", "1", REPO_URL, str(repo_dir)]) is None:
+        return None
+    if run_git(["-C", str(repo_dir), "fetch", "--depth", "1", "origin", GIANTSTEPS_COMMIT]) is None:
+        return None
+    if run_git(["-C", str(repo_dir), "reset", "--hard", GIANTSTEPS_COMMIT]) is None:
         return None
     return repo_dir
 
@@ -172,10 +179,13 @@ def fetch_audio_sample(repo_dir, out_dir, count):
             print(f"  {name}: FAILED (no URL served the file)", file=sys.stderr)
             continue
 
-        dest.write_bytes(data)
         digest = hashlib.md5(data).hexdigest()
 
         if digest == expected:
+            # Written beside the destination and renamed, so only a verified file ever has its name.
+            part = dest.with_name(dest.name + ".part")
+            part.write_bytes(data)
+            os.replace(part, dest)
             ok += 1
             print(f"  {name}: OK ({len(data)} bytes) via {used_url}")
         else:
@@ -199,7 +209,9 @@ def _download_one(name, expected_md5, dest):
         digest = hashlib.md5(data).hexdigest()
         if digest != expected_md5:
             return False, f"md5 mismatch via {url} (expected {expected_md5}, got {digest})"
-        dest.write_bytes(data)
+        part = dest.with_name(dest.name + ".part")
+        part.write_bytes(data)
+        os.replace(part, dest)
         return True, f"OK ({len(data)} bytes) via {url}"
     return False, "no URL served the file"
 

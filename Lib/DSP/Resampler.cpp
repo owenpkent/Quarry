@@ -4,6 +4,23 @@
 
 #include "Resampler.h"
 
+#include <limits>
+
+namespace
+{
+// A degenerate ratio (zero, infinite, NaN) or a huge input would turn the division into
+// something an int cannot hold, and the cast is undefined for those. Such a length is
+// reported as zero samples rather than wrapped.
+int toOutputLength(double inNumOutSamples)
+{
+    if (!std::isfinite(inNumOutSamples) || inNumOutSamples < 0.0
+        || inNumOutSamples > static_cast<double>((std::numeric_limits<int>::max)()))
+        return 0;
+
+    return static_cast<int>(std::floor(inNumOutSamples));
+}
+} // namespace
+
 void Resampler::prepareToPlay(double inSourceSampleRate, int inMaxBlockSize, double inTargetSampleRate)
 {
     mSourceSampleRate = inSourceSampleRate;
@@ -59,7 +76,7 @@ int Resampler::processBlock(const float* inBuffer, float* outBuffer, int inNumSa
 
     mNumInputSamplesAvailable += inNumSamples;
 
-    int num_out_samples_to_produce = static_cast<int>(std::floor(mNumInputSamplesAvailable / mSpeedRatio));
+    int num_out_samples_to_produce = toOutputLength(mNumInputSamplesAvailable / mSpeedRatio);
 
     int num_input_samples_used =
         mInterpolator.process(mSpeedRatio, mInternalBuffer.getReadPointer(0), outBuffer, num_out_samples_to_produce);
@@ -77,5 +94,5 @@ int Resampler::processBlock(const float* inBuffer, float* outBuffer, int inNumSa
 
 int Resampler::getNumOutSamplesOnNextProcessBlock(int inNumSamples) const
 {
-    return static_cast<int>(std::floor((mNumInputSamplesAvailable + inNumSamples) / mSpeedRatio));
+    return toOutputLength((mNumInputSamplesAvailable + inNumSamples) / mSpeedRatio);
 }

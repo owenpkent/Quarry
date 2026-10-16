@@ -1,4 +1,4 @@
-#!/usr/bin/env bash -e
+#!/usr/bin/env bash
 
 set -euo pipefail
 
@@ -17,7 +17,19 @@ for dir in "$PLUG_DIR"/{Standalone/Quarry.app,AU/Quarry.component,VST3/Quarry.vs
 	fi
 done
 
-signingID=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | cut -d'"' -f2)
+# Taking the first match would sign with whichever certificate the keychain happens to list first,
+# so when there is more than one the caller has to name the one they mean with SIGNING_ID.
+if test -n "${SIGNING_ID:-}"; then
+	signingID="$SIGNING_ID"
+else
+	identities=$(security find-identity -v -p codesigning | grep "Developer ID Application" | cut -d'"' -f2 || true)
+	if test "$(printf '%s\n' "$identities" | grep -c .)" -gt 1; then
+		>&2 echo "More than one Developer ID Application identity found, set SIGNING_ID to pick one:"
+		>&2 echo "$identities"
+		exit 1
+	fi
+	signingID="$identities"
+fi
 if test -z "$signingID"; then
 	>&2 echo "No signing certificates found in keychain. You need to import the Apple generated .p12 certificates into Keychain"
 	exit 1
@@ -42,7 +54,7 @@ chmod +x "$PLUG_DIR"/{Standalone/Quarry.app,AU/Quarry.component,VST3/Quarry.vst3
 
 echo "Signing Standalone, AU and VST3"
 codesign --remove-signature "$PLUG_DIR"/{Standalone/Quarry.app,AU/Quarry.component,VST3/Quarry.vst3} || true
-codesign --entitlements entitlements.plist --options=runtime -s "$signingID" "$PLUG_DIR"/{Standalone/Quarry.app,AU/Quarry.component,VST3/Quarry.vst3}
+codesign --entitlements entitlements.plist --options=runtime --timestamp -s "$signingID" "$PLUG_DIR"/{Standalone/Quarry.app,AU/Quarry.component,VST3/Quarry.vst3}
 
 # Check signature
 printf "\nVerifying signature app\n"
