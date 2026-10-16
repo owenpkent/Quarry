@@ -237,15 +237,19 @@ void TimeQuantizeOptions::valueTreePropertyChanged(ValueTree& treeWhosePropertyH
 {
     if (property == NnId::TempoId) {
         ScopedLock lock(mInfoCriticalSection);
-        mTimeQuantizeInfo.bpm = mProcessor->getValueTree().getProperty(property);
+        const double bpm = mProcessor->getValueTree().getProperty(property);
+        // A live property change can carry anything, and the quantizer divides by the tempo.
+        mTimeQuantizeInfo.bpm = std::isfinite(bpm) ? std::clamp(bpm, 20.0, 999.0) : 120.0;
 
     } else if (property == NnId::TimeSignatureNumeratorId) {
         ScopedLock lock(mInfoCriticalSection);
-        mTimeQuantizeInfo.timeSignatureNum = mProcessor->getValueTree().getProperty(property);
+        const int num = mProcessor->getValueTree().getProperty(property);
+        mTimeQuantizeInfo.timeSignatureNum = std::clamp(num, 1, 32);
 
     } else if (property == NnId::TimeSignatureDenominatorId) {
         ScopedLock lock(mInfoCriticalSection);
-        mTimeQuantizeInfo.timeSignatureDenom = mProcessor->getValueTree().getProperty(property);
+        const int denom = mProcessor->getValueTree().getProperty(property);
+        mTimeQuantizeInfo.timeSignatureDenom = (denom >= 1 && denom <= 32 && isPowerOfTwo(denom)) ? denom : 4;
 
     } else if (property == NnId::TimeQuantizeRefPosQnId) {
         ScopedLock lock(mInfoCriticalSection);

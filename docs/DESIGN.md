@@ -3,8 +3,8 @@
 *The ultimate sampling machine. Sampling audio **into** the machine, not chopping it up
 inside one.*
 
-Status: design settled 2026-07-30. Nothing in `c:/Users/owenp/dev/Quarry` is built yet;
-`c:/Users/owenp/dev/NeuralNoteVideo` is the donor fork and the vehicle for the day-one spike.
+Status: design settled 2026-07-30. Nothing in the Quarry repo is built yet;
+the NeuralNoteVideo checkout is the donor fork and the vehicle for the day-one spike.
 Build order lives in `docs/PLAN.md`.
 
 Updated 2026-07-31: the fork's product has since been renamed to Quarry, so "Quarry" names

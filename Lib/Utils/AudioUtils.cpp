@@ -8,8 +8,27 @@
 #include "minimp3.h"
 #include "minimp3_ex.h"
 
+#include <limits>
+#include <new>
+
 namespace AudioUtils
 {
+bool isSaneAudio(int numChannels, juce::int64 numSamples, double sampleRate)
+{
+    // A float is four bytes and AudioBuffer indexes with int, so the whole buffer has to stay
+    // inside what an int can count: more than this would not allocate, or would wrap.
+    constexpr juce::int64 max_total_samples = (std::numeric_limits<int>::max)();
+
+    if (numChannels <= 0 || numChannels > kMaxChannels || numSamples <= 0)
+        return false;
+
+    // Written so that NaN fails the comparisons rather than slipping past them.
+    if (!(sampleRate >= kMinSampleRate && sampleRate <= kMaxSampleRate))
+        return false;
+
+    return numSamples <= max_total_samples / numChannels;
+}
+
 bool loadAudioFile(const juce::File& inFile, AudioBuffer<float>& outBuffer, double& outSampleRate)
 {
     if (inFile.getFileExtension() == ".mp3") {
@@ -26,12 +45,35 @@ bool loadAudioFile(const juce::File& inFile, AudioBuffer<float>& outBuffer, doub
     if (!format_reader)
         return false;
 
-    // Get properties of input audio
-    outSampleRate = format_reader->sampleRate;
-    int num_source_samples = static_cast<int>(format_reader->lengthInSamples);
-    int num_channels = (int) format_reader->numChannels;
+    const juce::int64 length_in_samples = format_reader->lengthInSamples;
+    const int num_channels = (int) format_reader->numChannels;
 
-    outBuffer.setSize(num_channels, num_source_samples);
+    // The length is whatever the header says, and JUCE does not check it against the stream:
+    // a 50 byte wav can claim four gigabytes.
+    if (!isSaneAudio(num_channels, length_in_samples, format_reader->sampleRate))
+        return false;
+
+    // For formats that store raw samples the file cannot hold more than its own size, which
+    // catches a header that claims far more than the file contains. Compressed formats have no
+    // such relation, so they only get the limits above.
+    const auto format_name = format_reader->getFormatName();
+    const bool is_uncompressed = format_name == "WAV file" || format_name == "AIFF file";
+
+    if (is_uncompressed && format_reader->bitsPerSample > 0) {
+        const juce::int64 bytes_per_sample = (juce::int64) ((format_reader->bitsPerSample + 7) / 8);
+
+        if (length_in_samples * num_channels * bytes_per_sample > inFile.getSize())
+            return false;
+    }
+
+    outSampleRate = format_reader->sampleRate;
+    const int num_source_samples = (int) length_in_samples;
+
+    try {
+        outBuffer.setSize(num_channels, num_source_samples);
+    } catch (const std::bad_alloc&) {
+        return false;
+    }
 
     // Read source file. If not successful, return false
     if (!format_reader->read(&outBuffer, 0, num_source_samples, 0, true, true))
@@ -113,18 +155,37 @@ void resampleBuffer(const AudioBuffer<float>& inBuffer,
 bool _loadMP3File(const std::string& filename, juce::AudioBuffer<float>& outBuffer, double& outSampleRate)
 {
     mp3dec_t mp3d;
-    mp3dec_file_info_t info;
+    mp3dec_file_info_t info {}; // zeroed: on an open failure the decoder never writes it, and buffer is freed below
     int loadResult = mp3dec_load(&mp3d, filename.c_str(), &info, nullptr, nullptr);
 
-    if (loadResult) {
+    // A zero result can still come with no channels: no decodable frame, or a switch between
+    // mono and stereo part way through, which the decoder reports that way. Dividing by it
+    // would take the host down, so everything unusable is turned away here, and the buffer is
+    // freed on every path (free(nullptr) is fine).
+    if (loadResult != 0 || info.channels <= 0 || info.samples == 0 || info.hz <= 0
+        || info.samples > static_cast<size_t>((std::numeric_limits<int>::max)())) {
+        free(info.buffer);
         return false;
     }
 
-    outBuffer.setSize(info.channels, static_cast<int>(info.samples / info.channels));
+    const auto num_frames = static_cast<juce::int64>(info.samples) / info.channels;
+
+    if (!isSaneAudio(info.channels, num_frames, static_cast<double>(info.hz))) {
+        free(info.buffer);
+        return false;
+    }
+
+    try {
+        outBuffer.setSize(info.channels, static_cast<int>(num_frames));
+    } catch (const std::bad_alloc&) {
+        free(info.buffer);
+        return false;
+    }
 
     for (size_t i = 0; i < info.samples; ++i) {
-        size_t channel = i % info.channels;
-        outBuffer.setSample((int) channel, static_cast<int>(i / info.channels), (float) info.buffer[i] / 32768.0f);
+        size_t channel = i % static_cast<size_t>(info.channels);
+        outBuffer.setSample((int) channel, static_cast<int>(i / static_cast<size_t>(info.channels)),
+                            (float) info.buffer[i] / 32768.0f);
     }
 
     outSampleRate = static_cast<double>(info.hz);

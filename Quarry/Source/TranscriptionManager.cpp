@@ -16,6 +16,31 @@
 // See the forward-declaration comment on SidecarClient in TranscriptionManager.h.
 #include "SidecarClient.h"
 
+namespace
+{
+// The command line can carry tokens or paths that do not belong in a log someone may paste into a
+// bug report, so only the executable is shown.
+juce::String loggableCommand(const juce::String& inCommandLine)
+{
+    const auto trimmed = inCommandLine.trim();
+    const bool quoted = trimmed.startsWithChar('"');
+    const int found = quoted ? trimmed.indexOfChar(1, '"') : trimmed.indexOfAnyOf(" \t");
+
+    if (found < 0) {
+        // Unquoted with no arguments is just the executable; an unclosed quote is not worth guessing at.
+        return quoted ? juce::String("...") : trimmed;
+    }
+
+    const int first_end = quoted ? found + 1 : found;
+
+    if (first_end >= trimmed.length()) {
+        return trimmed;
+    }
+
+    return trimmed.substring(0, first_end) + " ...";
+}
+} // namespace
+
 TranscriptionManager::TranscriptionManager(QuarryAudioProcessor* inProcessor)
     : mProcessor(inProcessor)
     , mTimeQuantizeOptions(inProcessor)
@@ -197,7 +222,7 @@ bool TranscriptionManager::_ensureSidecarStarted(juce::String& outError)
         mSidecarClient.reset();
     }
 
-    mActivityLog.add(quarry::ActivityLine::Kind::Quarry, "sidecar: starting " + mSidecarActivation.commandLine);
+    mActivityLog.add(quarry::ActivityLine::Kind::Quarry, "sidecar: starting " + loggableCommand(mSidecarActivation.commandLine));
 
     auto client = std::make_unique<SidecarClient>(mSidecarActivation.commandLine);
 
@@ -332,7 +357,7 @@ bool TranscriptionManager::_tryTranscribeWithSidecar(const juce::File& inSourceF
     if (!_ensureSidecarStarted(error)) {
         // _ensureSidecarStarted has already logged the failure itself (it is the one place that
         // starts the child, whether this take triggered it or an earlier probe did).
-        DBG("Sidecar failed to start (" << mSidecarActivation.commandLine << "): " << error);
+        DBG("Sidecar failed to start (" << loggableCommand(mSidecarActivation.commandLine) << "): " << error);
         _registerSidecarFailure();
         outFallback = EngineFallback::SidecarStartFailed;
         return false;

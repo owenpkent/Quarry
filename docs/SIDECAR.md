@@ -35,12 +35,23 @@ One virtualenv serves the sidecar and the bake-off tooling: `tools/bakeoff/.venv
 
 ```
 py -m venv tools/bakeoff/.venv
-tools/bakeoff/.venv/Scripts/python -m pip install numpy scipy mir_eval pretty_midi audioread librosa==0.9.2
-tools/bakeoff/.venv/Scripts/python -m pip install torch --index-url https://download.pytorch.org/whl/cu128
-tools/bakeoff/.venv/Scripts/python -m pip install piano-transcription-inference transkun muscriptor
-tools/bakeoff/.venv/Scripts/python -m pip install --no-deps demucs julius lameenc sphn
-tools/bakeoff/.venv/Scripts/python -m pip install yt-dlp
+tools/bakeoff/.venv/Scripts/python -m pip install --no-deps "torch==2.11.0+cu128" --index-url https://download.pytorch.org/whl/cu128
+tools/bakeoff/.venv/Scripts/python -m pip install -r tools/sidecar/requirements.txt
 ```
+
+`tools/sidecar/requirements.txt` holds the exact versions of every package the sidecar needs
+(torch is listed there too but must come from the CUDA index first, hence the two steps).
+
+**Weights are pinned.** The sidecar does not let any engine library fetch or load weights on
+its own. Before an engine is constructed, `engines.py` resolves its weight files, checks each
+against the SHA-256 in `PINNED_WEIGHTS`, and passes the library an explicit local path: kong's
+checkpoint (`~/piano_transcription_inference_data/`, which the library would otherwise `wget`
+unverified), transkun's bundled `2.0.pt` and `2.0.conf`, and the MuScriptor and HTDemucs
+files, which are fetched from HuggingFace at a pinned commit rather than "latest". A missing or
+mismatched file is refused with `weights for <engine> do not match the pinned hash; refusing
+to load`. To try different weights, set `QUARRY_SIDECAR_UNPINNED=1`: verification is skipped,
+the libraries behave as stock, and a warning is logged to stderr each time. To adopt new
+weights permanently, update the hash (and revision) in `engines.py`.
 
 `yt-dlp` backs the sidecar's `download` request, which exists for the developer's own workflow
 (pulling reference audio into a corpus without leaving the sidecar) and is not shipped with the

@@ -252,6 +252,10 @@ bool CombinedAudioMidiRegion::_isFileTypeSupported(const String& filename) const
 
 void CombinedAudioMidiRegion::_setZoomLevel(double inZoomLevel)
 {
+    // std::clamp passes a NaN straight through, and a saved project can hold one.
+    if (!std::isfinite(inZoomLevel)) {
+        inZoomLevel = mMinZoomLevel;
+    }
     mZoomLevel = std::clamp(inZoomLevel, mMinZoomLevel, mMaxZoomLevel);
     mPianoRoll.setZoomLevel(mZoomLevel);
     mAudioRegion.setZoomLevel(mZoomLevel);

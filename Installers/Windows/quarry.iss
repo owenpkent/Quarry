@@ -6,9 +6,10 @@
 
 [Setup]
 AppName=Quarry
+PrivilegesRequired=admin
 AppVersion={#AppVersion}
 OutputBaseFilename=QuarrySetup-{#AppVersion}
-DefaultDirName={pf}\Quarry
+DefaultDirName={commonpf}\Quarry
 DefaultGroupName=Quarry
 InfoBeforeFile=..\readme.txt
 LicenseFile=..\license.txt
@@ -31,5 +32,5 @@ Name: "mainapp"; Description: "Quarry Standalone"; Types: custom; Flags: disable
 Name: "plugin"; Description: "Quarry VST3"; Types: custom; Flags: disablenouninstallwarning
 
 [Files]
-Source: "..\..\{#ReleaseDir}\Standalone\Quarry.exe"; DestDir: "{pf}\Quarry"; Components:mainapp; Flags: ignoreversion recursesubdirs;
-Source: "..\..\{#ReleaseDir}\VST3\Quarry.vst3\*"; DestDir: "C:\Program Files\Common Files\VST3\Quarry.vst3"; Components:plugin; Flags: ignoreversion recursesubdirs;
+Source: "..\..\{#ReleaseDir}\Standalone\Quarry.exe"; DestDir: "{commonpf}\Quarry"; Components:mainapp; Flags: ignoreversion recursesubdirs;
+Source: "..\..\{#ReleaseDir}\VST3\Quarry.vst3\*"; DestDir: "{commoncf}\VST3\Quarry.vst3"; Components:plugin; Flags: ignoreversion recursesubdirs;

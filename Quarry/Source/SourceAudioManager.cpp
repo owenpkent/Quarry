@@ -393,6 +393,16 @@ void SourceAudioManager::valueTreePropertyChanged(ValueTree& treeWhosePropertyHa
                 return;
             }
 
+            // This runs on project restore with nobody having chosen the file, so a shared project
+            // must not be able to make us open an arbitrary location. A network path would also
+            // start an authentication attempt just by opening the project.
+            const bool is_network_path = path.startsWith("\\\\") || path.startsWith("//");
+            if (is_network_path || !File::isAbsolutePath(path) || !File(path).existsAsFile()) {
+                treeWhosePropertyHasChanged.setPropertyExcludingListener(
+                    this, NnId::SourceAudioNativeSrPathId, String(), nullptr);
+                return;
+            }
+
             onFileDrop(File(path));
 
             // If loading state from recorded audio, add to files to delete on clear.

@@ -32,7 +32,7 @@ under `~/.okstudio/`, one folder per dataset, outside every build tree.
 | `Tests/bench_corpus_maestro_real` | the same 22 windows, real recordings | MAESTRO v3 audio (the 101 GB zip; extracted selectively) | `make_real_audio_corpus.py` (verifies its ground truth byte-identical to the rendered twin) |
 | `Tests/bench_corpus_smd` | real Disklavier recordings, different piano and room | SMD via Zenodo | `make_smd_corpus.py` (alignment spot-checked, within 10 ms) |
 | `Tests/bench_corpus_slakh` | multi-instrument mixes, per-stem ground truth | BabySlakh (CC BY, 16 kHz mono; per-stem audio kept in cache for separation work) | `make_slakh_corpus.py` |
-| `Tests/bench_corpus_gm` | the local GM MIDI collection, stratified piano_solo / few_inst / full_mix, drums rendered but excluded from ground truth | `C:\Users\owenp\Ableton\MIDI` + FluidR3 GM | `make_gm_corpus.py` |
+| `Tests/bench_corpus_gm` | the local GM MIDI collection, stratified piano_solo / few_inst / full_mix, drums rendered but excluded from ground truth | `%USERPROFILE%\Ableton\MIDI` (or `QUARRY_GM_MIDI_DIR`) + FluidR3 GM | `make_gm_corpus.py` |
 
 The twin pair matters most: rendered and real MAESTRO share windows and ground truth exactly,
 which is what isolated the rendering bias (`ANALYSIS.md` §4.0: the CPU tier scores better on
