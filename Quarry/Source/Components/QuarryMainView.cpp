@@ -316,7 +316,7 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
     mSamplePage->onTranscribeRequested = [this]() { _showSamplePage(false); };
 
     mSamplePage->onDownloadRequested = [this](const String& inUrl, bool inPlaylist) {
-        _submitDownloadText(inUrl, inPlaylist);
+        return _submitDownloadText(inUrl, inPlaylist);
     };
     mSamplePage->onPreferredWidthChanged = [this]() { _applyWindowSize(); };
 
@@ -520,7 +520,7 @@ void QuarryMainView::_applyWindowSize()
 #endif
 }
 
-void QuarryMainView::_submitDownloadText(const String& inText, bool inPlaylist)
+std::uint32_t QuarryMainView::_submitDownloadText(const String& inText, bool inPlaylist)
 {
     auto* manager = mProcessor.getTranscriptionManager();
     const auto url = quarry::downloadableUrl(inText);
@@ -536,10 +536,11 @@ void QuarryMainView::_submitDownloadText(const String& inText, bool inPlaylist)
         options.media = TakeNaming::downloadMedia(state);
         options.playlist = inPlaylist;
 
-        manager->requestDownload(url, options);
-    } else {
-        manager->getActivityLog().add(quarry::ActivityLine::Kind::Error, "not a URL: " + inText);
+        return manager->requestDownload(url, options);
     }
+
+    manager->getActivityLog().add(quarry::ActivityLine::Kind::Error, "not a URL: " + inText);
+    return 0;
 }
 
 void QuarryMainView::_showActivityDrawer()

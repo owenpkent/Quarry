@@ -72,8 +72,10 @@ public:
 
     /** Called with a cleaned URL when the "paste a link" field submits one. The page does not
         know how a download starts; the view that owns the processor and both pages does, and
-        it is the same entry point the activity drawer, Ctrl+V and a link drop use. */
-    std::function<void(const String&, bool)> onDownloadRequested;
+        it is the same entry point the activity drawer, Ctrl+V and a link drop use. Returns the
+        id of the request it queued (0 if it queued nothing), which is how this page tells its
+        own completion from the other surfaces'. */
+    std::function<std::uint32_t(const String&, bool)> onDownloadRequested;
 
     /** Called when the page starts or stops wanting a narrow window, so whoever owns the
         window can resize it. */
@@ -215,7 +217,11 @@ private:
     std::unique_ptr<TextButton> mMediaButtons[3];
     std::unique_ptr<ToggleButton> mPlaylistToggle;
 
-    std::uint32_t mLinkResultSeq = 0;
+    /** The request this page submitted and is waiting on; 0 when it is not waiting. */
+    std::uint32_t mLinkRequestId = 0;
+
+    /** A partial-download warning that survives the automatic selection of the new capture. */
+    quarry::DownloadNote mDownloadNote;
 
     /** A file to select once the next library scan has found it. */
     File mPendingSelect;

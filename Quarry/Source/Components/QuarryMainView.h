@@ -79,7 +79,7 @@ private:
     void _showActivityDrawer();
 
     /** The one entry point for starting a URL download: drawer Enter and the link box (Enter or DOWNLOAD). */
-    void _submitDownloadText(const String& inText, bool inPlaylist = false);
+    std::uint32_t _submitDownloadText(const String& inText, bool inPlaylist = false);
 
     /** Sizes the window to whatever is on screen. Only the Sample page with its captures hidden
         asks for anything but the full width; Transcribe's layout is absolute and assumes it. */

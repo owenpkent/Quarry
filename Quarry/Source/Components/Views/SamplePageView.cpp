@@ -305,6 +305,15 @@ SamplePageView::SamplePageView(QuarryAudioProcessor& inProcessor)
     };
 
     mDownloadButton = makeLibraryButton("DOWNLOAD", [this]() {
+        // While a download runs this is its CANCEL: the progress strip that normally carries one is
+        // hidden on this page, and with nothing selected TRANSCRIBE cannot reach the other page.
+        if (mLinkState == LinkState::busy)
+        {
+            mProcessor.getTranscriptionManager()->cancelCurrentJob();
+            mDownloadButton->setEnabled(false);
+            return;
+        }
+
         if (mLinkBox->getText().trim().isEmpty())
             _setLinkState(LinkState::failed, "paste a link first");
         else
@@ -553,7 +562,7 @@ void SamplePageView::paint(Graphics& g)
     // Two lines: "this version of Windows cannot record a single application" is a sentence,
     // and neither the rail nor the narrow window is wide enough to say it on one. Inset both
     // sides, because with the captures away there is nothing to the right to stop it.
-    g.drawFittedText(mStatusText, mStatusBounds.reduced(6, 0), Justification::bottomLeft, 2);
+    g.drawFittedText(mDownloadNote.resolve(mStatusText), mStatusBounds.reduced(6, 0), Justification::bottomLeft, 2);
 }
 
 void SamplePageView::_paintLibraryColumns(Graphics& g)
@@ -674,11 +683,18 @@ void SamplePageView::_submitLink(const String& inText)
     if (onDownloadRequested == nullptr)
         return;
 
-    // Remembered before the request, so a refusal published synchronously (no sidecar) is seen.
-    mLinkResultSeq = mProcessor.getTranscriptionManager()->getDownloadResultSeq();
+    // A new download is the user starting something else: last one's warning has had its say.
+    mDownloadNote.clear();
+    mLinkRequestId = 0;
 
     _setLinkState(LinkState::busy, "starting download...");
-    onDownloadRequested(url, mPlaylistToggle->getToggleState());
+
+    // The id is what this page waits on. A refusal published synchronously (no sidecar) is already
+    // filed under it by the time this returns, and the next poll finds it.
+    mLinkRequestId = onDownloadRequested(url, mPlaylistToggle->getToggleState());
+
+    if (mLinkRequestId == 0)
+        _setLinkState(LinkState::failed, "not a link (needs http:// or https://)");
 }
 
 void SamplePageView::prefillLink(const String& inUrl)
@@ -700,6 +716,10 @@ void SamplePageView::_setLinkState(LinkState inState, const String& inText)
     // Never notifying: this is the page speaking, not the user typing.
     mLinkBox->setText(inState == LinkState::idle ? String() : inText, false);
     mLinkBox->setReadOnly(inState != LinkState::idle);
+
+    // Busy, the button is the way out: off until the poll sees this page's own request in the
+    // client call that a cancel can interrupt.
+    mDownloadButton->setButtonText(inState == LinkState::busy ? "CANCEL" : "DOWNLOAD");
     mDownloadButton->setEnabled(inState != LinkState::busy);
     mLinkBox->setColour(TextEditor::textColourId,
                         inState == LinkState::failed ? Colour(0xffe06c6c) : TEXT_MAIN);
@@ -709,14 +729,20 @@ void SamplePageView::_setLinkState(LinkState inState, const String& inText)
 void SamplePageView::mouseDown(const MouseEvent& event)
 {
     // A failure stays until the field is clicked, which is the next thing a user does to type.
-    if ((mLinkState == LinkState::failed || mLinkState == LinkState::notice)
-        && event.eventComponent == mLinkBox.get())
-        _setLinkState(LinkState::idle, {});
+    if (event.eventComponent == mLinkBox.get() && mLinkState != LinkState::busy)
+    {
+        mDownloadNote.clear();
+
+        if (mLinkState != LinkState::idle)
+            _setLinkState(LinkState::idle, {});
+
+        repaint();
+    }
 }
 
 void SamplePageView::_finishLink(const TranscriptionManager::DownloadResult& inResult)
 {
-    mLinkResultSeq = inResult.seq;
+    mLinkRequestId = 0;
 
     if (inResult.cancelled)
     {
@@ -748,6 +774,12 @@ void SamplePageView::_finishLink(const TranscriptionManager::DownloadResult& inR
     if (newest != File())
     {
         mStatusText = "Downloaded " + String((int) inResult.files.size()) + " file(s)" + failedText + ".";
+
+        // The scan's automatic selection writes the capture's title over the status line. A partial
+        // playlist is the one outcome that must still be readable after that.
+        if (inResult.failed > 0)
+            mDownloadNote.set(mStatusText);
+
         mPendingSelect = newest;
         _setLinkState(LinkState::idle, {});
         _rescanLibrary();
@@ -781,6 +813,7 @@ bool SamplePageView::_selectFile(const File& inAudio)
                 mLibraryList->scrollToEnsureRowIsOnscreen(_upRowCount() + (int) mBrowseFolders.size() + (int) i);
                 mStatusText = mShownEntries[i].windowTitle.isNotEmpty() ? mShownEntries[i].windowTitle
                                                                        : mShownEntries[i].displayName();
+                mDownloadNote.anchor(mStatusText);
                 _updateEnablements();
                 mLibraryList->repaint();
                 repaint();
@@ -832,17 +865,24 @@ void SamplePageView::_pollLink()
 
     auto* manager = mProcessor.getTranscriptionManager();
 
-    // The manager publishes one result per download and bumps a counter after it; seeing the
-    // counter move is the whole completion signal.
-    if (manager->getDownloadResultSeq() != mLinkResultSeq)
+    // The manager files one result per request under the id it handed out; only this page's own
+    // counts, whatever else the activity drawer or a paste has queued.
+    TranscriptionManager::DownloadResult result;
+
+    if (manager->getDownloadResult(mLinkRequestId, result))
     {
-        _finishLink(manager->getLastDownloadResult());
+        _finishLink(result);
         return;
     }
 
     const auto stage = manager->getCurrentStage();
 
-    if (stage.active) {
+    // A cancel kills whichever job holds the client, so it is offered only once that is ours.
+    mDownloadButton->setEnabled(stage.cancellable && mLinkRequestId != 0
+                                && manager->getRunningDownloadId() == mLinkRequestId);
+
+    // Not the stage of a job queued ahead of this one, which would read as this download's.
+    if (stage.active && manager->getRunningDownloadId() == mLinkRequestId) {
         auto text = stage.text.isNotEmpty() ? stage.text : String("downloading");
 
         if (stage.fraction >= 0.0)
@@ -1624,6 +1664,7 @@ void SamplePageView::LibraryModel::listBoxItemClicked(int row, const MouseEvent&
     owner.mSelectedEntryRow = entryRow;
 
     const auto& entry = owner.mShownEntries[(size_t) entryRow];
+    owner.mDownloadNote.clear();
     owner.mStatusText = entry.windowTitle.isNotEmpty() ? entry.windowTitle : entry.displayName();
 
     owner._updateEnablements();

@@ -748,43 +748,35 @@ void TranscriptionManager::cancelCurrentJob()
         mSidecarClient->kill();
 }
 
-void TranscriptionManager::requestDownload(const juce::String& inUrl, const DownloadOptions& inOptions)
+std::uint32_t TranscriptionManager::requestDownload(const juce::String& inUrl, const DownloadOptions& inOptions)
 {
     jassert(MessageManager::getInstance()->isThisTheMessageThread());
+
+    const auto request_id = mDownloadLedger.allocateId();
 
     if (!mSidecarActivation.active) {
         const juce::String message = "download needs the sidecar; set QUARRY_SIDECAR_CMD (docs/SIDECAR.md)";
         mActivityLog.add(quarry::ActivityLine::Kind::Error, message);
 
         DownloadResult result;
+        result.requestId = request_id;
         result.message = message;
         result.outDir = inOptions.outDir;
         _publishDownloadResult(std::move(result));
-        return;
+        return request_id;
     }
 
     mActivityLog.add(quarry::ActivityLine::Kind::Quarry, "download: " + inUrl);
 
     // mThreadPool, not a pool of its own: the client allows one request in flight, so a download
     // and a take have to queue behind each other regardless, and this is the queue that already does it.
-    mThreadPool.addJob([this, inUrl, inOptions] { _runDownload(inUrl, inOptions); });
-}
-
-TranscriptionManager::DownloadResult TranscriptionManager::getLastDownloadResult() const
-{
-    const ScopedLock lock(mDownloadResultLock);
-    return mLastDownloadResult;
+    mThreadPool.addJob([this, request_id, inUrl, inOptions] { _runDownload(request_id, inUrl, inOptions); });
+    return request_id;
 }
 
 void TranscriptionManager::_publishDownloadResult(DownloadResult inResult)
 {
-    const ScopedLock lock(mDownloadResultLock);
-
-    inResult.seq = mDownloadResultSeq.load() + 1;
-    mLastDownloadResult = std::move(inResult);
-
-    // After the result is in place, so a poller that sees the new number finds what it counts.
-    mDownloadResultSeq.store(mLastDownloadResult.seq);
+    mDownloadLedger.publish(std::move(inResult));
 }
 
 void TranscriptionManager::_writeDownloadSidecar(const juce::File& inAudio,
@@ -827,7 +819,7 @@ void TranscriptionManager::_writeDownloadSidecar(const juce::File& inAudio,
     sidecar.replaceWithText(meta.toJson());
 }
 
-void TranscriptionManager::_runDownload(const juce::String& inUrl, const DownloadOptions& inOptions)
+void TranscriptionManager::_runDownload(std::uint32_t inRequestId, const juce::String& inUrl, const DownloadOptions& inOptions)
 {
     // Held for the whole download, same as a take: see _tryTranscribeWithSidecar's own lock comment.
     const ScopedLock lock(mSidecarClientLock);
@@ -835,11 +827,17 @@ void TranscriptionManager::_runDownload(const juce::String& inUrl, const Downloa
     mCancelRequested.store(false);
 
     DownloadResult result;
+    result.requestId = inRequestId;
     result.outDir = inOptions.outDir;
+
+    // Set while this request holds the client, so a cancel offered to its requester is known to
+    // land on it and not on whatever else was queued ahead.
+    mRunningDownloadId.store(inRequestId);
 
     // Every exit publishes exactly once, success or not, which is what the Sample page's link box
     // waits on: it has no other way to learn that a queued job has finished.
     const auto fail = [&](const juce::String& inLogText, const juce::String& inMessage) {
+        mRunningDownloadId.store(0);
         mActivityLog.add(quarry::ActivityLine::Kind::Error, inLogText);
         result.message = inMessage;
         _publishDownloadResult(result);
@@ -925,6 +923,7 @@ void TranscriptionManager::_runDownload(const juce::String& inUrl, const Downloa
     }
 
     _setStage({}, -1.0, false);
+    mRunningDownloadId.store(0);
     _publishDownloadResult(std::move(result));
 }
 

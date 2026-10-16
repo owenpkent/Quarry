@@ -9,6 +9,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- fix: eight findings from the review of the link download. The "both" mode cleanup deleted any
+  file in the folder that shared a title's stem (`One.final.wav` went with `One.f137.mp4`); it
+  now removes only the intermediates yt-dlp reported downloading for that request. A playlist
+  titled `..` wrote into the parent of the chosen folder; the name is checked and the folder
+  must resolve under the one chosen. An entry whose wav conversion failed counted as saved;
+  it counts as failed and its source is not listed. `multi_video` results are walked like
+  playlists instead of failing. The Sample page took whichever download finished next as its
+  own; every request now has an id and the page waits for that one, which also keeps a
+  drawer download's stage text off the link box. DOWNLOAD reads CANCEL while this page's own
+  request runs, since the strip that carries the usual CANCEL is hidden here. "Downloaded 1
+  file(s), 1 failed." survives the automatic selection that used to overwrite it. The
+  Sample-page branch of the link offer is guarded for non-Windows builds.
 - feat: the Transcribe page leads with which model listens. The choice that moves onset F1 from
   0.775 to 0.98 was an environment variable read once at startup and mentioned nowhere, while
   three rotaries belonging to the engine you could not choose held permanent space above it. The

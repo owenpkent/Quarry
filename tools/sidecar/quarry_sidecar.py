@@ -24,7 +24,6 @@ tools/bakeoff/run_bakeoff.py, which is untouched).
 
 import argparse
 import contextlib
-import glob
 import json
 import os
 import pathlib
@@ -72,6 +71,23 @@ def _media_options(media: str) -> dict:
     raise engines.EngineError(f"unknown media: {media!r} (expected audio, video or both)")
 
 
+_WINDOWS_RESERVED = {"CON", "PRN", "AUX", "NUL",
+                     *(f"COM{n}" for n in range(1, 10)), *(f"LPT{n}" for n in range(1, 10))}
+
+
+def _safe_folder_name(sanitize, title) -> str:
+    """A playlist title as a folder name that stays one level below the chosen folder.
+
+    yt-dlp's sanitiser leaves '..' and '.' alone, and Windows treats names like CON as devices
+    (with or without an extension), so those and anything empty once dots and spaces are
+    stripped fall back to "playlist".
+    """
+    name = sanitize(title or "playlist") or "playlist"
+    if not name.strip(". ") or name.split(".")[0].strip().upper() in _WINDOWS_RESERVED:
+        return "playlist"
+    return name
+
+
 def _saved_files(entry: dict, media: str) -> list:
     """The files yt-dlp left for one downloaded video, wav first. Read from what yt-dlp reports
     (requested_downloads), not guessed from the title; in "both" mode the mp4 sits beside the
@@ -86,8 +102,33 @@ def _saved_files(entry: dict, media: str) -> list:
         for candidate in candidates:
             if candidate.is_file() and str(candidate) not in files:
                 files.append(str(candidate))
+    if media in ("audio", "both"):
+        # With ignoreerrors, a failed conversion leaves the compressed source in
+        # requested_downloads. That is not what was asked for, so the entry has no saved files.
+        if not any(f.lower().endswith(".wav") for f in files):
+            return []
+        if media == "audio":
+            files = [f for f in files if f.lower().endswith(".wav")]
     files.sort(key=lambda f: not f.lower().endswith(".wav"))
     return files
+
+
+_CONTAINER_TYPES = ("playlist", "multi_video")
+
+
+def _collect_saved(info, media: str):
+    """(paths, failed) for a yt-dlp result. Playlists and multi_video results (one source in
+    several segments) both keep their downloads under "entries", possibly nested, so walk them;
+    a missing entry, or one with nothing usable saved, counts as one failure."""
+    if info and info.get("_type") in _CONTAINER_TYPES:
+        paths, failed = [], 0
+        for entry in info.get("entries") or []:
+            sub_paths, sub_failed = _collect_saved(entry, media)
+            paths.extend(sub_paths)
+            failed += sub_failed
+        return paths, failed
+    files = _saved_files(info, media) if info else []
+    return files, 0 if files else 1
 
 
 class Sidecar:
@@ -197,7 +238,8 @@ class Sidecar:
 
         media is "audio" (a wav), "video" (an mp4 Windows can decode) or "both" (the mp4 and a wav
         extracted from it). playlist=False downloads the one video a URL names even when it also
-        names a playlist; True downloads every entry into a subfolder named for the playlist."""
+        names a playlist; True downloads every entry into a subfolder named for the playlist
+        (yt-dlp's sanitised title, "playlist" if that is unusable; it must resolve under out_dir)."""
         try:
             import yt_dlp
         except ImportError as exc:
@@ -247,13 +289,19 @@ class Sidecar:
             if probed and probed.get("_type") == "playlist":
                 is_playlist = True
                 playlist_total = len(list(probed.get("entries") or []))
-                playlist_folder = yt_dlp.utils.sanitize_filename(probed.get("title") or "playlist") or "playlist"
+                playlist_folder = _safe_folder_name(yt_dlp.utils.sanitize_filename, probed.get("title"))
 
         # Throttled to ~4/s: yt-dlp's own hook fires far more often than a "download" stage
         # event is worth writing to the protocol stream.
         last_emit = [0.0]
 
+        # Every file yt-dlp finished downloading for this request, by exact path. In "both" mode
+        # the ones that are not a final output are the unmerged streams to clean up afterwards.
+        downloaded_files = []
+
         def _progress_hook(d):
+            if d.get("status") == "finished" and d.get("filename"):
+                downloaded_files.append(d["filename"])
             if not report or d.get("status") != "downloading":
                 return
 
@@ -282,6 +330,10 @@ class Sidecar:
             width = max(2, len(str(playlist_total)))
             template = f"%(playlist_index)0{width}d - %(title)s.%(ext)s"
             folder = out_path / playlist_folder
+            # The title is the remote's to choose, so confirm the folder really sits under the
+            # one the user picked before anything is written to it.
+            if not folder.resolve().is_relative_to(out_path.resolve()) or folder.resolve() == out_path.resolve():
+                raise engines.EngineError(f"refusing to download outside {out_path}: {playlist_folder!r}")
         else:
             template = "%(title)s.%(ext)s"
             folder = out_path
@@ -307,23 +359,9 @@ class Sidecar:
         if info is None:
             raise engines.EngineError("yt-dlp returned nothing for that URL")
 
-        if info.get("_type") == "playlist":
-            entries = list(info.get("entries") or [])
-            paths = []
-            failed = 0
-            for entry in entries:
-                files = _saved_files(entry, media) if entry else []
-                if files:
-                    paths.extend(files)
-                else:
-                    failed += 1
-            title = info.get("title")
-            duration = None
-        else:
-            paths = _saved_files(info, media)
-            failed = 0 if paths else 1
-            title = info.get("title")
-            duration = info.get("duration")
+        paths, failed = _collect_saved(info, media)
+        title = info.get("title")
+        duration = None if info.get("_type") in _CONTAINER_TYPES else info.get("duration")
 
         if not paths:
             raise engines.EngineError("download finished but no saved file could be found"
@@ -332,13 +370,12 @@ class Sidecar:
         if media == "both":
             # keepvideo is what keeps the mp4 from being replaced by the wav, but it also keeps
             # the unmerged streams (Name.f137.mp4, Name.f140.m4a) that went into it. Those are
-            # scaffolding, not something anyone asked to save.
-            for saved in paths:
-                if saved.lower().endswith(".mp4"):
-                    saved_path = pathlib.Path(saved)
-                    for leftover in saved_path.parent.glob(glob.escape(saved_path.stem) + ".f*.*"):
-                        if str(leftover) not in paths:
-                            leftover.unlink(missing_ok=True)
+            # scaffolding, not something anyone asked to save. They are removed by the exact
+            # paths yt-dlp reported finishing, never by a name pattern, since the folder may hold
+            # unrelated files that share the stem.
+            for leftover in downloaded_files:
+                if leftover not in paths:
+                    pathlib.Path(leftover).unlink(missing_ok=True)
 
         elapsed = time.time() - started
         if report:

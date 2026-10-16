@@ -181,7 +181,8 @@ single-video request older clients send:
 
 - `media`: `"audio"` (a wav, the default), `"video"` (an mp4, H.264 + AAC where the source
   offers it, since Windows' Media Foundation does not decode VP9/WebM) or `"both"` (the mp4 and a
-  wav extracted from it; the unmerged intermediate streams are removed). Anything else is an error.
+  wav extracted from it; the unmerged intermediate streams `yt-dlp` reports downloading for this
+  request are removed, and nothing else in the folder is touched). Anything else is an error.
 - `playlist`: `false` (the default) downloads the one video the URL names even if it also names a
   playlist. `true` downloads every entry of a playlist into a subfolder of `out_dir` named for the
   playlist, each file prefixed with its zero-padded index (`01 - Title.wav`), skipping entries that
@@ -203,8 +204,10 @@ On success:
 - `paths`: absolute paths of every file saved, wav first. A client that predates `paths` reads
   `path`, which is `paths[0]` (the wav, for `audio` and `both`).
 - `title`: the source's title as `yt-dlp` reports it; the playlist's title for a playlist.
-- `failed`: how many playlist entries could not be downloaded (`0` for a single video). The
-  response is `ok:false` only if nothing at all was saved.
+- `failed`: how many playlist entries could not be downloaded (`0` for a single video). An entry
+  whose requested wav was not produced (for example the conversion failed) counts as failed, and
+  its unconverted source is not listed in `paths`. Multi-part results (`multi_video`) are walked
+  like playlists. The response is `ok:false` only if nothing at all was saved.
 - `duration_s`: the source's duration in seconds, or `null` when `yt-dlp` did not report one
   (always `null` for a playlist).
 - `elapsed_s`: wall-clock seconds for the whole request (download plus audio extraction).
