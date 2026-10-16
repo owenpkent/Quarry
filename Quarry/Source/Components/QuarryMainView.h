@@ -78,7 +78,9 @@ private:
     /** Opens the drawer if it is closed (never closes it). */
     void _showActivityDrawer();
 
-    /** The one entry point for starting a URL download: drawer Enter and the link box (Enter or DOWNLOAD). */
+    /** The one entry point for starting a URL download: drawer Enter and the link box (Enter or DOWNLOAD).
+        Returns the request's id (0 if nothing was queued), which the Sample page uses to wait only
+        for its own download. */
     std::uint32_t _submitDownloadText(const String& inText, bool inPlaylist = false);
 
     /** Sizes the window to whatever is on screen. Only the Sample page with its captures hidden

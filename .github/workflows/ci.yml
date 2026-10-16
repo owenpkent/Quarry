@@ -1,8 +1,9 @@
 # What a pull request has to survive: the thing compiles, and the arithmetic still holds.
 #
-# Windows only, because that is what the project can currently build: run.py fetches
-# onnxruntime-<version>-windows-x86_64 by name, and there is no macOS or Linux path for it yet.
-# A matrix here would fail on the fetch, not on anything a reviewer could act on.
+# Two jobs. "build" is the only one that can build the product: it runs on Windows because
+# run.py fetches onnxruntime-<version>-windows-x86_64 by name. "compile-linux" only compiles the
+# shared code, since no Linux onnxruntime prebuilt exists. A matrix would fail on the fetch, not
+# on anything a reviewer could act on.
 name: CI
 
 on:

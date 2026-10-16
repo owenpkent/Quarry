@@ -203,12 +203,13 @@ private:
         shows the error until it is clicked again. */
     std::unique_ptr<TextEditor> mLinkBox;
 
-    /** Reads the clipboard and submits it through the same path as Enter. */
+    /** Submits the link box through the same path as Enter. Reads CANCEL while this page's own
+        request is running, and is enabled then only if that request is the one in the client. */
     std::unique_ptr<TextButton> mDownloadButton;
 
     /** idle: waiting for a link. busy: a download is running. failed: the error, in red.
         notice: a plain message (where the files went). Both of the last two clear when the
-        field is clicked. */
+        field is clicked; a partial-playlist warning is also held in mDownloadNote. */
     enum class LinkState { idle, busy, failed, notice };
 
     /** The second row: where downloads go, in what form, and whether to take a whole playlist. */
@@ -220,7 +221,9 @@ private:
     /** The request this page submitted and is waiting on; 0 when it is not waiting. */
     std::uint32_t mLinkRequestId = 0;
 
-    /** A partial-download warning that survives the automatic selection of the new capture. */
+    /** A partial-download warning ("Downloaded 1 file(s), 1 failed.") that survives the automatic
+        selection of the new capture. It clears when the next download starts, the link box is
+        clicked or a row is picked. */
     quarry::DownloadNote mDownloadNote;
 
     /** A file to select once the next library scan has found it. */

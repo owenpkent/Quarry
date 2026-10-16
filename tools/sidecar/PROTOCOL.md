@@ -186,7 +186,11 @@ single-video request older clients send:
 - `playlist`: `false` (the default) downloads the one video the URL names even if it also names a
   playlist. `true` downloads every entry of a playlist into a subfolder of `out_dir` named for the
   playlist, each file prefixed with its zero-padded index (`01 - Title.wav`), skipping entries that
-  fail rather than stopping. A URL that is not a playlist is downloaded as a single video.
+  fail rather than stopping. A URL that is not a playlist is downloaded as a single video. The
+  subfolder name is `yt-dlp`'s sanitised title; `.`, `..`, an empty name and Windows device names
+  (`CON`, `NUL` and the like) fall back to `playlist`. The folder must resolve to a place under
+  `out_dir`, and the request fails if it does not, so a hostile title cannot write outside the
+  folder the caller chose.
 
 Exists for the developer's own workflow -- pulling reference audio into a corpus or a
 manual test without leaving the sidecar -- and is not part of the shipped plugin. The one thing in
