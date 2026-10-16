@@ -225,6 +225,11 @@ One guard this adds: WAV tops out at 4 GB, about 2.9 hours of float32 stereo. Ex
 record/stop will not reach that by accident, but a forgotten capture must be stopped rather
 than allowed to produce a corrupt file.
 
+The memory a take is held in sets a tighter limit than the file format does. A take stops by
+itself at two hours (`SampleRecorder::maxTakeSeconds`, about 2.8 GB at 48 kHz stereo float) with
+the stop reason "time limit". Audio past the cap is dropped, and what was captured up to it is
+kept like any other stopped take.
+
 **Why not 32-bit FLAC**, since it was asked: the bundled libFLAC is 1.4.3 and does support
 32-bit integer encoding, but JUCE caps it. `juce_FlacAudioFormat.cpp` returns `{16, 24}`
 from `getPossibleBitDepths()`, rejects anything else in `createWriterFor`, and clamps with

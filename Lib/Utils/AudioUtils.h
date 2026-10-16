@@ -33,6 +33,8 @@ bool isSaneAudio(int numChannels, juce::int64 numSamples, double sampleRate);
 
 /**
  * Load an audio file. wav, aiff, flac, ogg vorbis and mp3 files are supported.
+ * A file whose header claims something isSaneAudio rejects (no channels, no samples, a rate or length
+ * that cannot be allocated), or which decodes to nothing, fails the load instead of crashing.
  * @param inFile Audio file to load.
  * @param outBuffer Buffer where to load audio data. Will be resized to correct number of channels and samples.
  * @param outSampleRate Will be set to audio file sample rate.

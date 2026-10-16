@@ -99,7 +99,9 @@ found is recorded in `ANALYSIS.md` §4.2.
 `tools/keybench/`: `fetch_giantsteps.py` pulls the GiantSteps Key dataset (604 key-labelled
 Beatport excerpts; the working audio mirror is `www.cp.jku.at/datasets/giantsteps/backup/`,
 MD5-verified against the dataset's own hashes; `giantsteps_labels.tsv` is committed so the
-harness works if upstream vanishes). `make_giantsteps_corpus.py` lays the cached mp3s out as
+harness works if upstream vanishes; the label repo is fetched at the commit pinned as
+`GIANTSTEPS_COMMIT` in the script rather than the default branch, and each download is written to a `.part`
+file and renamed only once it verifies). `make_giantsteps_corpus.py` lays the cached mp3s out as
 `Tests/bench_corpus_giantsteps` with a one-note stub `.mid` beside each, purely to satisfy the
 bench's pairing check: the dataset has no note-level ground truth, so every note-score column
 the bench prints for this corpus is junk by construction and only the `--dump-notes` output

@@ -103,7 +103,9 @@ ever overwritten. A dropped file that is not already a wav is decoded and writte
 the folder is a file that opens.
 
 The folder and the two toggles are saved with the project, so a session reopened another day writes where it
-wrote before.
+wrote before. A folder in a project is only used when it is an absolute path; anything else falls back to the
+default, since a project file can come from anywhere and a relative path would land wherever the host happens to
+be running.
 
 ### What key is this in
 
@@ -228,13 +230,19 @@ git clone --recurse-submodules --shallow-submodules https://github.com/owenpkent
 
 The following OS-specific build scripts have to be executed at least once before being able to use the project as a
 normal CMake project. The script downloads onnxruntime static library (created by the NeuralNote authors
-with [ort-builder](https://github.com/olilarkin/ort-builder)) before calling CMake.
+with [ort-builder](https://github.com/olilarkin/ort-builder)) before calling CMake. It checks the download against
+a SHA-256 written into the script (`run.py` and `build.bat` do the same) and deletes the archive and stops if it
+does not match, because the library is linked straight into the plugin.
 
 #### macOS
 
 ```
 $ ./build.sh
 ```
+
+`build.sh` also runs on Linux, but it stops there with a message: the prebuilt Linux archive it names was never
+published, so there is nothing to download or verify. Build onnxruntime yourself, or point `version` and `sha256`
+in the script at a release that has a Linux asset.
 
 #### Windows
 
