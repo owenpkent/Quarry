@@ -110,3 +110,49 @@ jobs:
       # breakage shows up. Nothing but a full build finds it.
       - name: Build standalone
         run: cmake --build build --config Release --target Quarry_Standalone -- -m
+
+  # The shared code has to compile on macOS and Linux as well, and until now nothing checked
+  # it: with Windows the only runner, a reference to a Windows-only member (the Sample page)
+  # built clean here and broke every other platform. No Linux onnxruntime prebuilt exists, so
+  # this compiles the shared code and links nothing; the headers and the model it needs are
+  # platform-neutral and come from the small macOS archive, hash-checked the same way build.sh
+  # checks it. A compile is enough for what this guards against, which is the next #if.
+  compile-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: recursive
+          fetch-depth: 1
+
+      # JUCE's own list (ThirdParty/JUCE/docs/Linux Dependencies.md), less webkit: the
+      # plugin sets JUCE_WEB_BROWSER=0. curl stays because juceaide, which JUCE builds for
+      # itself before anything else, does not inherit the plugin's JUCE_USE_CURL=0.
+      - name: Install JUCE's Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build             libasound2-dev libjack-jackd2-dev ladspa-sdk libcurl4-openssl-dev             libfontconfig1-dev libfreetype-dev libx11-dev libxcomposite-dev libxcursor-dev             libxext-dev libxinerama-dev libxrandr-dev libxrender-dev             libglu1-mesa-dev mesa-common-dev
+
+      # The sha256 is the macOS one in build.sh; keep the two in step.
+      - name: Fetch the onnxruntime headers and the model
+        run: |
+          set -euo pipefail
+          version=v1.14.1-neuralnote.2
+          dir="onnxruntime-$version-macOS-universal"
+          archive="$dir.tar.gz"
+          curl -fsSLO "https://github.com/tiborvass/libonnxruntime-neuralnote/releases/download/$version/$archive"
+          echo "7e943da96b195713eea605f983f8ba0b312a9a39077468593665fa33ac27f915  $archive" | sha256sum -c -
+          tar -xzf "$archive" -C ThirdParty
+          mv "ThirdParty/$dir" ThirdParty/onnxruntime
+          mv ThirdParty/onnxruntime/model.with_runtime_opt.ort Lib/ModelData/features_model.ort
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DLTO=OFF
+
+      # The plugin's shared-code library: every source under Lib/ and Quarry/, nothing that
+      # needs the missing onnxruntime library to link.
+      - name: Compile the shared code
+        run: cmake --build build --target Quarry
