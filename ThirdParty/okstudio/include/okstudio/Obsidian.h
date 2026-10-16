@@ -698,7 +698,7 @@ namespace okstudio::obsidian
             // tick and a matching right one, which the base class's own sizing
             // doesn't know about.
             const auto f = getPopupMenuFont();
-            idealWidth = (int) std::ceil(f.getStringWidthFloat(itemText)) + 26 * 2 + 10;
+            idealWidth = (int) std::ceil(juce::GlyphArrangement::getStringWidth(f, itemText)) + 26 * 2 + 10;
             idealHeight = juce::jmax(okstudio::ui::minHitPx, (int) std::ceil(f.getHeight() * 1.6f));
         }
 
