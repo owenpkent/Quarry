@@ -481,6 +481,9 @@ def test_download_outputs():
                 for name in ("One.f137.mp4", "One.f140.m4a"):
                     for hook in opts["progress_hooks"]:
                         hook({"status": "finished", "filename": str(folder / name)})
+                for hook in opts["postprocessor_hooks"]:
+                    hook({"postprocessor": "ExtractAudio", "status": "started",
+                          "info_dict": {"filepath": str(folder / "One.mp4")}})
                 return {"title": "One", "duration": 3,
                         "requested_downloads": [{"filepath": str(folder / "One.wav")}]}
 
@@ -492,6 +495,27 @@ def test_download_outputs():
                   "both: the unmerged streams yt-dlp reported are removed")
             check(all((both_dir / n).read_bytes() == d for n, d in siblings.items()),
                   "both: pre-existing files that share the stem's prefix survive")
+
+            # A source with only a muxed webm is downloaded as is (merge_output_format never
+            # applies), so the webm is the video and must survive next to the wav.
+            webm_dir = root / "webm"
+
+            def webm_script(opts, folder):
+                for name in ("Only WebM.webm", "Only WebM.wav"):
+                    (folder / name).write_bytes(b"x")
+                for hook in opts["progress_hooks"]:
+                    hook({"status": "finished", "filename": str(folder / "Only WebM.webm")})
+                for hook in opts["postprocessor_hooks"]:
+                    hook({"postprocessor": "ExtractAudio", "status": "started",
+                          "info_dict": {"filepath": str(folder / "Only WebM.webm")}})
+                return {"title": "Only WebM", "duration": 3,
+                        "requested_downloads": [{"filepath": str(folder / "Only WebM.wav")}]}
+
+            _install_scripted_yt_dlp(webm_script)
+            got = sidecar.download("https://x/y", str(webm_dir), media="both")
+            check([pathlib.Path(p).name for p in got["paths"]] == ["Only WebM.wav", "Only WebM.webm"]
+                  and (webm_dir / "Only WebM.webm").exists() and (webm_dir / "Only WebM.wav").exists(),
+                  f"both: a muxed webm fallback keeps the wav and the webm ({got['paths']!r})")
 
             # A conversion failure under ignoreerrors leaves the compressed source behind.
             def convert_script(opts, folder):

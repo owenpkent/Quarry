@@ -184,8 +184,9 @@ are optional and default to the values shown, so a request without them is the a
 single-video request older clients send:
 
 - `media`: `"audio"` (a wav, the default), `"video"` (an mp4, H.264 + AAC where the source
-  offers it, since Windows' Media Foundation does not decode VP9/WebM) or `"both"` (the mp4 and a
-  wav extracted from it; the unmerged intermediate streams `yt-dlp` reports downloading for this
+  offers it, since Windows' Media Foundation does not decode VP9/WebM) or `"both"` (the video and a
+  wav extracted from it; the video is an mp4 when streams were merged, but a source that offers only
+  a muxed webm or other container keeps it as downloaded; the unmerged intermediate streams `yt-dlp` reports downloading for this
   request are removed, and nothing else in the folder is touched). Anything else is an error.
 - `playlist`: `false` (the default) downloads the one video the URL names even if it also names a
   playlist. `true` downloads every entry of a playlist into a subfolder of `out_dir` named for the

@@ -88,17 +88,18 @@ def _safe_folder_name(sanitize, title) -> str:
     return name
 
 
-def _saved_files(entry: dict, media: str) -> list:
+def _saved_files(entry: dict, media: str, videos: dict = None) -> list:
     """The files yt-dlp left for one downloaded video, wav first. Read from what yt-dlp reports
-    (requested_downloads), not guessed from the title; in "both" mode the mp4 sits beside the
-    extracted wav under the same stem."""
+    (requested_downloads), not guessed from the title. In "both" mode the video is whatever file
+    the wav was extracted from, recorded by the caller as videos[wav path] = video path; it is
+    an mp4 when streams were merged but can be a muxed webm or other container otherwise."""
     files = []
     for requested in entry.get("requested_downloads") or []:
         filepath = requested.get("filepath")
         if not filepath:
             continue
         path = pathlib.Path(filepath)
-        candidates = [path] + ([path.with_suffix(".mp4")] if media == "both" else [])
+        candidates = [path] + ([pathlib.Path(videos[str(path)])] if media == "both" and videos and str(path) in videos else [])
         for candidate in candidates:
             if candidate.is_file() and str(candidate) not in files:
                 files.append(str(candidate))
@@ -116,18 +117,18 @@ def _saved_files(entry: dict, media: str) -> list:
 _CONTAINER_TYPES = ("playlist", "multi_video")
 
 
-def _collect_saved(info, media: str):
+def _collect_saved(info, media: str, videos: dict = None):
     """(paths, failed) for a yt-dlp result. Playlists and multi_video results (one source in
     several segments) both keep their downloads under "entries", possibly nested, so walk them;
     a missing entry, or one with nothing usable saved, counts as one failure."""
     if info and info.get("_type") in _CONTAINER_TYPES:
         paths, failed = [], 0
         for entry in info.get("entries") or []:
-            sub_paths, sub_failed = _collect_saved(entry, media)
+            sub_paths, sub_failed = _collect_saved(entry, media, videos)
             paths.extend(sub_paths)
             failed += sub_failed
         return paths, failed
-    files = _saved_files(info, media) if info else []
+    files = _saved_files(info, media, videos) if info else []
     return files, 0 if files else 1
 
 
@@ -322,9 +323,18 @@ class Sidecar:
                     else f"{prefix}downloading... {downloaded} bytes")
             report("download", text, fraction)
 
+        # The video each wav was extracted from, by wav path. The extractor starts with the real
+        # file yt-dlp produced, so this holds the right extension whether the streams were merged
+        # to an mp4 or a single muxed webm came down as it was.
+        videos = {}
+
         def _postprocessor_hook(d):
-            if d.get("postprocessor") == "ExtractAudio" and d.get("status") == "started" and report:
-                report("extract-audio", "extracting audio to wav")
+            if d.get("postprocessor") == "ExtractAudio" and d.get("status") == "started":
+                source = (d.get("info_dict") or {}).get("filepath")
+                if source:
+                    videos[str(pathlib.Path(source).with_suffix(".wav"))] = source
+                if report:
+                    report("extract-audio", "extracting audio to wav")
 
         if is_playlist:
             width = max(2, len(str(playlist_total)))
@@ -359,7 +369,7 @@ class Sidecar:
         if info is None:
             raise engines.EngineError("yt-dlp returned nothing for that URL")
 
-        paths, failed = _collect_saved(info, media)
+        paths, failed = _collect_saved(info, media, videos)
         title = info.get("title")
         duration = None if info.get("_type") in _CONTAINER_TYPES else info.get("duration")
 
@@ -368,11 +378,12 @@ class Sidecar:
                                       if not is_playlist else f"all {failed} playlist entries failed")
 
         if media == "both":
-            # keepvideo is what keeps the mp4 from being replaced by the wav, but it also keeps
+            # keepvideo is what keeps the video from being replaced by the wav, but it also keeps
             # the unmerged streams (Name.f137.mp4, Name.f140.m4a) that went into it. Those are
             # scaffolding, not something anyone asked to save. They are removed by the exact
             # paths yt-dlp reported finishing, never by a name pattern, since the folder may hold
-            # unrelated files that share the stem.
+            # unrelated files that share the stem. A video that is itself a downloaded file (a
+            # muxed webm) is in paths already and so is kept.
             for leftover in downloaded_files:
                 if leftover not in paths:
                     pathlib.Path(leftover).unlink(missing_ok=True)
