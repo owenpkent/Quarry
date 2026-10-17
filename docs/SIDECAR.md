@@ -116,16 +116,23 @@ it will not start, `not installed` when a working sidecar genuinely lacks it. Th
 which engine actually read the current take. Choosing one re-transcribes: a different engine
 is a different reading of the audio, not a different treatment of the same notes.
 
-What still has to come from the environment is the command line, because it is a path to a
-Python interpreter and there is nowhere in the UI to type one yet:
+**Through `run.py`.** The launcher automatically configures the sidecar when this checkout has
+`tools/bakeoff/.venv/Scripts/python.exe` and `tools/sidecar/quarry_sidecar.py`. This works for
+both a normal build-and-launch and `--no-build`, uses absolute paths from the current checkout,
+and prints which configuration it chose. It does not install packages or download models.
+An explicit `QUARRY_SIDECAR_CMD` takes precedence, including an empty or whitespace-only value
+to disable the sidecar. The setting applies only to the launched app; it is not saved globally.
+
+**Launching the executable directly or from a DAW.** Set the command line in the environment
+inherited by Quarry, because there is nowhere in the UI to type one yet:
 
 ```
 set QUARRY_SIDECAR_CMD=c:\path\to\Quarry\tools\bakeoff\.venv\Scripts\python.exe c:\path\to\Quarry\tools\sidecar\quarry_sidecar.py serve
 set QUARRY_SIDECAR_ENGINE=kong
 ```
 
-Unset or empty `QUARRY_SIDECAR_CMD` means current behaviour, byte for byte: the picker offers
-only the built-in engine and says why.
+When the app receives an unset or empty `QUARRY_SIDECAR_CMD`, the picker offers only the
+built-in engine and says why. `run.py` supplies the default above only when the variable is unset.
 
 `QUARRY_SIDECAR_ENGINE` now names the engine to *start on* rather than the engine to use
 forever. It seeds the `ENGINE` parameter when `TranscriptionManager` is constructed, and a

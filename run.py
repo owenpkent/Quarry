@@ -9,6 +9,10 @@ changes can be tried without a DAW in the picture at all.
     py run.py                # build + launch the standalone
     py run.py --no-build     # just relaunch what is already built
 
+If tools/bakeoff/.venv is present, the app uses it for the transcription sidecar.
+An explicit QUARRY_SIDECAR_CMD takes precedence, including an empty value to disable it.
+See docs/SIDECAR.md to set up the environment and models.
+
 On a fresh clone this also fetches what the build needs: the JUCE and RTNeural
 submodules, and the prebuilt onnxruntime library plus the feature model that
 build.bat would otherwise download. That tarball is 600 MB and comes from one person's
@@ -433,6 +437,31 @@ def foreign_source_dir(cache_path: str) -> str:
 
 
 # --------------------------------------------------------------------------------------
+# Sidecar for local development
+# --------------------------------------------------------------------------------------
+
+def launch_environment() -> dict:
+    """Configure the sidecar for this launch without changing the caller's environment."""
+    env = os.environ.copy()
+    if "QUARRY_SIDECAR_CMD" in env:
+        if env["QUARRY_SIDECAR_CMD"].strip():
+            print(f"{GREY}Sidecar: using QUARRY_SIDECAR_CMD.{RESET}")
+        else:
+            print(f"{GREY}Sidecar: disabled by QUARRY_SIDECAR_CMD.{RESET}")
+        return env
+
+    python = os.path.join(ROOT, "tools", "bakeoff", ".venv", "Scripts", "python.exe")
+    script = os.path.join(ROOT, "tools", "sidecar", "quarry_sidecar.py")
+    if os.path.isfile(python) and os.path.isfile(script):
+        env["QUARRY_SIDECAR_CMD"] = subprocess.list2cmdline([python, script, "serve"])
+        print(f"{GREY}Sidecar: using tools/bakeoff/.venv.{RESET}")
+    else:
+        print(f"{YELLOW}Sidecar environment not found; using the built-in engine. "
+              f"See docs/SIDECAR.md for setup.{RESET}")
+    return env
+
+
+# --------------------------------------------------------------------------------------
 # Win32: find the running app and ask it to close politely
 # --------------------------------------------------------------------------------------
 
@@ -611,6 +640,8 @@ def main() -> int:
         print(f"{YELLOW}{exe_name} not found at {exe} - run without --no-build first.{RESET}")
         return 1
 
+    env = launch_environment()
+
     # Smart App Control was enforced on this machine until it was found off on 2026-10-13.
     # Dev builds are unsigned, so while it is on it blocks the first launch of a freshly linked exe while its reputation check runs,
     # then lets the same file through once that finishes. Absorb the transient here, and
@@ -622,7 +653,7 @@ def main() -> int:
     while True:
         try:
             # Detached, so the app outlives this console instead of dying with it.
-            subprocess.Popen([exe], cwd=ROOT, close_fds=True,
+            subprocess.Popen([exe], cwd=ROOT, close_fds=True, env=env,
                              creationflags=subprocess.DETACHED_PROCESS
                              | subprocess.CREATE_NEW_PROCESS_GROUP)
             launched = True

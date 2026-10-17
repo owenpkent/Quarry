@@ -376,6 +376,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- fix: `run.py` automatically configures the installed sidecar in `tools/bakeoff/.venv` for
+  both normal launches and `--no-build`. Previously a launch without `QUARRY_SIDECAR_CMD` left
+  every sidecar engine unavailable even when the environment was installed. Explicit commands
+  still take precedence, and an explicitly empty value keeps the sidecar disabled.
+
 - fix: a dropped stereo file was transcribed from its left channel alone. `resampleBuffer`
   preserves the channel count and the engine is handed one pointer, so the right channel was
   discarded without a word. On a piano recorded with a spaced pair that is not half the level, it
