@@ -9,6 +9,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- fix: eight findings from the review of the link download. The "both" mode cleanup deleted any
+  file in the folder that shared a title's stem (`One.final.wav` went with `One.f137.mp4`); it
+  now removes only the intermediates yt-dlp reported downloading for that request. A playlist
+  titled `..` wrote into the parent of the chosen folder; the name is checked and the folder
+  must resolve under the one chosen. An entry whose wav conversion failed counted as saved;
+  it counts as failed and its source is not listed. `multi_video` results are walked like
+  playlists instead of failing. The Sample page took whichever download finished next as its
+  own; every request now has an id and the page waits for that one, which also keeps a
+  drawer download's stage text off the link box. DOWNLOAD reads CANCEL while this page's own
+  request runs, since the strip that carries the usual CANCEL is hidden here. "Downloaded 1
+  file(s), 1 failed." survives the automatic selection that used to overwrite it. The
+  Sample-page branch of the link offer is guarded for non-Windows builds.
 - feat: the Transcribe page leads with which model listens. The choice that moves onset F1 from
   0.775 to 0.98 was an environment variable read once at startup and mentioned nowhere, while
   three rotaries belonging to the engine you could not choose held permanent space above it. The
@@ -87,14 +99,29 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- feat: a link can be handed to the downloader without typing it. Ctrl+V (Cmd+V on macOS) with an
+  http(s) URL on the clipboard, or dragging a link from a browser onto the waveform, puts the link
+  in the Sample page's link box, or in the activity drawer's prompt on Transcribe, and starts
+  nothing. A download starts only on Enter or the Sample page's DOWNLOAD button. Anything that is
+  not a link leaves paste untouched. Still a developer surface: it needs the sidecar and yt-dlp,
+  and nothing about it ships in the plugin's UI.
+- feat: downloads save files and stop there. They no longer load into Transcribe and transcribe
+  themselves. The Sample page gains a second row under the link box: `download to <folder>` with
+  `change`, a remembered `audio / video / both` choice, and a `whole playlist` box that is off at
+  every launch. Video is an H.264 + AAC mp4 so Windows can decode it; `both` adds a wav. A playlist
+  goes in a subfolder, files numbered, one failed entry not stopping the rest, with the strip
+  reading `3/12 downloading`. Wavs saved under the capture folder get a capture sidecar, so they
+  show in the captures list and the newest is selected; elsewhere the box says
+  `saved N file(s) to <folder>`. The sidecar `download` request gains optional `media` and
+  `playlist`, and its response a `paths` list and a `failed` count (`path` stays for old clients).
 - feat: an activity drawer, so the app says what it is doing while it does it. A take on a
   slow engine showed nothing for minutes, and the sidecar's own logs went to NUL because
   nothing read them. Press ` on Transcribe (or the chevron in the footer) and a terminal-style
   drawer slides over the column: Quarry's own stage lines, the sidecar's stage events (protocol
   version 2 adds them; `tools/sidecar/PROTOCOL.md`), its raw stderr, and every error, in one
   monospace feed; `clear` empties it. The prompt under the feed takes a URL: the sidecar fetches
-  the audio with yt-dlp into the SAVE TO folder and the wav lands in a take exactly as a dropped
-  file would. That is a developer surface, not a shipped feature; `docs/SIDECAR.md` says what to
+  it with yt-dlp and saves it where the Sample page's download settings say. That is a
+  developer surface, not a shipped feature; `docs/SIDECAR.md` says what to
   install.
 - feat: a progress strip above the transport, and Cancel. The same stage feed drives a thin bar
   and a caption at the top right of the header while a job runs, with a percentage when the

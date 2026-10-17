@@ -47,6 +47,28 @@ tools/bakeoff/.venv/Scripts/python -m pip install yt-dlp
 plugin; it also needs `ffmpeg` on `PATH` (either winget package, `Gyan.FFmpeg` or
 `yt-dlp.FFmpeg`, will do).
 
+Three things can hand it a link, all developer-only, and none starts a download by itself: typing a
+URL into the activity drawer (backtick key), pressing Ctrl+V (Cmd+V on macOS) with an http(s) URL on
+the clipboard, and dragging a link from a browser onto the waveform. Paste and drop only fill the
+link box on the Sample page or the drawer's prompt on Transcribe; a download starts when you press
+Enter there or the DOWNLOAD button. Paste only claims the key when the clipboard holds a URL; any
+other paste behaves as before. The Sample page's link box shows the download's progress
+and outcome in place (the drawer cannot open on that page), and DOWNLOAD reads CANCEL while that
+page's own request is running, because the strip that normally carries CANCEL is hidden there.
+The page waits only for its own request, so a download started from the drawer never shows up in
+its link box. If some playlist entries failed, "Downloaded 1 file(s), 1 failed." stays on the
+status line through the automatic selection of the new capture, and clears when you start another
+download, click the link box or pick a row.
+
+A download only saves files; nothing is loaded or transcribed afterwards. Where they go and in what
+form are settings: the folder defaults to the capture folder and is changed with "change" under the
+link box, and `audio / video / both` picks a wav, an H.264 mp4 Windows can play, or the mp4 plus a
+wav. "whole playlist" (off at every launch) takes every entry into a subfolder named for the
+playlist: yt-dlp's sanitised title, or `playlist` when that is empty, `.`, `..` or a Windows device
+name, and a folder that would not resolve under the chosen one fails the request rather than write
+outside it. When the files land under the capture folder the Sample page lists the wavs and selects
+the newest, so TRANSCRIBE is one click away. The settings apply to the drawer, paste and drop too.
+
 Traps met once so nobody meets them twice:
 
 - **The CUDA build must be forced.** The cu128 index tops out at torch 2.11, and pip does not

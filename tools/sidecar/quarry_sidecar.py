@@ -25,6 +25,7 @@ tools/bakeoff/run_bakeoff.py, which is untouched).
 import argparse
 import contextlib
 import json
+import os
 import pathlib
 import sys
 import time
@@ -50,6 +51,85 @@ _PROTOCOL_OUT = sys.stdout
 # (onsets, offsets, pedal, velocity, all first-class); material-based routing (mixes to
 # muscriptor, etc.) arrives with profiles. Until then "auto" always resolves to "kong".
 AUTO_ENGINE = "kong"
+
+
+_VIDEO_FORMAT = "bv*[vcodec^=avc1]+ba[acodec^=mp4a]/b[ext=mp4]/bv*+ba/b"
+_WAV_POSTPROCESSOR = {"key": "FFmpegExtractAudio", "preferredcodec": "wav"}
+
+
+def _media_options(media: str) -> dict:
+    """The yt-dlp options that differ per media mode. Video prefers H.264 + AAC in an mp4 because
+    Windows' Media Foundation does not decode VP9/WebM (docs/PLAN.md); the later alternatives are
+    for videos that publish nothing in those codecs, where any mp4 or any container will do."""
+    if media == "audio":
+        return {"format": "bestaudio/best", "postprocessors": [dict(_WAV_POSTPROCESSOR)]}
+    if media == "video":
+        return {"format": _VIDEO_FORMAT, "merge_output_format": "mp4"}
+    if media == "both":
+        return {"format": _VIDEO_FORMAT, "merge_output_format": "mp4", "keepvideo": True,
+                "postprocessors": [dict(_WAV_POSTPROCESSOR)]}
+    raise engines.EngineError(f"unknown media: {media!r} (expected audio, video or both)")
+
+
+_WINDOWS_RESERVED = {"CON", "PRN", "AUX", "NUL",
+                     *(f"COM{n}" for n in range(1, 10)), *(f"LPT{n}" for n in range(1, 10))}
+
+
+def _safe_folder_name(sanitize, title) -> str:
+    """A playlist title as a folder name that stays one level below the chosen folder.
+
+    yt-dlp's sanitiser leaves '..' and '.' alone, and Windows treats names like CON as devices
+    (with or without an extension), so those and anything empty once dots and spaces are
+    stripped fall back to "playlist".
+    """
+    name = sanitize(title or "playlist") or "playlist"
+    if not name.strip(". ") or name.split(".")[0].strip().upper() in _WINDOWS_RESERVED:
+        return "playlist"
+    return name
+
+
+def _saved_files(entry: dict, media: str, videos: dict = None) -> list:
+    """The files yt-dlp left for one downloaded video, wav first. Read from what yt-dlp reports
+    (requested_downloads), not guessed from the title. In "both" mode the video is whatever file
+    the wav was extracted from, recorded by the caller as videos[wav path] = video path; it is
+    an mp4 when streams were merged but can be a muxed webm or other container otherwise."""
+    files = []
+    for requested in entry.get("requested_downloads") or []:
+        filepath = requested.get("filepath")
+        if not filepath:
+            continue
+        path = pathlib.Path(filepath)
+        candidates = [path] + ([pathlib.Path(videos[str(path)])] if media == "both" and videos and str(path) in videos else [])
+        for candidate in candidates:
+            if candidate.is_file() and str(candidate) not in files:
+                files.append(str(candidate))
+    if media in ("audio", "both"):
+        # With ignoreerrors, a failed conversion leaves the compressed source in
+        # requested_downloads. That is not what was asked for, so the entry has no saved files.
+        if not any(f.lower().endswith(".wav") for f in files):
+            return []
+        if media == "audio":
+            files = [f for f in files if f.lower().endswith(".wav")]
+    files.sort(key=lambda f: not f.lower().endswith(".wav"))
+    return files
+
+
+_CONTAINER_TYPES = ("playlist", "multi_video")
+
+
+def _collect_saved(info, media: str, videos: dict = None):
+    """(paths, failed) for a yt-dlp result. Playlists and multi_video results (one source in
+    several segments) both keep their downloads under "entries", possibly nested, so walk them;
+    a missing entry, or one with nothing usable saved, counts as one failure."""
+    if info and info.get("_type") in _CONTAINER_TYPES:
+        paths, failed = [], 0
+        for entry in info.get("entries") or []:
+            sub_paths, sub_failed = _collect_saved(entry, media, videos)
+            paths.extend(sub_paths)
+            failed += sub_failed
+        return paths, failed
+    files = _saved_files(info, media, videos) if info else []
+    return files, 0 if files else 1
 
 
 class Sidecar:
@@ -150,16 +230,23 @@ class Sidecar:
             "warnings": warnings,
         }
 
-    def download(self, url: str, out_dir: str, report=None) -> dict:
-        """Fetches url's audio with yt-dlp's Python API and writes a wav into out_dir. Uses the
-        API rather than shelling out so progress and log lines can be captured and re-emitted as
-        stage events / stderr lines instead of yt-dlp's own terminal output. See PROTOCOL.md's
-        "download" section. Exists for the developer's own workflow (pulling reference audio in
-        without leaving the sidecar); it is not part of the shipped plugin."""
+    def download(self, url: str, out_dir: str, report=None, media: str = "audio", playlist: bool = False) -> dict:
+        """Fetches url with yt-dlp's Python API into out_dir. Uses the API rather than shelling
+        out so progress and log lines can be captured and re-emitted as stage events / stderr
+        lines instead of yt-dlp's own terminal output. See PROTOCOL.md's "download" section.
+        Exists for the developer's own workflow (pulling reference audio and video in without
+        leaving the sidecar); it is not part of the shipped plugin.
+
+        media is "audio" (a wav), "video" (an mp4 Windows can decode) or "both" (the mp4 and a wav
+        extracted from it). playlist=False downloads the one video a URL names even when it also
+        names a playlist; True downloads every entry into a subfolder named for the playlist
+        (yt-dlp's sanitised title, "playlist" if that is unusable; it must resolve under out_dir)."""
         try:
             import yt_dlp
         except ImportError as exc:
             raise engines.EngineError("yt-dlp is not installed; pip install yt-dlp into the sidecar venv") from exc
+
+        media_opts = _media_options(media)
 
         started = time.time()
         self._request_started = started
@@ -189,11 +276,33 @@ class Sidecar:
             def error(msg):
                 print(msg, file=sys.stderr)
 
+        # Only a real playlist gets a folder and an index; a single video with the flag set is
+        # just a single video. Found with a flat (no-download) probe, which is one cheap request.
+        is_playlist = False
+        playlist_total = 0
+        playlist_folder = None
+        if playlist:
+            with contextlib.redirect_stdout(sys.stderr):
+                probe_opts = {"quiet": True, "logger": _ForwardingLogger(), "extract_flat": "in_playlist",
+                              "noplaylist": False, "skip_download": True}
+                with yt_dlp.YoutubeDL(probe_opts) as probe:
+                    probed = probe.extract_info(url, download=False)
+            if probed and probed.get("_type") == "playlist":
+                is_playlist = True
+                playlist_total = len(list(probed.get("entries") or []))
+                playlist_folder = _safe_folder_name(yt_dlp.utils.sanitize_filename, probed.get("title"))
+
         # Throttled to ~4/s: yt-dlp's own hook fires far more often than a "download" stage
         # event is worth writing to the protocol stream.
         last_emit = [0.0]
 
+        # Every file yt-dlp finished downloading for this request, by exact path. In "both" mode
+        # the ones that are not a final output are the unmerged streams to clean up afterwards.
+        downloaded_files = []
+
         def _progress_hook(d):
+            if d.get("status") == "finished" and d.get("filename"):
+                downloaded_files.append(d["filename"])
             if not report or d.get("status") != "downloading":
                 return
 
@@ -205,64 +314,91 @@ class Sidecar:
             downloaded = d.get("downloaded_bytes") or 0
             total = d.get("total_bytes") or d.get("total_bytes_estimate")
             fraction = (downloaded / total) if total else None
-            text = f"downloading... {downloaded}/{total} bytes" if total else f"downloading... {downloaded} bytes"
+            prefix = ""
+            if is_playlist:
+                index = (d.get("info_dict") or {}).get("playlist_index")
+                if index:
+                    prefix = f"{index}/{playlist_total} "
+            text = (f"{prefix}downloading... {downloaded}/{total} bytes" if total
+                    else f"{prefix}downloading... {downloaded} bytes")
             report("download", text, fraction)
 
-        # Filled in by _postprocessor_hook once FFmpegExtractAudio actually finishes, rather than
-        # guessed from the title/outtmpl: yt-dlp is the only one that knows the real extension and
-        # any sanitizing it applied to the filename.
-        final_path = [None]
+        # The video each wav was extracted from, by wav path. The extractor starts with the real
+        # file yt-dlp produced, so this holds the right extension whether the streams were merged
+        # to an mp4 or a single muxed webm came down as it was.
+        videos = {}
 
         def _postprocessor_hook(d):
-            # yt-dlp runs more postprocessors than the one we asked for (e.g. a MoveFiles step
-            # after ours), so this only reports the "extract-audio" stage for our own; every
-            # postprocessor's "finished" status is still watched for the final path, though,
-            # since a later step (MoveFiles) is what actually leaves the file at its final name.
-            if d.get("postprocessor") == "ExtractAudio" and d.get("status") == "started" and report:
-                report("extract-audio", "extracting audio to wav")
+            if d.get("postprocessor") == "ExtractAudio" and d.get("status") == "started":
+                source = (d.get("info_dict") or {}).get("filepath")
+                if source:
+                    videos[str(pathlib.Path(source).with_suffix(".wav"))] = source
+                if report:
+                    report("extract-audio", "extracting audio to wav")
 
-            if d.get("status") == "finished":
-                info = d.get("info_dict") or {}
-                if info.get("filepath"):
-                    final_path[0] = info["filepath"]
+        if is_playlist:
+            width = max(2, len(str(playlist_total)))
+            template = f"%(playlist_index)0{width}d - %(title)s.%(ext)s"
+            folder = out_path / playlist_folder
+            # The title is the remote's to choose, so confirm the folder really sits under the
+            # one the user picked before anything is written to it.
+            if not folder.resolve().is_relative_to(out_path.resolve()) or folder.resolve() == out_path.resolve():
+                raise engines.EngineError(f"refusing to download outside {out_path}: {playlist_folder!r}")
+        else:
+            template = "%(title)s.%(ext)s"
+            folder = out_path
+        # A '%' in the folder would be read as part of the template.
+        outtmpl = str(folder).replace("%", "%%") + os.sep + template
 
         ydl_opts = {
-            "format": "bestaudio/best",
-            "noplaylist": True,
-            "outtmpl": str(out_path / "%(title)s.%(ext)s"),
+            "noplaylist": not is_playlist,
+            "ignoreerrors": is_playlist,
+            "outtmpl": outtmpl,
             "windowsfilenames": True,
             "quiet": True,
             "logger": _ForwardingLogger(),
             "progress_hooks": [_progress_hook],
             "postprocessor_hooks": [_postprocessor_hook],
-            "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "wav"}],
+            **media_opts,
         }
 
         with contextlib.redirect_stdout(sys.stderr):
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
 
-        if final_path[0] is None:
-            # Fallback for a yt-dlp version whose postprocessor_hooks info_dict does not carry
-            # filepath: still read what yt-dlp itself reports, not a guess built from the title.
-            requested = info.get("requested_downloads") or []
-            if requested and requested[0].get("filepath"):
-                final_path[0] = requested[0]["filepath"]
+        if info is None:
+            raise engines.EngineError("yt-dlp returned nothing for that URL")
 
-        if final_path[0] is None:
-            raise engines.EngineError("download succeeded but the extracted wav path could not be determined")
+        paths, failed = _collect_saved(info, media, videos)
+        title = info.get("title")
+        duration = None if info.get("_type") in _CONTAINER_TYPES else info.get("duration")
+
+        if not paths:
+            raise engines.EngineError("download finished but no saved file could be found"
+                                      if not is_playlist else f"all {failed} playlist entries failed")
+
+        if media == "both":
+            # keepvideo is what keeps the video from being replaced by the wav, but it also keeps
+            # the unmerged streams (Name.f137.mp4, Name.f140.m4a) that went into it. Those are
+            # scaffolding, not something anyone asked to save. They are removed by the exact
+            # paths yt-dlp reported finishing, never by a name pattern, since the folder may hold
+            # unrelated files that share the stem. A video that is itself a downloaded file (a
+            # muxed webm) is in paths already and so is kept.
+            for leftover in downloaded_files:
+                if leftover not in paths:
+                    pathlib.Path(leftover).unlink(missing_ok=True)
 
         elapsed = time.time() - started
-        title = info.get("title")
-        duration = info.get("duration")
         if report:
             report("done", f"downloaded {title or url!r} in {elapsed:.2f}s")
 
         return {
-            "path": final_path[0],
+            "path": paths[0],
+            "paths": paths,
             "title": title,
             "duration_s": float(duration) if duration is not None else None,
             "elapsed_s": elapsed,
+            "failed": failed,
         }
 
 
@@ -334,8 +470,12 @@ def serve() -> int:
                 _write({"id": req_id, "ok": False, "error": "missing required field: out_dir"})
                 continue
 
+            media = request.get("media", "audio")
+            playlist = bool(request.get("playlist", False))
+
             try:
-                result = sidecar.download(url, out_dir, report=_report_for(sidecar, req_id))
+                result = sidecar.download(url, out_dir, report=_report_for(sidecar, req_id),
+                                          media=media, playlist=playlist)
                 _write({"id": req_id, "ok": True, **result})
             except Exception as exc:  # noqa: BLE001 - any download/ffmpeg failure becomes ok:false
                 print(f"[quarry_sidecar] download failed for id={req_id!r}: {exc}", file=sys.stderr)

@@ -588,7 +588,9 @@ re-record, no level matching — not a new capability.
 
 **Ships with the codec-gap plate from day one:** MF cannot open WebM/VP9 or AV1 without free
 Microsoft Store extensions, and yt-dlp's default best-quality YouTube output is frequently
-exactly that. A 34 px plate says "this video uses a format Windows cannot read — re-save it
+exactly that. (The sidecar's own downloader now asks yt-dlp for H.264/AAC MP4 first, so links
+fetched through Quarry avoid the gap; the plate is still needed for files from anywhere else.)
+A 34 px plate says "this video uses a format Windows cannot read — re-save it
 as MP4", rather than failing silently.
 
 **Tests:** a known MP4 decodes to the expected sample count; a constant-frame-rate file and a

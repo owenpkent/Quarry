@@ -146,7 +146,8 @@ that stem's position), `infer` (start/done, the base engine's own run), `post` (
 pedal, checking for warnings), `done` (final, with the note count and elapsed time in `text`).
 For `download`: `download` (start, and periodically while bytes are arriving, with `fraction` from
 bytes downloaded of the total when known), `extract-audio` (the ffmpeg postprocessing step that
-turns the downloaded audio into the response's wav), `done`.
+turns the downloaded audio into the response's wav), `done`. In a playlist download the `download`
+text leads with the entry, `3/12 downloading... ...`.
 
 ## Error response
 
@@ -170,24 +171,50 @@ missing `wav` gets `{"id": <echoed>, "ok": false, "error": "missing required fie
 ## download request
 
 ```json
-{"id": "<opaque string>", "cmd": "download", "url": "<url>", "out_dir": "<folder>"}
+{"id": "<opaque string>", "cmd": "download", "url": "<url>", "out_dir": "<folder>",
+ "media": "audio", "playlist": false}
 ```
 
-Fetches `url`'s audio with `yt-dlp` and writes a wav file into `out_dir` (created if it does not
-exist). Exists for the developer's own workflow -- pulling reference audio into a corpus or a
+Fetches `url` with `yt-dlp` into `out_dir` (created if it does not exist). `media` and `playlist`
+are optional and default to the values shown, so a request without them is the audio-only,
+single-video request older clients send:
+
+- `media`: `"audio"` (a wav, the default), `"video"` (an mp4, H.264 + AAC where the source
+  offers it, since Windows' Media Foundation does not decode VP9/WebM) or `"both"` (the video and a
+  wav extracted from it; the video is an mp4 when streams were merged, but a source that offers only
+  a muxed webm or other container keeps it as downloaded; the unmerged intermediate streams `yt-dlp` reports downloading for this
+  request are removed, and nothing else in the folder is touched). Anything else is an error.
+- `playlist`: `false` (the default) downloads the one video the URL names even if it also names a
+  playlist. `true` downloads every entry of a playlist into a subfolder of `out_dir` named for the
+  playlist, each file prefixed with its zero-padded index (`01 - Title.wav`), skipping entries that
+  fail rather than stopping. A URL that is not a playlist is downloaded as a single video. The
+  subfolder name is `yt-dlp`'s sanitised title; `.`, `..`, an empty name and Windows device names
+  (`CON`, `NUL` and the like) fall back to `playlist`. The folder must resolve to a place under
+  `out_dir`, and the request fails if it does not, so a hostile title cannot write outside the
+  folder the caller chose.
+
+Exists for the developer's own workflow -- pulling reference audio into a corpus or a
 manual test without leaving the sidecar -- and is not part of the shipped plugin. The one thing in
-Quarry that sends it is the activity drawer's prompt line, a developer surface. Requires
+Quarry that sends it is the developer-only link surface: the activity drawer's prompt line,
+Ctrl+V of a link, a link dropped on the waveform, and the Sample page's link box. Requires
 `yt-dlp` importable in this interpreter and `ffmpeg` on `PATH`; see `docs/SIDECAR.md`.
 
 On success:
 
 ```json
-{"id": "<opaque string>", "ok": true, "path": "<wav path>", "title": "<title>", "duration_s": 4.2, "elapsed_s": 12.7}
+{"id": "<opaque string>", "ok": true, "path": "<first path>", "paths": ["<wav path>", "<mp4 path>"],
+ "title": "<title>", "duration_s": 4.2, "elapsed_s": 12.7, "failed": 0}
 ```
 
-- `path`: absolute path to the written wav.
-- `title`: the source's title, as `yt-dlp` reports it.
-- `duration_s`: the source's duration in seconds, or `null` when `yt-dlp` did not report one.
+- `paths`: absolute paths of every file saved, wav first. A client that predates `paths` reads
+  `path`, which is `paths[0]` (the wav, for `audio` and `both`).
+- `title`: the source's title as `yt-dlp` reports it; the playlist's title for a playlist.
+- `failed`: how many playlist entries could not be downloaded (`0` for a single video). An entry
+  whose requested wav was not produced (for example the conversion failed) counts as failed, and
+  its unconverted source is not listed in `paths`. Multi-part results (`multi_video`) are walked
+  like playlists. The response is `ok:false` only if nothing at all was saved.
+- `duration_s`: the source's duration in seconds, or `null` when `yt-dlp` did not report one
+  (always `null` for a playlist).
 - `elapsed_s`: wall-clock seconds for the whole request (download plus audio extraction).
 
 On failure, the usual `{"id": ..., "ok": false, "error": "<message>"}`, covering: `yt-dlp` not

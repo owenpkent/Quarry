@@ -15,6 +15,8 @@ tools/bakeoff/.venv/Scripts/python.exe tools/sidecar/test_sidecar.py
 (c) `download`, over the same `serve` subprocess: only runs when QUARRY_TEST_DOWNLOAD_URL is set
     in the environment (skipped with a printed note otherwise, since it needs network access and
     a real URL); checks a wav lands on disk, stage events arrive, and the response schema.
+(d) the download options (audio/video/both, playlist on/off) against a mocked yt_dlp module: no
+    network and no ffmpeg, always runs.
 """
 
 import json
@@ -321,10 +323,251 @@ def test_download():
             harness.close()
 
 
+def _install_fake_yt_dlp(playlist_titles, playlist_title="My: List"):
+    """A stand-in for the yt_dlp module: no network, no ffmpeg. The probe (extract_flat) returns
+    a playlist of len(playlist_titles) entries; the real run writes one file per title into the
+    folder the sidecar's outtmpl names, and fails the entry whose title is None."""
+    import types
+
+    seen = {"opts": []}
+
+    class FakeYDL:
+        def __init__(self, opts):
+            self.opts = opts
+            seen["opts"].append(opts)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def extract_info(self, url, download=True):
+            if not download:
+                return {"_type": "playlist", "title": playlist_title, "entries": [{}] * len(playlist_titles)}
+            folder = pathlib.Path(self.opts["outtmpl"]).parent
+            folder.mkdir(parents=True, exist_ok=True)
+            ext = "wav" if self.opts.get("postprocessors") else "mp4"
+            if not url.startswith("playlist:"):
+                path = folder / f"One.{ext}"
+                path.write_bytes(b"x")
+                return {"title": "One", "duration": 3, "requested_downloads": [{"filepath": str(path)}]}
+            entries = []
+            for index, title in enumerate(playlist_titles, start=1):
+                if title is None:
+                    entries.append(None)
+                    continue
+                path = folder / f"{index:02d} - {title}.{ext}"
+                path.write_bytes(b"x")
+                entries.append({"requested_downloads": [{"filepath": str(path)}]})
+            return {"_type": "playlist", "title": "My: List", "entries": entries}
+
+    module = types.ModuleType("yt_dlp")
+    module.YoutubeDL = FakeYDL
+    module.utils = types.SimpleNamespace(sanitize_filename=lambda t: t.replace(":", "#"))
+    sys.modules["yt_dlp"] = module
+    return seen
+
+
+def test_download_options():
+    print("\n=== (d) download options (mocked yt-dlp, no network) ===")
+    import quarry_sidecar
+
+    audio = quarry_sidecar._media_options("audio")
+    check(audio["format"] == "bestaudio/best" and audio["postprocessors"][0]["preferredcodec"] == "wav",
+          "audio: bestaudio converted to wav")
+    video = quarry_sidecar._media_options("video")
+    check(video["merge_output_format"] == "mp4" and "avc1" in video["format"] and "postprocessors" not in video,
+          "video: H.264 mp4, no audio extraction")
+    both = quarry_sidecar._media_options("both")
+    check(both.get("keepvideo") is True and both["postprocessors"], "both: keepvideo plus a wav extraction")
+    try:
+        quarry_sidecar._media_options("gif")
+        check(False, "unknown media is refused")
+    except engines.EngineError:
+        check(True, "unknown media is refused")
+
+    sidecar = quarry_sidecar.Sidecar()
+    original = sys.modules.get("yt_dlp")
+    try:
+        with tempfile.TemporaryDirectory(prefix="quarry_dl_mock_") as tmp:
+            seen = _install_fake_yt_dlp(["a", None, "c"])
+
+            single = sidecar.download("https://x/y", tmp, media="video", playlist=False)
+            check(single["failed"] == 0 and single["paths"] == [single["path"]] and single["path"].endswith("One.mp4"),
+                  f"single video: one mp4 saved ({single['paths']!r})")
+            check(seen["opts"][-1]["noplaylist"] is True and seen["opts"][-1]["ignoreerrors"] is False,
+                  "playlist off keeps noplaylist and does not ignore errors")
+
+            many = sidecar.download("playlist:https://x/list", tmp, media="audio", playlist=True)
+            check(len(many["paths"]) == 2 and many["failed"] == 1, f"playlist: 2 saved, 1 failed ({many['failed']})")
+            check(all(pathlib.Path(p).parent.name == "My# List" for p in many["paths"]),
+                  "playlist files land in a subfolder named for the playlist")
+            check(pathlib.Path(many["paths"][0]).name.startswith("01 - "), "playlist files carry their index")
+            check(seen["opts"][-1]["noplaylist"] is False and seen["opts"][-1]["ignoreerrors"] is True,
+                  "playlist on downloads the list and ignores per-entry errors")
+
+            # A playlist titled '..' must not walk the download out of the chosen folder.
+            for hostile in ("..", ".", " . ", "CON", "nul.txt"):
+                sub = pathlib.Path(tmp) / "chosen"
+                seen = _install_fake_yt_dlp(["a"], playlist_title=hostile)
+                got = sidecar.download("playlist:https://x/list", str(sub), media="audio", playlist=True)
+                folder = pathlib.Path(got["paths"][0]).resolve().parent
+                check(folder != sub.resolve() and folder.parent == sub.resolve() and folder.name == "playlist",
+                      f"playlist titled {hostile!r} lands in a subfolder of the chosen folder ({folder})")
+
+            seen = _install_fake_yt_dlp([None, None])
+            try:
+                sidecar.download("playlist:https://x/list", tmp, media="audio", playlist=True)
+                check(False, "an all-failed playlist is an error")
+            except engines.EngineError as exc:
+                check("all 2" in str(exc), f"an all-failed playlist is an error ({exc})")
+    finally:
+        if original is None:
+            sys.modules.pop("yt_dlp", None)
+        else:
+            sys.modules["yt_dlp"] = original
+
+
+def _install_scripted_yt_dlp(script):
+    """A yt_dlp stand-in whose real run is script(opts, folder), so a test can write whatever
+    files and return whatever info dict it wants. The probe reports a two-entry playlist."""
+    import types
+
+    class ScriptedYDL:
+        def __init__(self, opts):
+            self.opts = opts
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def extract_info(self, url, download=True):
+            if not download:
+                return {"_type": "playlist", "title": "List", "entries": [{}, {}]}
+            folder = pathlib.Path(self.opts["outtmpl"]).parent
+            folder.mkdir(parents=True, exist_ok=True)
+            return script(self.opts, folder)
+
+    module = types.ModuleType("yt_dlp")
+    module.YoutubeDL = ScriptedYDL
+    module.utils = types.SimpleNamespace(sanitize_filename=lambda t: t)
+    sys.modules["yt_dlp"] = module
+
+
+def test_download_outputs():
+    print("\n=== (e) download outputs (mocked yt-dlp, no network) ===")
+    import quarry_sidecar
+
+    sidecar = quarry_sidecar.Sidecar()
+    original = sys.modules.get("yt_dlp")
+    try:
+        with tempfile.TemporaryDirectory(prefix="quarry_dl_outputs_") as tmp:
+            root = pathlib.Path(tmp)
+
+            # Both mode removes the unmerged streams yt-dlp reports, and only those: files that
+            # merely share the stem's prefix belong to the user.
+            both_dir = root / "both"
+            both_dir.mkdir()
+            siblings = {name: name.encode() for name in ("One.final.wav", "One.family.mp4", "One.favorites.txt")}
+            for name, data in siblings.items():
+                (both_dir / name).write_bytes(data)
+
+            def both_script(opts, folder):
+                for name in ("One.f137.mp4", "One.f140.m4a", "One.mp4", "One.wav"):
+                    (folder / name).write_bytes(b"x")
+                for name in ("One.f137.mp4", "One.f140.m4a"):
+                    for hook in opts["progress_hooks"]:
+                        hook({"status": "finished", "filename": str(folder / name)})
+                for hook in opts["postprocessor_hooks"]:
+                    hook({"postprocessor": "ExtractAudio", "status": "started",
+                          "info_dict": {"filepath": str(folder / "One.mp4")}})
+                return {"title": "One", "duration": 3,
+                        "requested_downloads": [{"filepath": str(folder / "One.wav")}]}
+
+            _install_scripted_yt_dlp(both_script)
+            got = sidecar.download("https://x/y", str(both_dir), media="both")
+            check([pathlib.Path(p).name for p in got["paths"]] == ["One.wav", "One.mp4"],
+                  f"both: the wav and the mp4 are returned ({got['paths']!r})")
+            check(not (both_dir / "One.f137.mp4").exists() and not (both_dir / "One.f140.m4a").exists(),
+                  "both: the unmerged streams yt-dlp reported are removed")
+            check(all((both_dir / n).read_bytes() == d for n, d in siblings.items()),
+                  "both: pre-existing files that share the stem's prefix survive")
+
+            # A source with only a muxed webm is downloaded as is (merge_output_format never
+            # applies), so the webm is the video and must survive next to the wav.
+            webm_dir = root / "webm"
+
+            def webm_script(opts, folder):
+                for name in ("Only WebM.webm", "Only WebM.wav"):
+                    (folder / name).write_bytes(b"x")
+                for hook in opts["progress_hooks"]:
+                    hook({"status": "finished", "filename": str(folder / "Only WebM.webm")})
+                for hook in opts["postprocessor_hooks"]:
+                    hook({"postprocessor": "ExtractAudio", "status": "started",
+                          "info_dict": {"filepath": str(folder / "Only WebM.webm")}})
+                return {"title": "Only WebM", "duration": 3,
+                        "requested_downloads": [{"filepath": str(folder / "Only WebM.wav")}]}
+
+            _install_scripted_yt_dlp(webm_script)
+            got = sidecar.download("https://x/y", str(webm_dir), media="both")
+            check([pathlib.Path(p).name for p in got["paths"]] == ["Only WebM.wav", "Only WebM.webm"]
+                  and (webm_dir / "Only WebM.webm").exists() and (webm_dir / "Only WebM.wav").exists(),
+                  f"both: a muxed webm fallback keeps the wav and the webm ({got['paths']!r})")
+
+            # A conversion failure under ignoreerrors leaves the compressed source behind.
+            def convert_script(opts, folder):
+                (folder / "01 - Bad.webm").write_bytes(b"x")
+                (folder / "02 - Good.wav").write_bytes(b"x")
+                return {"_type": "playlist", "title": "List", "entries": [
+                    {"requested_downloads": [{"filepath": str(folder / "01 - Bad.webm")}]},
+                    {"requested_downloads": [{"filepath": str(folder / "02 - Good.wav")}]}]}
+
+            _install_scripted_yt_dlp(convert_script)
+            got = sidecar.download("playlist:https://x/list", str(root / "convert"), media="audio", playlist=True)
+            check(got["failed"] == 1 and [pathlib.Path(p).name for p in got["paths"]] == ["02 - Good.wav"],
+                  f"a failed conversion counts as failed and the source is not listed ({got['failed']}, {got['paths']!r})")
+
+            def lone_failure(opts, folder):
+                (folder / "One.webm").write_bytes(b"x")
+                return {"title": "One", "requested_downloads": [{"filepath": str(folder / "One.webm")}]}
+
+            _install_scripted_yt_dlp(lone_failure)
+            try:
+                sidecar.download("https://x/y", str(root / "lone"), media="audio")
+                check(False, "an unconverted single download is an error")
+            except engines.EngineError:
+                check(True, "an unconverted single download is an error")
+
+            # A multi_video result keeps its segments under entries, like a playlist.
+            def multi_script(opts, folder):
+                for name in ("Part1.wav", "Part2.wav"):
+                    (folder / name).write_bytes(b"x")
+                return {"_type": "multi_video", "title": "Stream", "entries": [
+                    {"requested_downloads": [{"filepath": str(folder / "Part1.wav")}]},
+                    {"_type": "playlist", "entries": [
+                        {"requested_downloads": [{"filepath": str(folder / "Part2.wav")}]}]}]}
+
+            _install_scripted_yt_dlp(multi_script)
+            got = sidecar.download("https://x/y", str(root / "multi"), media="audio")
+            check(got["failed"] == 0 and [pathlib.Path(p).name for p in got["paths"]] == ["Part1.wav", "Part2.wav"]
+                  and got["title"] == "Stream",
+                  f"multi_video: nested segments are collected ({got['paths']!r})")
+    finally:
+        if original is None:
+            sys.modules.pop("yt_dlp", None)
+        else:
+            sys.modules["yt_dlp"] = original
+
+
 def main():
     test_one_shot()
     test_serve()
     test_download()
+    test_download_options()
+    test_download_outputs()
 
     print("\n=== summary ===")
     if FAILURES:

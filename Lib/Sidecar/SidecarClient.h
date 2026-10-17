@@ -100,10 +100,15 @@ public:
     /**
      * Send one download request and block for its matching response (see PROTOCOL.md's
      * "download request"). Mirrors transcribe()'s request/response handling.
-     * @param inUrl The URL to fetch audio from.
-     * @param inOutDir Folder the sidecar should write the wav into (created if it does not exist).
-     * @param outFile Set to the written wav's path on success.
-     * @param outTitle Set to the source's title, as the sidecar reports it, on success.
+     * @param inUrl The URL to fetch from.
+     * @param inOutDir Folder the sidecar should write into (created if it does not exist).
+     * @param inMedia "audio" (a wav), "video" (an mp4) or "both". Sent only when not "audio", so
+     *  a default request is byte-for-byte the one an older sidecar understands.
+     * @param inPlaylist Whole playlist rather than the one video. Sent only when true.
+     * @param outFiles Set to every file the sidecar saved (the response's "paths", or its single
+     *  "path" from an older sidecar), wav first, on success.
+     * @param outTitle Set to the source's title (the playlist's, for a playlist), on success.
+     * @param outFailed Set to how many playlist entries failed, on success.
      * @param outError Set to the sidecar's own error message on a well-formed failure response,
      *  or to a description of a transport failure (timeout, dead child, ...).
      * @param inTimeoutMs How long to wait for the response line before giving up. Long by default:
@@ -113,8 +118,11 @@ public:
      */
     bool download(const juce::String& inUrl,
                   const juce::File& inOutDir,
-                  juce::File& outFile,
+                  const juce::String& inMedia,
+                  bool inPlaylist,
+                  std::vector<juce::File>& outFiles,
                   juce::String& outTitle,
+                  int& outFailed,
                   juce::String& outError,
                   int inTimeoutMs = 600000);
 
