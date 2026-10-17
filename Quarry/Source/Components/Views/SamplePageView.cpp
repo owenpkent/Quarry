@@ -1489,6 +1489,11 @@ void SamplePageView::_updateEnablements()
 }
 
 //==============================================================================
+bool SamplePageView::isCapturing() const
+{
+    return mRecorder != nullptr && mRecorder->isRecording();
+}
+
 void SamplePageView::_toggleRecording()
 {
     if (mRecorder == nullptr)

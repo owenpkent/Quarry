@@ -15,6 +15,8 @@ file(GLOB_RECURSE HEADERS_TESTS ${CMAKE_CURRENT_LIST_DIR}/../Lib/*.h)
 # of which needs audio, so it is worth testing here despite living in Quarry/Source rather than Lib.
 target_sources(${PROJECT_NAME} PRIVATE Tests.cpp ${SOURCES_TESTS} ${HEADERS_TESTS}
         ${CMAKE_CURRENT_LIST_DIR}/../Quarry/Source/Sampler/SampleLibrary.cpp
+        ${CMAKE_CURRENT_LIST_DIR}/../Quarry/Source/Components/UpdatePolicy.cpp
+        $<$<BOOL:${WIN32}>:${CMAKE_CURRENT_LIST_DIR}/../Quarry/Source/Components/UpdateInstaller.cpp>
         ${CMAKE_CURRENT_LIST_DIR}/../Quarry/Source/MidiFile/MidiFileWriter.cpp)
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_LIST_DIR}/../ThirdParty/ONNXRuntime/${ONNXRUNTIME_DIRNAME}/include)
@@ -46,12 +48,16 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE
 target_link_libraries(${PROJECT_NAME} PRIVATE
         juce::juce_audio_utils
         juce::juce_dsp
+        juce::juce_cryptography
         onnxruntime
         BasicPitchCNN
         bin_data
         PUBLIC
         juce_recommended_config_flags)
 #juce_recommended_warning_flags
+if (WIN32)
+    target_link_libraries(${PROJECT_NAME} PRIVATE Rstrtmgr Version Shell32 Ole32)
+endif ()
 
 # Honour the top level LTO option, as the plugin target does. The prebuilt onnxruntime.lib is
 # compiled with /GL by a specific MSVC version, so with LTO on, linking fails outright (C1047)
