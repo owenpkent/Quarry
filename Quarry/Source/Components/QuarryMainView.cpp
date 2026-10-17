@@ -183,8 +183,13 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
     // and a Sample page capture, which has its own recorder and leaves the processor idle.
     mUpdateCheck->isBusy = [this] {
         const auto state = mProcessor.getState();
-        return state == Recording || state == Processing
-               || (mSamplePage != nullptr && mSamplePage->isCapturing());
+        if (state == Recording || state == Processing)
+            return true;
+#if JUCE_WINDOWS
+        if (mSamplePage != nullptr && mSamplePage->isCapturing())
+            return true;
+#endif
+        return false;
     };
 
     mSettingsButton = std::make_unique<DrawableButton>("SettingsButton", DrawableButton::ButtonStyle::ImageRaw);
