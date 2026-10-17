@@ -207,6 +207,11 @@ the submodules and the prebuilt onnxruntime on a fresh clone. `py run.py --no-bu
 relaunches what is already built. Most work can be tried there: the standalone records from this
 computer's own audio hardware, so no DAW is needed.
 
+If the sidecar environment at `tools/bakeoff/.venv` is installed, the launcher configures it
+automatically. An explicit `QUARRY_SIDECAR_CMD` takes precedence, including an empty value to
+disable the sidecar. Without that environment, Quarry uses the built-in engine; see
+[`docs/SIDECAR.md`](docs/SIDECAR.md) for setup.
+
 `run.py` configures with `-DLTO=OFF`. The prebuilt `onnxruntime.lib` is compiled with `/GL` by a
 specific MSVC version, so with link-time optimisation on, linking fails with `C1047` unless your
 compiler matches the one it was built with. `build.bat` (below) does not pass that flag, so it
