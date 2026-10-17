@@ -75,9 +75,18 @@ void UpdateCheck::timerCallback()
 void UpdateCheck::checkForUpdate(bool inShowNotificationOnLatestVersion)
 {
     // Call async because of issue on Windows with spinning cursor.
-    MessageManager::callAsync([this, inShowNotificationOnLatestVersion] {
-        Thread::launch([this, inShowNotificationOnLatestVersion] {
-            const URL url(String("https://api.github.com/repos/") + mGitHubRepo + "/releases/latest");
+    // The request outlives the editor if it is closed meanwhile, so nothing below may touch this
+    // directly: the thread works from a copy of what it needs and reaches back through a SafePointer.
+    Component::SafePointer<UpdateCheck> safe_this(this);
+
+    MessageManager::callAsync([safe_this, inShowNotificationOnLatestVersion] {
+        if (safe_this == nullptr) {
+            return;
+        }
+        const String repo = safe_this->mGitHubRepo;
+
+        Thread::launch([safe_this, repo, inShowNotificationOnLatestVersion] {
+            const URL url(String("https://api.github.com/repos/") + repo + "/releases/latest");
 
             int status_code = 0;
             const auto stream = url.createInputStream(URL::InputStreamOptions(URL::ParameterHandling::inAddress)
@@ -89,7 +98,19 @@ void UpdateCheck::checkForUpdate(bool inShowNotificationOnLatestVersion)
                 return;
             }
 
-            const auto result = stream->readEntireStreamAsString();
+            // A release description is a few KB; refuse anything absurd rather than buffer it.
+            constexpr int64 kMaxResponseBytes = 1024 * 1024;
+            const auto total_length = stream->getTotalLength();
+            if (total_length > kMaxResponseBytes) {
+                return;
+            }
+
+            MemoryOutputStream body;
+            body.writeFromInputStream(*stream, kMaxResponseBytes + 1);
+            if (body.getDataSize() > static_cast<size_t>(kMaxResponseBytes)) {
+                return;
+            }
+            const auto result = body.toUTF8();
 
             if (result.isEmpty()) {
                 return;
@@ -114,11 +135,15 @@ void UpdateCheck::checkForUpdate(bool inShowNotificationOnLatestVersion)
                 }
 
                 MessageManager::callAsync(
-                    [current_version_str, latest_version, inShowNotificationOnLatestVersion, this] {
+                    [current_version_str, latest_version, inShowNotificationOnLatestVersion, safe_this] {
+                        if (safe_this == nullptr) {
+                            return;
+                        }
+                        auto* self = safe_this.getComponent();
                         if (!current_version_str.equalsIgnoreCase(latest_version)) {
-                            _showNewVersionAvailableNotification();
+                            self->_showNewVersionAvailableNotification();
                         } else if (inShowNotificationOnLatestVersion) {
-                            _showOnLatestVersionNotification();
+                            self->_showOnLatestVersionNotification();
                         }
                     });
             } else {

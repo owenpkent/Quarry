@@ -157,7 +157,11 @@ text leads with the entry, `3/12 downloading... ...`.
 
 Covers: an unrecognized `engine`, an engine whose package is not installed in this interpreter,
 a `wav` path that does not exist, and any exception raised inside the engine adapter itself
-(model failure, corrupt audio, etc.). **The process stays alive after an error** and keeps
+(model failure, corrupt audio, etc.), and an engine whose weights do not match the SHA-256
+pinned in `engines.py`, which fails with `weights for <engine> do not match the pinned hash;
+refusing to load` rather than loading them. Setting `QUARRY_SIDECAR_UNPINNED=1` in the sidecar's
+environment skips that check (and lets the engine libraries fetch their own weights), with a
+warning on stderr each time. **The process stays alive after an error** and keeps
 reading requests; the exception and a short trace-context line are also written to stderr for
 whoever is watching the sidecar's logs.
 

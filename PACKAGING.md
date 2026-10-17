@@ -14,6 +14,9 @@
     - Notarization credentials come from a `notarytool` keychain profile (named `Quarry` by default,
       override with the `NOTARY_PROFILE` environment variable). The first run creates it, prompting for your
       Apple ID and app-specific password; later runs reuse the stored profile and prompt for nothing.
+    - The script signs with the `Developer ID Application` identity in your keychain and adds a secure
+      timestamp, which notarization requires. If the keychain holds more than one such identity it stops
+      rather than pick one for you; name the one you mean with the `SIGNING_ID` environment variable.
     - The installer will be located in `Installers/Mac/build`
 
 # Package Quarry for Windows
@@ -33,5 +36,10 @@ On Windows, Quarry is not code signed for now. To create the installer, the foll
       ```
       `DReleaseDir` should indicate the path to the release directory containing the Standalone and VST3
       directories (there is no AU on Windows).
+
+The installer asks for administrator rights (`PrivilegesRequired=admin`) because it writes to machine-wide
+folders: the standalone app goes to `{commonpf}\Quarry` and the VST3 to `{commoncf}\VST3`. Those are Inno Setup
+constants that resolve to the real Program Files and Common Files folders, so the installer no longer
+assumes Windows lives on `C:`.
 
 The installer will be located in `Installers/Windows/Output`.

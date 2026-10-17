@@ -1,0 +1,11 @@
+# Upstream pin for the vendored minimp3 headers.
+repo=https://github.com/lieff/minimp3
+commit=unknown (vendored without a recorded revision; matches master as of the vendoring)
+
+Local patches, to re-apply after any resync:
+
+minimp3_ex.h, MINIMP3_MAX_DETECTED_SAMPLES (near the error codes) and the check in
+mp3dec_load_cb right after the Xing/Info frame count is turned into detected_samples:
+the count comes from the file, so a hostile one sized the up-front malloc. Anything over
+0x7FFFFFFF samples is now treated as unknown (detected_samples = 0), and the decoder
+grows the buffer by what it actually decodes, as it does for a file with no Xing frame.

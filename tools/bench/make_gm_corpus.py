@@ -59,8 +59,10 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 CACHE_DIR = pathlib.Path(os.environ.get("USERPROFILE", str(pathlib.Path.home()))) / ".okstudio" / "maestro-cache"
 DEFAULT_OUTPUT = REPO_ROOT / "Tests" / "bench_corpus_gm"
 
-# The user's MIDI collection. Strictly read-only: this script only ever opens files under it.
-MIDI_COLLECTION_ROOT = pathlib.Path(r"C:\Users\owenp\Ableton\MIDI")
+# The user's MIDI collection (QUARRY_GM_MIDI_DIR, default ~/Ableton/MIDI). Strictly read-only:
+# this script only ever opens files under it.
+MIDI_COLLECTION_ROOT = pathlib.Path(os.environ.get("QUARRY_GM_MIDI_DIR", "").strip()
+                                    or pathlib.Path.home() / "Ableton" / "MIDI")
 
 # Fixed so the corpus is exactly reproducible: same sample, same 24 picks, same 24 windows, every
 # time, as long as the MIDI collection and the FluidSynth/SoundFont cache are unchanged. One RNG,
@@ -477,7 +479,7 @@ def main():
     arguments = parser.parse_args()
 
     if not MIDI_COLLECTION_ROOT.is_dir():
-        raise SystemExit(f"{MIDI_COLLECTION_ROOT} not found")
+        raise SystemExit(f"{MIDI_COLLECTION_ROOT} not found (set QUARRY_GM_MIDI_DIR to your MIDI folder)")
 
     arguments.output.mkdir(parents=True, exist_ok=True)
 

@@ -36,6 +36,19 @@ else ()
     set(COPY_PLUGIN_AFTER_BUILD FALSE)
 endif ()
 
+# Hardening that costs nothing at runtime to speak of: control flow guard on MSVC, stack protectors
+# on GCC/Clang, and fortified libc calls on optimised Linux builds. Set for every target below.
+if (MSVC)
+    # Not in Debug: /guard:cf is incompatible with /ZI and incremental linking.
+    add_compile_options($<$<NOT:$<CONFIG:Debug>>:/guard:cf>)
+    add_link_options($<$<NOT:$<CONFIG:Debug>>:/guard:cf>)
+else ()
+    add_compile_options(-fstack-protector-strong)
+    if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_compile_options($<$<NOT:$<CONFIG:Debug>>:-D_FORTIFY_SOURCE=2>)
+    endif ()
+endif ()
+
 juce_add_plugin("${BaseTargetName}"
         # VERSION ...                               # Set this if the plugin version is different to the project version
         ICON_BIG "${CMAKE_CURRENT_LIST_DIR}/Quarry/Assets/logo.png"

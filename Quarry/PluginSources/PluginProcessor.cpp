@@ -123,11 +123,13 @@ void QuarryAudioProcessor::clear()
 {
     mTakeInProgress.store(false);
     mAudioInputManager->abortRecording();
+
+    // The audio thread only reads the source audio while the state is populated, so the state has to
+    // leave that value before the buffers are released, not after.
+    mState.store(EmptyAudioAndMidiRegions);
     mPlayer->reset();
     mSourceAudioManager->clear();
     mTranscriptionManager->clear();
-
-    mState.store(EmptyAudioAndMidiRegions);
 }
 
 bool QuarryAudioProcessor::startRecording()
@@ -234,6 +236,43 @@ ValueTree QuarryAudioProcessor::_createDefaultValueTree()
     return default_value_tree;
 }
 
+// Project state comes from a file the host hands us, so a number in it can be anything. Anything
+// that is not a finite number becomes the fallback, and the rest is clamped.
+static var _sanitizedNumber(const var& inValue, double inLo, double inHi, double inFallback)
+{
+    // Restored from XML the value arrives as a string, set live it is a number; var reads either
+    // as a double. Anything else (an object, an array, nothing) is not a number at all.
+    if (!inValue.isInt() && !inValue.isInt64() && !inValue.isDouble() && !inValue.isString()) {
+        return inFallback;
+    }
+    const double v = static_cast<double>(inValue);
+    if (!std::isfinite(v)) {
+        return inFallback;
+    }
+    return std::clamp(v, inLo, inHi);
+}
+
+static var _sanitizedStateValue(const Identifier& inId, const var& inValue, const var& inDefault)
+{
+    if (inId == NnId::TempoId || inId == NnId::ExportTempoId) {
+        return _sanitizedNumber(inValue, 20.0, 999.0, static_cast<double>(inDefault));
+    }
+    if (inId == NnId::TimeSignatureNumeratorId) {
+        return static_cast<int>(std::round(static_cast<double>(_sanitizedNumber(inValue, 1.0, 32.0, static_cast<double>(inDefault)))));
+    }
+    if (inId == NnId::TimeSignatureDenominatorId) {
+        const int denom =
+            static_cast<int>(std::round(static_cast<double>(_sanitizedNumber(inValue, 1.0, 32.0, static_cast<double>(inDefault)))));
+        return isPowerOfTwo(denom) ? denom : static_cast<int>(inDefault);
+    }
+    if (inDefault.isDouble()) {
+        const var v = _sanitizedNumber(inValue, std::numeric_limits<double>::lowest(), std::numeric_limits<double>::max(),
+                                       static_cast<double>(inDefault));
+        return v;
+    }
+    return inValue;
+}
+
 void QuarryAudioProcessor::_updateValueTree(const ValueTree& inNewState)
 {
     jassert(inNewState.getType() == NnId::QuarryStateId);
@@ -244,7 +283,7 @@ void QuarryAudioProcessor::_updateValueTree(const ValueTree& inNewState)
         // If less, missing properties will be left as is.
         for (const auto& [prop_id, default_val]: NnId::OrderedStatePropertiesWithDefault) {
             if (inNewState.hasProperty(prop_id)) {
-                mValueTree.setProperty(prop_id, inNewState.getProperty(prop_id), nullptr);
+                mValueTree.setProperty(prop_id, _sanitizedStateValue(prop_id, inNewState.getProperty(prop_id), default_val), nullptr);
             }
         }
     } else {

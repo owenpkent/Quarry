@@ -278,6 +278,11 @@ Result writeWav(const File& inSource, const File& inDestination)
     std::unique_ptr<AudioFormatReader> reader(format_manager.createReaderFor(inSource));
 
     if (reader != nullptr) {
+        // The header is the file's own claim about itself. Streaming never allocates for it,
+        // but a rate of zero or a billion channels is not something to write back out.
+        if (!AudioUtils::isSaneAudio((int) reader->numChannels, reader->lengthInSamples, reader->sampleRate))
+            return Result::fail("Could not read " + inSource.getFileName());
+
         // Snapped rather than clamped: a wav writer takes 8, 16, 24 or 32 and refuses
         // everything else, so the 20 bits a flac can report would write nothing at all.
         const int bit_depth = (reader->usesFloatingPointData || reader->bitsPerSample > 16) ? 24 : 16;

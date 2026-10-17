@@ -11,6 +11,8 @@
 
 #if JUCE_WINDOWS
 
+#include <okstudio/CaptureMath.h>
+
 #include <cstring>
 #include <limits>
 
@@ -32,6 +34,7 @@ void SampleRecorder::reset()
     capturedChannels = 0;
     capturedRate = 0.0;
     totalFrames.store(0);
+    limitHit.store(false);
     peakSinceRead[0].store(0.0f);
     peakSinceRead[1].store(0.0f);
     sourceImage = juce::Image();
@@ -162,6 +165,28 @@ void SampleRecorder::discard()
 void SampleRecorder::loopbackBlock(const float* const* channels, int numChannels, int numSamples)
 {
     if (! recording.load() || channels == nullptr || numChannels <= 0 || numSamples <= 0)
+        return;
+
+    // Memory is the only thing a take is held in, and nothing else bounds how long one runs.
+    // Past the cap the audio is dropped and the failure is raised, which is the path the page
+    // already watches to end a take and keep what was captured. The same Limits the kit uses
+    // for files decides when, so the wording matches what a time limit says elsewhere.
+    if (capturedRate > 0.0 && ! limitHit.load())
+    {
+        okstudio::capture::Limits limits;
+        limits.maxSeconds = maxTakeSeconds;
+
+        if (okstudio::capture::limitReached(limits, 0, (double) totalFrames.load() / capturedRate, -1)
+            == okstudio::capture::StopReason::durationLimit)
+        {
+            limitHit.store(true);
+
+            const juce::ScopedLock lock(failureLock);
+            failure = okstudio::capture::describe(okstudio::capture::StopReason::durationLimit);
+        }
+    }
+
+    if (limitHit.load())
         return;
 
     // Taken from the callback rather than from the stream, so the first block is never

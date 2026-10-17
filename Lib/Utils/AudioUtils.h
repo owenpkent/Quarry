@@ -18,8 +18,23 @@
 namespace AudioUtils
 {
 
+/** Most channels a file may have to be accepted. */
+constexpr int kMaxChannels = 64;
+/** Sample rate range a file may have to be accepted. */
+constexpr double kMinSampleRate = 1000.0;
+constexpr double kMaxSampleRate = 768000.0;
+
+/**
+ * Whether the numbers a file's header claims are fit to allocate a buffer from.
+ * Rejects zero or absurd channel counts and sample rates, and any length for which
+ * channels * samples would not fit in an int, since the header is untrusted input.
+ */
+bool isSaneAudio(int numChannels, juce::int64 numSamples, double sampleRate);
+
 /**
  * Load an audio file. wav, aiff, flac, ogg vorbis and mp3 files are supported.
+ * A file whose header claims something isSaneAudio rejects (no channels, no samples, a rate or length
+ * that cannot be allocated), or which decodes to nothing, fails the load instead of crashing.
  * @param inFile Audio file to load.
  * @param outBuffer Buffer where to load audio data. Will be resized to correct number of channels and samples.
  * @param outSampleRate Will be set to audio file sample rate.

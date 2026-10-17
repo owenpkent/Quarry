@@ -7,6 +7,45 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+
+- fix: a file named `.mp3` with nothing decodable in it crashed the host. minimp3 reports such a
+  file, and one that switches between mono and stereo part way through, as zero channels, and
+  the loader divided by that. Any file dropped on the plugin could do it, and so could a saved
+  project pointing at one, every time it opened. The loader now turns away a decode with no
+  channels, no samples or no rate, frees the decoder's buffer on every failure instead of leaking
+  it, and the vendored minimp3 (now pinned in `ThirdParty/minimp3/UPSTREAM.txt`) no longer sizes
+  its first allocation from a frame count the file itself supplies.
+- fix: an audio file's header is its own claim about itself, and a 50 byte wav can claim four
+  gigabytes. Every loader (`AudioUtils::loadAudioFile`, the capture wav writer, the resampler)
+  now checks channels, sample rate and length against what fits, and for wav and aiff against
+  the size of the file, before allocating, and a failed allocation is a failed load rather than
+  a crash.
+- fix: a project file is input from wherever the project came from. Restored tempo, meter, zoom
+  and playhead values are clamped to their legal ranges (a zero tempo spun the piano roll
+  forever), a source path is only reopened when it is absolute, local and present (a `\server`
+  path would have made the plugin authenticate to it on load), and sample, capture and download
+  folders fall back to the default unless they are absolute.
+- fix: the sidecar's engines no longer let their libraries fetch weights on their own. Each
+  checkpoint is verified against a SHA-256 pinned in `engines.py` before it is handed over, the
+  HuggingFace files are fetched at a pinned commit, and the unverified paths (Zenodo via `wget`,
+  `torch.load` of a pickle) are unreachable unless `QUARRY_SIDECAR_UNPINNED=1`. The sidecar venv
+  has a pinned `tools/sidecar/requirements.txt`. See `docs/SIDECAR.md`.
+- fix: a playlist titled `..` downloaded into the parent of the folder the user chose; the folder
+  name is now checked after yt-dlp's own sanitiser and must sit under the chosen folder.
+- fix: `build.sh` and `build.bat` verify the onnxruntime tarball's SHA-256 like `run.py` already
+  did, `run.py` re-hashes a cached archive and extracts with the `data` filter, and
+  `--ssl-no-revoke` is gone. The Linux path, which fetched a release that does not exist, says so.
+- fix: the update check could run on after its editor was closed and then write to it; it holds a
+  SafePointer now and caps the response it will read. The sidecar client caps the line it will
+  buffer from the child and drops note or pedal events with non-finite or out-of-range numbers
+  rather than casting them. A re-exported MIDI file is truncated before it is rewritten. The
+  sidecar command line is logged as its executable only. A take held in memory stops at two hours.
+- build: `/guard:cf` on MSVC release builds, `-fstack-protector-strong` elsewhere and
+  `_FORTIFY_SOURCE` on Linux; CI actions pinned to commit SHAs with `persist-credentials` off;
+  macOS signing gets `--timestamp` and refuses to guess between several identities; the Windows
+  installer declares admin and uses the `{commonpf}`/`{commoncf}` constants instead of `C:`.
+
 ### Changed
 
 - fix: eight findings from the review of the link download. The "both" mode cleanup deleted any
