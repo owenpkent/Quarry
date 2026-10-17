@@ -74,6 +74,24 @@ inline bool download_ledger_test()
         check(ledger.find(b, out) && out.message == "B", "B survives later downloads");
     }
 
+    // A watcher of every download (not one id) sees each publication once, in order.
+    {
+        quarry::DownloadLedger ledger;
+
+        check(ledger.since(0).empty(), "nothing to see before a download finishes");
+
+        ledger.publish(resultFor(ledger.allocateId(), "drawer"));
+        auto seen = ledger.since(0);
+        check(seen.size() == 1 && seen[0].message == "drawer", "a download nobody on the page asked for is seen");
+
+        const auto mark = ledger.seq();
+        check(ledger.since(mark).empty(), "a seen download is not reported again");
+
+        ledger.publish(resultFor(ledger.allocateId(), "next"));
+        seen = ledger.since(mark);
+        check(seen.size() == 1 && seen[0].message == "next", "only the newer download is reported");
+    }
+
     // Old entries fall off the back rather than growing for the life of the plugin.
     {
         quarry::DownloadLedger ledger;

@@ -7,6 +7,10 @@
 [Setup]
 AppName=Quarry
 PrivilegesRequired=admin
+; Quarry is x64 only. Without 64-bit install mode {commonpf} and {commoncf} resolve to the
+; (x86) folders, and a 64-bit host does not scan Common Files (x86)\VST3.
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
 AppVersion={#AppVersion}
 OutputBaseFilename=QuarrySetup-{#AppVersion}
 DefaultDirName={commonpf}\Quarry
