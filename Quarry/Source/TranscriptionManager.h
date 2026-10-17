@@ -186,6 +186,15 @@ public:
         return mDownloadLedger.find(inRequestId, outResult);
     }
 
+    /** Number of downloads published so far; pairs with getDownloadsSince. Any thread. */
+    std::uint32_t getDownloadSeq() const { return mDownloadLedger.seq(); }
+
+    /** Every kept result published after inSeq, whoever asked for it. Any thread. */
+    std::vector<DownloadResult> getDownloadsSince(std::uint32_t inSeq) const
+    {
+        return mDownloadLedger.since(inSeq);
+    }
+
     /** The id of the download blocked in the client right now, or 0. A cancel reaches whichever
      *  job is running, so a requester checks this is its own before offering one. */
     std::uint32_t getRunningDownloadId() const { return mRunningDownloadId.load(); }

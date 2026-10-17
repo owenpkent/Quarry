@@ -221,6 +221,9 @@ private:
     /** The request this page submitted and is waiting on; 0 when it is not waiting. */
     std::uint32_t mLinkRequestId = 0;
 
+    /** The last download publication this page has looked at, whoever requested it. */
+    std::uint32_t mSeenDownloadSeq = 0;
+
     /** A partial-download warning ("Downloaded 1 file(s), 1 failed.") that survives the automatic
         selection of the new capture. It clears when the next download starts, the link box is
         clicked or a row is picked. */
@@ -243,6 +246,7 @@ private:
     void _submitLink(const String& inText);
     void _setLinkState(LinkState inState, const String& inText);
     void _pollLink();
+    void _rescanForOtherDownloads();
     std::unique_ptr<TextButton> mTranscribeButton;
     std::unique_ptr<TextButton> mRevealButton;
     std::unique_ptr<TextButton> mDeleteButton;

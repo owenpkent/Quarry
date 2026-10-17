@@ -344,6 +344,10 @@ SamplePageView::SamplePageView(QuarryAudioProcessor& inProcessor)
     _refreshSources();
     _rescanLibrary();
 
+    // This scan covers everything downloaded so far; only later ones need another.
+    if (auto* manager = mProcessor.getTranscriptionManager())
+        mSeenDownloadSeq = manager->getDownloadSeq();
+
     // Last, because it lays the page out for whichever way it was left.
     _setCapturesVisible((bool) mProcessor.getValueTree()
                             .getProperty(NnId::CaptureBrowserVisibleId, true));
@@ -858,8 +862,37 @@ void SamplePageView::_chooseDownloadFolder()
                               });
 }
 
+void SamplePageView::_rescanForOtherDownloads()
+{
+    auto* manager = mProcessor.getTranscriptionManager();
+
+    if (manager == nullptr || manager->getDownloadSeq() == mSeenDownloadSeq)
+        return;
+
+    const auto root = _libraryRoot();
+    auto rescan = false;
+
+    for (const auto& result : manager->getDownloadsSince(mSeenDownloadSeq))
+    {
+        mSeenDownloadSeq = jmax(mSeenDownloadSeq, result.seq);
+
+        // This page's own request is _finishLink's, which rescans and selects the new capture.
+        if (! result.ok || result.requestId == mLinkRequestId)
+            continue;
+
+        // The activity drawer and a paste save into folders of their own choosing.
+        for (const auto& file : result.files)
+            rescan = rescan || file.isAChildOf(root);
+    }
+
+    if (rescan)
+        _rescanLibrary();
+}
+
 void SamplePageView::_pollLink()
 {
+    _rescanForOtherDownloads();
+
     if (mLinkState != LinkState::busy)
         return;
 

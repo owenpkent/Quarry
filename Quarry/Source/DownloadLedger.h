@@ -89,6 +89,24 @@ public:
         return false;
     }
 
+    /**
+     * Every kept result published after inSeq, oldest first. A watcher that cares about all
+     * downloads, not one id (the Sample page refreshing its capture list for a download the
+     * activity drawer started), remembers the last seq it saw and asks for the rest.
+     */
+    std::vector<DownloadResult> since(std::uint32_t inSeq) const
+    {
+        std::vector<DownloadResult> found;
+        const juce::ScopedLock lock(mLock);
+
+        for (const auto& result : mRecent) {
+            if (result.seq > inSeq)
+                found.push_back(result);
+        }
+
+        return found;
+    }
+
     std::uint32_t seq() const { return mSeq.load(); }
 
     static constexpr size_t kKept = 32;
