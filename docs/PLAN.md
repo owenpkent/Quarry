@@ -308,7 +308,8 @@ deliberate gap injected into the writer is zero-padded to real time, not closed 
   every launch, which is the wrong update story for a sold product. *(It pointed at
   `DamRsn/NeuralNote/releases/latest`, sending customers to the free upstream. That is fixed
   in the fork, which now polls `owenpkent/NeuralNoteVideo`, but the reason to drop it here
-  stands.)*
+  stands.)* *(Later reversed: the check was kept, pointed at `owenpkent/Quarry`, and the Windows
+  Standalone now installs updates itself. See `docs/AUTO_UPDATE.md`.)*
 
 **Done when:** `py run.py` builds and launches an empty-shell Quarry standalone titled
 "Quarry", and `Tests/` links `okstudio_kit` and runs green.

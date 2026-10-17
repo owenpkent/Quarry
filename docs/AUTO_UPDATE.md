@@ -126,9 +126,17 @@ user's application data folder, shared by the Standalone and plugin instances.
 
 ## Not verified here
 
-There are no releases yet, so the download, redirect handling and a real installer launch have
-not been exercised against GitHub. The policy functions are covered by the unit tests; the
-Windows I/O compiles and the app starts, nothing more.
+There are no Quarry releases yet. What has been checked:
+
+- The policy functions, by the unit tests (`Tests/update_policy_test.h`).
+- The redirect handling and download, against a real asset on another public GitHub release
+  (`Tests/update_network_test.h`, run with `QUARRY_NET_TESTS=1`): github.com redirects to
+  release-assets.githubusercontent.com, the signed query string survives, and the file arrives.
+- The installer compiles with the silent-update code.
+
+Not yet exercised: the installer's `/WAITPID` wait, its plugin-lock check and relaunch, the
+Restart Manager check against a real host, and a whole update from one release to the next. The
+manual checks are in the Windows release checklist in `PACKAGING.md`.
 
 ## Follow-ups
 
