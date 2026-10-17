@@ -93,6 +93,11 @@ void ActivityDrawer::open()
     mPrompt->grabKeyboardFocus();
 }
 
+void ActivityDrawer::setPromptText(const String& inText)
+{
+    mPrompt->setText(inText, false);
+}
+
 void ActivityDrawer::close()
 {
     setVisible(false);

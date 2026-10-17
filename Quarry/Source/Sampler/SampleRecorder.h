@@ -134,6 +134,10 @@ private:
     int capturedChannels = 0;
     double capturedRate = 0.0;
 
+    /** Longest take held in memory: two hours, which at 48 kHz stereo float is about 2.8 GB. */
+    static constexpr double maxTakeSeconds = 2.0 * 60.0 * 60.0;
+
+    std::atomic<bool> limitHit { false };
     std::atomic<bool> recording { false };
     std::atomic<juce::int64> totalFrames { 0 };
     std::atomic<float> peakSinceRead[2] { { 0.0f }, { 0.0f } };

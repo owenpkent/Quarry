@@ -1,0 +1,45 @@
+# Exact versions of the sidecar venv (tools/bakeoff/.venv, Python 3.12), taken from pip freeze.
+#
+# torch must come from the CUDA index, so install it first (and force it if a CPU build is
+# already present, see docs/SIDECAR.md):
+#   python -m pip install --no-deps "torch==2.11.0+cu128" --index-url https://download.pytorch.org/whl/cu128
+# then everything else from PyPI:
+#   python -m pip install -r tools/sidecar/requirements.txt
+# demucs is meant to be installed without its own dependency resolution (its loose torch pin
+# could downgrade the CUDA build); this file lists its real dependencies explicitly, so
+# --no-deps is safe for the whole file if wanted.
+
+# audio / numerics
+numpy==2.5.2
+scipy==1.18.0
+mir_eval==0.8.2
+pretty_midi==0.2.11.post0
+audioread==3.1.0
+librosa==0.9.2
+resampy==0.4.3
+soundfile==0.14.0
+torchlibrosa==0.1.0
+
+# torch (CUDA 128 build, see above)
+torch==2.11.0+cu128
+torchaudio==2.11.0
+
+# engines
+piano-transcription-inference==0.0.6
+transkun==2.0.1
+moduleconf==0.1.4
+muscriptor==0.3.0
+demucs==4.1.0
+julius==0.2.8
+lameenc==1.8.4
+sphn==0.2.1
+
+# weight loading
+safetensors==0.8.0
+huggingface_hub==1.28.0
+PyYAML==6.0.3
+einops==0.8.2
+rotary-embedding-torch==0.9.1
+
+# download request
+yt-dlp==2026.8.19

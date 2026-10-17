@@ -8,6 +8,7 @@
 #include <JuceHeader.h>
 
 #include "PluginProcessor.h"
+#include "TranscriptionManager.h"
 #include "Sampler/SampleLibrary.h"
 #include "UIDefines.h"
 #include "QuarryLookAndFeel.h"
@@ -52,6 +53,8 @@ public:
 
     void timerCallback() override;
 
+    void mouseDown(const MouseEvent& event) override;
+
     //==========================================================================
     int getNumRows() override;
 
@@ -64,6 +67,16 @@ public:
         both of them decides what following means. */
     std::function<void()> onTranscribeRequested;
 
+    /** Puts a link in the box and focuses it, without starting anything. */
+    void prefillLink(const String& inUrl);
+
+    /** Called with a cleaned URL when the "paste a link" field submits one. The page does not
+        know how a download starts; the view that owns the processor and both pages does, and
+        it is the same entry point the activity drawer, Ctrl+V and a link drop use. Returns the
+        id of the request it queued (0 if it queued nothing), which is how this page tells its
+        own completion from the other surfaces'. */
+    std::function<std::uint32_t(const String&, bool)> onDownloadRequested;
+
     /** Called when the page starts or stops wanting a narrow window, so whoever owns the
         window can resize it. */
     std::function<void()> onPreferredWidthChanged;
@@ -75,6 +88,10 @@ public:
     /** How wide and how tall the page needs to be in that state. */
     int narrowContentWidth() const;
     int narrowContentHeight() const;
+
+    /** True while a process or Everything capture is running. Destroying the page discards it.
+        unsaved, so anything that quits the app asks this first. */
+    bool isCapturing() const;
 
 private:
     /** The library list is a second ListBox on the same page, and ListBoxModel cannot be
@@ -184,6 +201,56 @@ private:
     std::unique_ptr<LibraryModel> mLibraryModel;
     std::unique_ptr<ListBox> mLibraryList;
     std::unique_ptr<TextEditor> mSearchBox;
+
+    /** "paste a link to download". Also the download's status line, because the activity
+        drawer cannot open on this page: busy it is read-only and shows the stage, failed it
+        shows the error until it is clicked again. */
+    std::unique_ptr<TextEditor> mLinkBox;
+
+    /** Submits the link box through the same path as Enter. Reads CANCEL while this page's own
+        request is running, and is enabled then only if that request is the one in the client. */
+    std::unique_ptr<TextButton> mDownloadButton;
+
+    /** idle: waiting for a link. busy: a download is running. failed: the error, in red.
+        notice: a plain message (where the files went). Both of the last two clear when the
+        field is clicked; a partial-playlist warning is also held in mDownloadNote. */
+    enum class LinkState { idle, busy, failed, notice };
+
+    /** The second row: where downloads go, in what form, and whether to take a whole playlist. */
+    std::unique_ptr<Label> mDownloadPathLabel;
+    std::unique_ptr<TextButton> mDownloadChangeButton;
+    std::unique_ptr<TextButton> mMediaButtons[3];
+    std::unique_ptr<ToggleButton> mPlaylistToggle;
+
+    /** The request this page submitted and is waiting on; 0 when it is not waiting. */
+    std::uint32_t mLinkRequestId = 0;
+
+    /** The last download publication this page has looked at, whoever requested it. */
+    std::uint32_t mSeenDownloadSeq = 0;
+
+    /** A partial-download warning ("Downloaded 1 file(s), 1 failed.") that survives the automatic
+        selection of the new capture. It clears when the next download starts, the link box is
+        clicked or a row is picked. */
+    quarry::DownloadNote mDownloadNote;
+
+    /** A file to select once the next library scan has found it. */
+    File mPendingSelect;
+    std::atomic<bool> mRescanAgain { false };
+
+    void _chooseDownloadFolder();
+    void _refreshDownloadPath();
+    void _setMedia(const String& inMedia);
+    void _finishLink(const TranscriptionManager::DownloadResult& inResult);
+
+    /** Browses to a capture and selects it. False if the library does not hold it (yet). */
+    bool _selectFile(const File& inAudio);
+
+    LinkState mLinkState = LinkState::idle;
+
+    void _submitLink(const String& inText);
+    void _setLinkState(LinkState inState, const String& inText);
+    void _pollLink();
+    void _rescanForOtherDownloads();
     std::unique_ptr<TextButton> mTranscribeButton;
     std::unique_ptr<TextButton> mRevealButton;
     std::unique_ptr<TextButton> mDeleteButton;

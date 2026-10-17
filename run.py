@@ -150,7 +150,7 @@ def _cmake_candidates():
 
     The one on PATH is *not* best. This machine installs cmake through pip, and pip's
     entry point is a small unsigned launcher at Scripts\\cmake.exe that re-execs the real
-    binary. Smart App Control (enforced here) blocks unsigned executables it does not
+    binary. Smart App Control, when it is on, blocks unsigned executables it does not
     recognise, so CreateProcess on the launcher fails outright - while the signed binary
     it wraps, in site-packages/cmake/data/bin, starts perfectly. Prefer anything signed
     and leave the launcher as the last resort.
@@ -308,6 +308,16 @@ def ensure_onnxruntime() -> bool:
 
     archive, cached = onnxruntime_archive()
 
+    # A cached or leftover archive gets the same check a fresh download does, so a swapped or
+    # truncated file in the cache directory is never unpacked. A bad one is dropped and fetched again.
+    if os.path.exists(archive):
+        have = file_sha256(archive)
+        if have != ONNX_SHA256:
+            print(f"{YELLOW}Discarding {archive}: it is not the expected onnxruntime archive.{RESET}")
+            print(f"{YELLOW}  expected sha256 {ONNX_SHA256}{RESET}")
+            print(f"{YELLOW}  got             {have}{RESET}")
+            os.remove(archive)
+
     if os.path.exists(archive):
         print(f"{GREY}Unpacking onnxruntime {ONNX_VERSION} from {archive}...{RESET}")
     else:
@@ -344,7 +354,12 @@ def ensure_onnxruntime() -> bool:
         shutil.rmtree(target, ignore_errors=True)
 
         with tarfile.open(archive) as tar:
-            tar.extractall(os.path.join(ROOT, "ThirdParty"))
+            # The "data" filter refuses absolute paths, ../ escapes and links that leave the
+            # destination. Older Pythons lack it, and run.py states no minimum, so ask first.
+            if hasattr(tarfile, "data_filter"):
+                tar.extractall(os.path.join(ROOT, "ThirdParty"), filter="data")
+            else:
+                tar.extractall(os.path.join(ROOT, "ThirdParty"))
 
         os.rename(extracted, target)
 
@@ -627,8 +642,8 @@ def main() -> int:
 
     env = launch_environment()
 
-    # Smart App Control is enforced on this machine and dev builds are unsigned, so it
-    # blocks the first launch of a freshly linked exe while its reputation check runs,
+    # Smart App Control was enforced on this machine until it was found off on 2026-10-13.
+    # Dev builds are unsigned, so while it is on it blocks the first launch of a freshly linked exe while its reputation check runs,
     # then lets the same file through once that finishes. Absorb the transient here, and
     # say what is happening so the pause is legible rather than a hang.
     launch_timeout = 240.0

@@ -1,8 +1,9 @@
 # What a pull request has to survive: the thing compiles, and the arithmetic still holds.
 #
-# Windows only, because that is what the project can currently build: run.py fetches
-# onnxruntime-<version>-windows-x86_64 by name, and there is no macOS or Linux path for it yet.
-# A matrix here would fail on the fetch, not on anything a reviewer could act on.
+# Two jobs. "build" is the only one that can build the product: it runs on Windows because
+# run.py fetches onnxruntime-<version>-windows-x86_64 by name. "compile-linux" only compiles the
+# shared code, since no Linux onnxruntime prebuilt exists. A matrix would fail on the fetch, not
+# on anything a reviewer could act on.
 name: CI
 
 on:
@@ -43,12 +44,13 @@ jobs:
     steps:
       # fetch-depth 1 makes the submodules shallow too. JUCE's history is far larger than
       # its working tree and no step here reads it.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           submodules: recursive
           fetch-depth: 1
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
 
@@ -71,7 +73,7 @@ jobs:
       # download is the expensive step and it succeeds long before a build breaks, so the
       # one-piece version re-fetched 2.8 GB on every push to a red branch, which is exactly
       # when the runs are most frequent.
-      - uses: actions/cache/restore@v6
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: onnx-cache
         with:
           path: ${{ env.OKSTUDIO_ONNXRUNTIME_CACHE }}
@@ -85,7 +87,7 @@ jobs:
 
       # Immediately after the fetch and before anything that can fail, so a broken build
       # still leaves the tarball cached for the push that fixes it.
-      - uses: actions/cache/save@v6
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: steps.onnx-cache.outputs.cache-hit != 'true'
         with:
           path: ${{ env.OKSTUDIO_ONNXRUNTIME_CACHE }}
@@ -110,3 +112,49 @@ jobs:
       # breakage shows up. Nothing but a full build finds it.
       - name: Build standalone
         run: cmake --build build --config Release --target Quarry_Standalone -- -m
+
+  # The shared code has to compile on macOS and Linux as well, and until now nothing checked
+  # it: with Windows the only runner, a reference to a Windows-only member (the Sample page)
+  # built clean here and broke every other platform. No Linux onnxruntime prebuilt exists, so
+  # this compiles the shared code and links nothing; the headers and the model it needs are
+  # platform-neutral and come from the small macOS archive, hash-checked the same way build.sh
+  # checks it. A compile is enough for what this guards against, which is the next #if.
+  compile-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: recursive
+          fetch-depth: 1
+
+      # JUCE's own list (ThirdParty/JUCE/docs/Linux Dependencies.md), less webkit: the
+      # plugin sets JUCE_WEB_BROWSER=0. curl stays because juceaide, which JUCE builds for
+      # itself before anything else, does not inherit the plugin's JUCE_USE_CURL=0.
+      - name: Install JUCE's Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build             libasound2-dev libjack-jackd2-dev ladspa-sdk libcurl4-openssl-dev             libfontconfig1-dev libfreetype-dev libx11-dev libxcomposite-dev libxcursor-dev             libxext-dev libxinerama-dev libxrandr-dev libxrender-dev             libglu1-mesa-dev mesa-common-dev
+
+      # The sha256 is the macOS one in build.sh; keep the two in step.
+      - name: Fetch the onnxruntime headers and the model
+        run: |
+          set -euo pipefail
+          version=v1.14.1-neuralnote.2
+          dir="onnxruntime-$version-macOS-universal"
+          archive="$dir.tar.gz"
+          curl -fsSLO "https://github.com/tiborvass/libonnxruntime-neuralnote/releases/download/$version/$archive"
+          echo "7e943da96b195713eea605f983f8ba0b312a9a39077468593665fa33ac27f915  $archive" | sha256sum -c -
+          tar -xzf "$archive" -C ThirdParty
+          mv "ThirdParty/$dir" ThirdParty/onnxruntime
+          mv ThirdParty/onnxruntime/model.with_runtime_opt.ort Lib/ModelData/features_model.ort
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DLTO=OFF
+
+      # The plugin's shared-code library: every source under Lib/ and Quarry/, nothing that
+      # needs the missing onnxruntime library to link.
+      - name: Compile the shared code
+        run: cmake --build build --target Quarry

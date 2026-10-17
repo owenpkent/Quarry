@@ -32,7 +32,7 @@ under `~/.okstudio/`, one folder per dataset, outside every build tree.
 | `Tests/bench_corpus_maestro_real` | the same 22 windows, real recordings | MAESTRO v3 audio (the 101 GB zip; extracted selectively) | `make_real_audio_corpus.py` (verifies its ground truth byte-identical to the rendered twin) |
 | `Tests/bench_corpus_smd` | real Disklavier recordings, different piano and room | SMD via Zenodo | `make_smd_corpus.py` (alignment spot-checked, within 10 ms) |
 | `Tests/bench_corpus_slakh` | multi-instrument mixes, per-stem ground truth | BabySlakh (CC BY, 16 kHz mono; per-stem audio kept in cache for separation work) | `make_slakh_corpus.py` |
-| `Tests/bench_corpus_gm` | the local GM MIDI collection, stratified piano_solo / few_inst / full_mix, drums rendered but excluded from ground truth | `C:\Users\owenp\Ableton\MIDI` + FluidR3 GM | `make_gm_corpus.py` |
+| `Tests/bench_corpus_gm` | the local GM MIDI collection, stratified piano_solo / few_inst / full_mix, drums rendered but excluded from ground truth | `%USERPROFILE%\Ableton\MIDI` (or `QUARRY_GM_MIDI_DIR`) + FluidR3 GM | `make_gm_corpus.py` |
 
 The twin pair matters most: rendered and real MAESTRO share windows and ground truth exactly,
 which is what isolated the rendering bias (`ANALYSIS.md` §4.0: the CPU tier scores better on
@@ -99,7 +99,9 @@ found is recorded in `ANALYSIS.md` §4.2.
 `tools/keybench/`: `fetch_giantsteps.py` pulls the GiantSteps Key dataset (604 key-labelled
 Beatport excerpts; the working audio mirror is `www.cp.jku.at/datasets/giantsteps/backup/`,
 MD5-verified against the dataset's own hashes; `giantsteps_labels.tsv` is committed so the
-harness works if upstream vanishes). `make_giantsteps_corpus.py` lays the cached mp3s out as
+harness works if upstream vanishes; the label repo is fetched at the commit pinned as
+`GIANTSTEPS_COMMIT` in the script rather than the default branch, and each download is written to a `.part`
+file and renamed only once it verifies). `make_giantsteps_corpus.py` lays the cached mp3s out as
 `Tests/bench_corpus_giantsteps` with a one-note stub `.mid` beside each, purely to satisfy the
 bench's pairing check: the dataset has no note-level ground truth, so every note-score column
 the bench prints for this corpus is junk by construction and only the `--dump-notes` output

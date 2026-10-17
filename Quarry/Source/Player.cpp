@@ -35,10 +35,17 @@ void Player::prepareToPlay(double inSampleRate, int inSamplesPerBlock)
     mSynthController->setSampleRate(inSampleRate);
     mSampleRate = inSampleRate;
     mInternalBuffer.setSize(2, inSamplesPerBlock);
+    mMaxBlockSize = inSamplesPerBlock;
 }
 
 void Player::processBlock(AudioBuffer<float>& inAudioBuffer, MidiBuffer& outMidiBuffer)
 {
+    // The scratch buffers were sized in prepareToPlay. A host that hands over a longer block
+    // than it promised would write past them, so the extra is left untouched (silent) rather
+    // than rendered.
+    jassert(inAudioBuffer.getNumSamples() <= mMaxBlockSize);
+    const int num_block_samples = std::min(inAudioBuffer.getNumSamples(), mMaxBlockSize);
+
     auto old_audio_gain = mGainSourceAudio;
     auto old_synth_gain = mGainSynth;
 
@@ -56,10 +63,10 @@ void Player::processBlock(AudioBuffer<float>& inAudioBuffer, MidiBuffer& outMidi
     jassert(num_out_channels > 0 && num_out_channels <= 2);
 
     if (is_playing) {
-        auto& midi_buffer = mSynthController->generateNextMidiBuffer(inAudioBuffer.getNumSamples());
+        auto& midi_buffer = mSynthController->generateNextMidiBuffer(num_block_samples);
 
         if (mShouldOutputMidi) {
-            outMidiBuffer.addEvents(midi_buffer, 0, inAudioBuffer.getNumSamples(), 0);
+            outMidiBuffer.addEvents(midi_buffer, 0, num_block_samples, 0);
 
             // Iterate over midi events and update active notes for midi out
             for (const auto& metadata: midi_buffer) {
@@ -82,7 +89,7 @@ void Player::processBlock(AudioBuffer<float>& inAudioBuffer, MidiBuffer& outMidi
             mWasOutputtingMidi = false;
         }
 
-        mSynth->renderNextBlock(mInternalBuffer, midi_buffer, 0, inAudioBuffer.getNumSamples());
+        mSynth->renderNextBlock(mInternalBuffer, midi_buffer, 0, num_block_samples);
         mWasPlaying = true;
 
     } else {
@@ -92,18 +99,18 @@ void Player::processBlock(AudioBuffer<float>& inAudioBuffer, MidiBuffer& outMidi
 
         mWasPlaying = false;
 
-        mSynth->renderNextBlock(mInternalBuffer, {}, 0, inAudioBuffer.getNumSamples());
+        mSynth->renderNextBlock(mInternalBuffer, {}, 0, num_block_samples);
     }
 
-    mInternalBuffer.applyGainRamp(0, 0, inAudioBuffer.getNumSamples(), old_synth_gain, mGainSynth);
+    mInternalBuffer.applyGainRamp(0, 0, num_block_samples, old_synth_gain, mGainSynth);
 
     for (int ch = 1; ch < num_out_channels; ch++) {
-        mInternalBuffer.copyFrom(ch, 0, mInternalBuffer, 0, 0, inAudioBuffer.getNumSamples());
+        mInternalBuffer.copyFrom(ch, 0, mInternalBuffer, 0, 0, num_block_samples);
     }
 
     if (is_playing && mProcessor->getState() == PopulatedAudioAndMidiRegions) {
         const auto& source_buffer = mProcessor->getSourceAudioManager()->getSourceAudioForPlayback();
-        int num_samples = std::min(inAudioBuffer.getNumSamples(), source_buffer.getNumSamples() - playhead_index);
+        int num_samples = std::min(num_block_samples, source_buffer.getNumSamples() - playhead_index);
 
         int num_source_channel = source_buffer.getNumChannels();
 
@@ -127,7 +134,7 @@ void Player::processBlock(AudioBuffer<float>& inAudioBuffer, MidiBuffer& outMidi
     }
 
     for (int ch = 0; ch < num_out_channels; ch++) {
-        inAudioBuffer.addFrom(ch, 0, mInternalBuffer, ch, 0, inAudioBuffer.getNumSamples());
+        inAudioBuffer.addFrom(ch, 0, mInternalBuffer, ch, 0, num_block_samples);
     }
 }
 

@@ -342,6 +342,9 @@ void SourceAudioManager::clear()
 
     _deleteFilesToDelete();
 
+    // Otherwise restoring the take that was just cleared matches the stale path and loads nothing.
+    mSourceFile = File();
+
     mProcessor->getValueTree().setPropertyExcludingListener(this, NnId::SourceAudioNativeSrPathId, String(), nullptr);
 
     mDroppedFilename = "";
@@ -390,6 +393,20 @@ void SourceAudioManager::valueTreePropertyChanged(ValueTree& treeWhosePropertyHa
         if (path != mSourceFile.getFullPathName()) {
             if (path.isEmpty()) {
                 clear();
+                return;
+            }
+
+            // This runs on project restore with nobody having chosen the file, so a shared project
+            // must not be able to make us open an arbitrary location. A network path would also
+            // start an authentication attempt just by opening the project.
+            const bool is_network_path = path.startsWith("\\\\") || path.startsWith("//");
+            if (is_network_path || !File::isAbsolutePath(path) || !File(path).existsAsFile()) {
+                // Setting the empty path below excludes this listener, so the empty-path branch above
+                // never runs for it. Clear through the processor, as onFileDrop does before a load,
+                // or the previous take stays populated while the restored state names no source.
+                mProcessor->clear();
+                treeWhosePropertyHasChanged.setPropertyExcludingListener(
+                    this, NnId::SourceAudioNativeSrPathId, String(), nullptr);
                 return;
             }
 

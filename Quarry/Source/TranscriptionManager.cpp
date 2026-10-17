@@ -9,11 +9,37 @@
 #include "PluginProcessor.h"
 #include "QuarryMainView.h"
 #include "Components/Views/StageCaption.h"
+#include "Sampler/SampleMetadata.h"
 
 // Deliberately last: SidecarClient.h pulls in <windows.h>, which drags along wingdi.h's global
 // ::Rectangle and makes every unqualified juce::Rectangle<T> above ambiguous if seen afterwards.
 // See the forward-declaration comment on SidecarClient in TranscriptionManager.h.
 #include "SidecarClient.h"
+
+namespace
+{
+// The command line can carry tokens or paths that do not belong in a log someone may paste into a
+// bug report, so only the executable is shown.
+juce::String loggableCommand(const juce::String& inCommandLine)
+{
+    const auto trimmed = inCommandLine.trim();
+    const bool quoted = trimmed.startsWithChar('"');
+    const int found = quoted ? trimmed.indexOfChar(1, '"') : trimmed.indexOfAnyOf(" \t");
+
+    if (found < 0) {
+        // Unquoted with no arguments is just the executable; an unclosed quote is not worth guessing at.
+        return quoted ? juce::String("...") : trimmed;
+    }
+
+    const int first_end = quoted ? found + 1 : found;
+
+    if (first_end >= trimmed.length()) {
+        return trimmed;
+    }
+
+    return trimmed.substring(0, first_end) + " ...";
+}
+} // namespace
 
 TranscriptionManager::TranscriptionManager(QuarryAudioProcessor* inProcessor)
     : mProcessor(inProcessor)
@@ -100,30 +126,6 @@ void TranscriptionManager::timerCallback()
 
         if (onSidecarStatusChanged != nullptr) {
             onSidecarStatusChanged();
-        }
-    }
-
-    // Drained here rather than handed to a callback: see mPendingDownloadFile's own comment. This
-    // is the same thread a UI drop already lands on, so onFileDrop sees one calling thread either way.
-    juce::File dropped_file;
-    bool has_dropped_file = false;
-
-    {
-        const ScopedLock lock(mPendingDownloadLock);
-
-        if (mHasPendingDownload) {
-            dropped_file = mPendingDownloadFile;
-            has_dropped_file = true;
-            mHasPendingDownload = false;
-        }
-    }
-
-    if (has_dropped_file) {
-        if (dropped_file.existsAsFile()) {
-            mProcessor->getSourceAudioManager()->onFileDrop(dropped_file);
-        } else {
-            mActivityLog.add(quarry::ActivityLine::Kind::Error,
-                             "downloaded file missing: " + dropped_file.getFullPathName());
         }
     }
 
@@ -220,7 +222,7 @@ bool TranscriptionManager::_ensureSidecarStarted(juce::String& outError)
         mSidecarClient.reset();
     }
 
-    mActivityLog.add(quarry::ActivityLine::Kind::Quarry, "sidecar: starting " + mSidecarActivation.commandLine);
+    mActivityLog.add(quarry::ActivityLine::Kind::Quarry, "sidecar: starting " + loggableCommand(mSidecarActivation.commandLine));
 
     auto client = std::make_unique<SidecarClient>(mSidecarActivation.commandLine);
 
@@ -355,7 +357,7 @@ bool TranscriptionManager::_tryTranscribeWithSidecar(const juce::File& inSourceF
     if (!_ensureSidecarStarted(error)) {
         // _ensureSidecarStarted has already logged the failure itself (it is the one place that
         // starts the child, whether this take triggered it or an earlier probe did).
-        DBG("Sidecar failed to start (" << mSidecarActivation.commandLine << "): " << error);
+        DBG("Sidecar failed to start (" << loggableCommand(mSidecarActivation.commandLine) << "): " << error);
         _registerSidecarFailure();
         outFallback = EngineFallback::SidecarStartFailed;
         return false;
@@ -771,39 +773,110 @@ void TranscriptionManager::cancelCurrentJob()
         mSidecarClient->kill();
 }
 
-void TranscriptionManager::requestDownload(const juce::String& inUrl, const juce::File& inOutDir)
+std::uint32_t TranscriptionManager::requestDownload(const juce::String& inUrl, const DownloadOptions& inOptions)
 {
     jassert(MessageManager::getInstance()->isThisTheMessageThread());
 
+    const auto request_id = mDownloadLedger.allocateId();
+
     if (!mSidecarActivation.active) {
-        mActivityLog.add(quarry::ActivityLine::Kind::Error,
-                         "download needs the sidecar; set QUARRY_SIDECAR_CMD (docs/SIDECAR.md)");
-        return;
+        const juce::String message = "download needs the sidecar; set QUARRY_SIDECAR_CMD (docs/SIDECAR.md)";
+        mActivityLog.add(quarry::ActivityLine::Kind::Error, message);
+
+        DownloadResult result;
+        result.requestId = request_id;
+        result.message = message;
+        result.outDir = inOptions.outDir;
+        _publishDownloadResult(std::move(result));
+        return request_id;
     }
 
     mActivityLog.add(quarry::ActivityLine::Kind::Quarry, "download: " + inUrl);
 
     // mThreadPool, not a pool of its own: the client allows one request in flight, so a download
     // and a take have to queue behind each other regardless, and this is the queue that already does it.
-    mThreadPool.addJob([this, inUrl, inOutDir] { _runDownload(inUrl, inOutDir); });
+    mThreadPool.addJob([this, request_id, inUrl, inOptions] { _runDownload(request_id, inUrl, inOptions); });
+    return request_id;
 }
 
-void TranscriptionManager::_runDownload(const juce::String& inUrl, const juce::File& inOutDir)
+void TranscriptionManager::_publishDownloadResult(DownloadResult inResult)
+{
+    mDownloadLedger.publish(std::move(inResult));
+}
+
+void TranscriptionManager::_writeDownloadSidecar(const juce::File& inAudio,
+                                                 const juce::String& inUrl,
+                                                 const juce::String& inTitle)
+{
+    // The captures browser lists a take by its .json, so a downloaded wav only shows up there
+    // once it has one. Never over an existing sidecar: a re-download of the same name is not
+    // the place to discard somebody's tags.
+    const auto sidecar = inAudio.withFileExtension(".json");
+
+    if (sidecar.existsAsFile())
+        return;
+
+    quarry::sampler::SampleMetadata meta;
+    meta.capturedAt = juce::Time::getCurrentTime();
+    meta.source.processName = "download";
+    meta.source.windowTitle = inTitle;
+    meta.source.url = inUrl;
+    meta.tags.add("downloaded");
+
+    juce::WavAudioFormat wav;
+
+    // The reader owns the stream it is given and deletes it with itself, so the stream has to be
+    // on the heap and released into it. A stack stream here made the reader's destructor free a
+    // stack address, which is what crashed with heap corruption (0xc0000374) after a download.
+    auto stream = std::make_unique<juce::FileInputStream>(inAudio);
+
+    if (stream->openedOk()) {
+        if (std::unique_ptr<juce::AudioFormatReader> reader(wav.createReaderFor(stream.release(), true));
+            reader != nullptr) {
+            meta.audio.sampleRate = reader->sampleRate;
+            meta.audio.channels = static_cast<int>(reader->numChannels);
+            meta.audio.durationSec = reader->sampleRate > 0.0
+                                         ? static_cast<double>(reader->lengthInSamples) / reader->sampleRate
+                                         : 0.0;
+        }
+    }
+
+    sidecar.replaceWithText(meta.toJson());
+}
+
+void TranscriptionManager::_runDownload(std::uint32_t inRequestId, const juce::String& inUrl, const DownloadOptions& inOptions)
 {
     // Held for the whole download, same as a take: see _tryTranscribeWithSidecar's own lock comment.
     const ScopedLock lock(mSidecarClientLock);
 
     mCancelRequested.store(false);
 
+    DownloadResult result;
+    result.requestId = inRequestId;
+    result.outDir = inOptions.outDir;
+
+    // Set while this request holds the client, so a cancel offered to its requester is known to
+    // land on it and not on whatever else was queued ahead.
+    mRunningDownloadId.store(inRequestId);
+
+    // Every exit publishes exactly once, success or not, which is what the Sample page's link box
+    // waits on: it has no other way to learn that a queued job has finished.
+    const auto fail = [&](const juce::String& inLogText, const juce::String& inMessage) {
+        mRunningDownloadId.store(0);
+        mActivityLog.add(quarry::ActivityLine::Kind::Error, inLogText);
+        result.message = inMessage;
+        _publishDownloadResult(result);
+    };
+
     if (mSidecarUnavailable) {
-        mActivityLog.add(quarry::ActivityLine::Kind::Error, "download failed: sidecar unavailable this session");
+        fail("download failed: sidecar unavailable this session", "download failed: sidecar unavailable this session");
         return;
     }
 
     juce::String start_error;
 
     if (!_ensureSidecarStarted(start_error)) {
-        mActivityLog.add(quarry::ActivityLine::Kind::Error, "download failed: " + start_error);
+        fail("download failed: " + start_error, "download failed: " + start_error);
         return;
     }
 
@@ -811,27 +884,54 @@ void TranscriptionManager::_runDownload(const juce::String& inUrl, const juce::F
 
     const auto start_ms = juce::Time::getMillisecondCounterHiRes();
 
-    juce::File out_file;
+    std::vector<juce::File> files;
     juce::String title;
     juce::String error;
+    int failed_entries = 0;
 
     _setCancellable(true);
-    const bool ok = mSidecarClient->download(inUrl, inOutDir, out_file, title, error);
+    const bool ok = mSidecarClient->download(inUrl, inOptions.outDir, inOptions.media, inOptions.playlist, files, title,
+                                             failed_entries, error);
     _setCancellable(false);
 
     if (ok) {
         const auto elapsed_s = (juce::Time::getMillisecondCounterHiRes() - start_ms) / 1000.0;
-        mActivityLog.add(quarry::ActivityLine::Kind::Quarry,
-                         "downloaded: " + title + " -> " + out_file.getFullPathName() + " in "
-                             + juce::String(elapsed_s, 1) + " s");
+        const auto elapsed_text = " in " + juce::String(elapsed_s, 1) + " s";
+
+        if (files.size() == 1 && failed_entries == 0) {
+            mActivityLog.add(quarry::ActivityLine::Kind::Quarry,
+                             "downloaded: " + title + " -> " + files[0].getFullPathName() + elapsed_text);
+        } else {
+            mActivityLog.add(quarry::ActivityLine::Kind::Quarry,
+                             "downloaded: " + juce::String(static_cast<int>(files.size())) + " file(s) from " + title
+                                 + " to " + inOptions.outDir.getFullPathName() + ", " + juce::String(failed_entries)
+                                 + " failed" + elapsed_text);
+        }
+
+        for (const auto& file : files) {
+            if (file.hasFileExtension("wav") && inOptions.libraryRoot != juce::File()
+                && file.isAChildOf(inOptions.libraryRoot)) {
+                // A playlist's title names the list, not the entry; the file's own name does.
+                _writeDownloadSidecar(file, inUrl, files.size() > 1 ? file.getFileNameWithoutExtension() : title);
+            }
+        }
+
+        result.ok = true;
+        result.files = files;
+        result.failed = failed_entries;
+        result.message = title;
     } else if (mCancelRequested.load()) {
         mActivityLog.add(quarry::ActivityLine::Kind::Quarry, "download cancelled");
 
         // Discarded same as a cancelled take: see _tryTranscribeWithSidecar's own comment.
         const ScopedLock pointer_lock(mSidecarClientPointerLock);
         mSidecarClient.reset();
+
+        result.cancelled = true;
+        result.message = "download cancelled";
     } else {
         mActivityLog.add(quarry::ActivityLine::Kind::Error, "download failed: " + error);
+        result.message = "download failed: " + error;
 
         // The same treatment _tryTranscribeWithSidecar gives the same class of failure, which
         // this branch used to skip entirely. A download fails this way when the child died under
@@ -848,12 +948,8 @@ void TranscriptionManager::_runDownload(const juce::String& inUrl, const juce::F
     }
 
     _setStage({}, -1.0, false);
-
-    if (ok) {
-        const ScopedLock pending_lock(mPendingDownloadLock);
-        mPendingDownloadFile = out_file;
-        mHasPendingDownload = true;
-    }
+    mRunningDownloadId.store(0);
+    _publishDownloadResult(std::move(result));
 }
 
 const std::vector<Notes::Event>& TranscriptionManager::getNoteEventVector() const

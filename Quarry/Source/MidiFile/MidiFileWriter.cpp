@@ -11,6 +11,11 @@ bool MidiFileWriter::writeMidiFile(const std::vector<Notes::Event>& inNoteEvents
                                    PitchBendModes inPitchBendMode,
                                    const std::vector<SidecarPedalEvent>& inPedalEvents) const
 {
+    // A tempo of zero or infinity would turn every timestamp into NaN or infinity below.
+    if (!std::isfinite(inExportBpm) || inExportBpm <= 0.0) {
+        inExportBpm = 120.0;
+    }
+
     // Compute offset to start at beginning of the previous bar
     const double start_offset = - inInfo.getStartLastBarSec();
     jassert(start_offset >= 0.0);
@@ -93,7 +98,10 @@ bool MidiFileWriter::writeMidiFile(const std::vector<Notes::Event>& inNoteEvents
     if (!output_stream.openedOk())
         return false;
 
-    output_stream.setPosition(0);
+    // Writing over the start of an existing file leaves the old tail behind when the new file is
+    // shorter, so cut it first.
+    if (!output_stream.setPosition(0) || output_stream.truncate().failed())
+        return false;
 
     bool success = midi_file.writeTo(output_stream);
 

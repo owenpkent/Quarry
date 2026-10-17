@@ -77,7 +77,7 @@
 > ## Status, 2026-07-31
 >
 > **The day-one spike in Milestone 0 has landed and is committed** on branch
-> `audio-input-and-recording` in `c:/Users/owenp/dev/NeuralNoteVideo`. The fork's product has
+> `audio-input-and-recording` in the NeuralNoteVideo checkout. The fork's product has
 > also been renamed to Quarry, so "Quarry" now names both the shipped fork and the planned
 > new repo below; the checkout path and the git remote are still `NeuralNoteVideo`. See
 > `## [Unreleased]` in `CHANGELOG.md` for what the spike does, and the "What landed" note in
@@ -112,8 +112,8 @@ Estimates are working days for one person and are deliberately not optimistic: t
 estimates in the source proposals were off by 3x and one rested on an extraction nobody had
 verified.
 
-**Repos.** `c:/Users/owenp/dev/NeuralNoteVideo` is the donor fork and the vehicle for the
-day-one spike. `c:/Users/owenp/dev/Quarry` is the product. `../JUCE` and
+**Repos.** The NeuralNoteVideo checkout is the donor fork and the vehicle for the
+day-one spike. The Quarry repo is the product. `../JUCE` and
 `../okstudio-juce-kit` are siblings.
 
 *Superseded on the kit.* This plan said no `ThirdParty/` tree ever lands in Quarry. The fork
@@ -588,7 +588,9 @@ re-record, no level matching — not a new capability.
 
 **Ships with the codec-gap plate from day one:** MF cannot open WebM/VP9 or AV1 without free
 Microsoft Store extensions, and yt-dlp's default best-quality YouTube output is frequently
-exactly that. A 34 px plate says "this video uses a format Windows cannot read — re-save it
+exactly that. (The sidecar's own downloader now asks yt-dlp for H.264/AAC MP4 first, so links
+fetched through Quarry avoid the gap; the plate is still needed for files from anywhere else.)
+A 34 px plate says "this video uses a format Windows cannot read — re-save it
 as MP4", rather than failing silently.
 
 **Tests:** a known MP4 decodes to the expected sample count; a constant-frame-rate file and a
@@ -642,7 +644,7 @@ materially.
 | Component | Question | Status | Blocks |
 |---|---|---|---|
 | **ASIO SDK** | Steinberg requires a signed agreement to redistribute a binary containing it, and the 12 vendored SDK files were sitting in a **public** repo, which is redistribution before anything ships | ✅ **Dropped 2026-08-17.** `JUCE_ASIO=1` and `ThirdParty/ASIO/` are gone; Windows Audio and DirectSound remain, and Quarry records loopback anyway, so ASIO's round-trip latency was never being spent. The git history still holds the SDK: purging it means a force-push, so that is a separate call. **The kit is unaffected and keeps its own ASIO question** | — |
-| **JUCE** | A sold closed-source product with `JUCE_DISPLAY_SPLASH_SCREEN=0` needs a paid licence. NeuralNote never faced this (it is open source) | ✅ **Closed 2026-08-17. The premise was JUCE 6/7 and no longer holds.** This tree vendors **JUCE 8.0.6**, which has no splash screen at all: `juce_gui_basics.cpp:60` warns that `JUCE_DISPLAY_SPLASH_SCREEN` is ignored. JUCE 8 licenses by revenue instead. **Starter is free and permits closed-source commercial distribution up to $20k/yr** revenue or funding; Indie is $800 perpetual to $300k. Register Starter, budget Indie for the year Quarry crosses $20k. Confirm the figures at purchase | — |
+| **JUCE** | A sold closed-source product with `JUCE_DISPLAY_SPLASH_SCREEN=0` needs a paid licence. NeuralNote never faced this (it is open source) | ✅ **Closed 2026-08-17. The premise was JUCE 6/7 and no longer holds.** This tree vendors **JUCE 8** (8.0.6 when this was answered, 8.0.16 since), which has no splash screen at all: `juce_gui_basics.cpp:60` warns that `JUCE_DISPLAY_SPLASH_SCREEN` is ignored. JUCE 8 licenses by revenue instead. **Starter is free and permits closed-source commercial distribution up to $20k/yr** revenue or funding; Indie is $800 perpetual to $300k. Register Starter, budget Indie for the year Quarry crosses $20k. Confirm the figures at purchase | — |
 | **`spotify/basic-pitch` NOTICE** | Does upstream ship one? Apache-2.0 §4(d) only binds if the Work included one, and if it did, its contents must be reproduced in Quarry's | ✅ **Closed 2026-08-17.** It ships one, so §4(d) binds. Its attribution notices are now reproduced verbatim in `NOTICE` | — |
 | **`DamRsn/NeuralNote` NOTICE** | Same question | ✅ **Closed 2026-08-17.** No `NOTICE` at the root of upstream `master`, so §4(d) obliges nothing on its account. Recorded in `NOTICE` so it is not asked again | — |
 | **basic-pitch weights** | Apache-2.0 code *and* weights, per Spotify. Trained partly on MAESTRO (CC BY-NC-SA 4.0). Whether permissive weights trained on NC data survive a challenge is **unsettled law**. Owen already has this exposure today | Needs counsel before a **paid** launch, not before a build | Paid launch |

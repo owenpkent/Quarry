@@ -15,6 +15,7 @@
 class CombinedAudioMidiRegion
     : public Component
     , public FileDragAndDropTarget
+    , public TextDragAndDropTarget
     , public ChangeListener
     , public ValueTree::Listener
 {
@@ -36,6 +37,19 @@ public:
     void fileDragEnter(const StringArray& files, int x, int y) override;
 
     void fileDragExit(const StringArray& files) override;
+
+    /** A link dragged from a browser. Interested only if the text is one the sidecar can download. */
+    bool isInterestedInTextDrag(const String& text) override;
+
+    void textDragEnter(const String& text, int x, int y) override;
+
+    void textDragExit(const String& text) override;
+
+    void textDropped(const String& text, int x, int y) override;
+
+    /** Called with the cleaned URL when one is dropped here. Set by the main view, which owns
+        the single place a download is started. */
+    std::function<void(const String&)> onUrlDropped;
 
     void setBaseWidth(int inWidth);
 

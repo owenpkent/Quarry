@@ -50,6 +50,17 @@ inline bool stage_caption_test()
     // with the suffix, so every one is measured wearing it.
     const juce::String widest_suffix = "  100%";
 
+    // A playlist entry's caption leads with its place in the list, and has to fit as well.
+    {
+        const auto entry = quarry::stageCaption("download", "103/200 downloading... 5/9 bytes");
+
+        check(entry == "103/200 downloading", "a playlist download caption leads with the entry");
+        check(juce::GlyphArrangement::getStringWidth(font, entry + widest_suffix) <= available,
+              "the playlist caption fits the strip with its percentage");
+        check(quarry::stageCaption("download", "downloading... 5/9 bytes") == "downloading",
+              "a single download keeps the plain caption");
+    }
+
     juce::String widest;
     float widest_width = 0.0f;
 
@@ -63,7 +74,7 @@ inline bool stage_caption_test()
         check(caption != "unused: every slug here is mapped",
               ("slug \"" + slug + "\" is mapped, not falling back to the sidecar's text").toStdString());
 
-        const auto width = font.getStringWidthFloat(caption + widest_suffix);
+        const auto width = juce::GlyphArrangement::getStringWidth(font, caption + widest_suffix);
 
         if (width > widest_width) {
             widest_width = width;

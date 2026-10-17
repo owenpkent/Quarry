@@ -36,6 +36,19 @@ else ()
     set(COPY_PLUGIN_AFTER_BUILD FALSE)
 endif ()
 
+# Hardening that costs nothing at runtime to speak of: control flow guard on MSVC, stack protectors
+# on GCC/Clang, and fortified libc calls on optimised Linux builds. Set for every target below.
+if (MSVC)
+    # Not in Debug: /guard:cf is incompatible with /ZI and incremental linking.
+    add_compile_options($<$<NOT:$<CONFIG:Debug>>:/guard:cf>)
+    add_link_options($<$<NOT:$<CONFIG:Debug>>:/guard:cf>)
+else ()
+    add_compile_options(-fstack-protector-strong)
+    if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_compile_options($<$<NOT:$<CONFIG:Debug>>:-D_FORTIFY_SOURCE=2>)
+    endif ()
+endif ()
+
 juce_add_plugin("${BaseTargetName}"
         # VERSION ...                               # Set this if the plugin version is different to the project version
         ICON_BIG "${CMAKE_CURRENT_LIST_DIR}/Quarry/Assets/logo.png"
@@ -190,11 +203,18 @@ target_link_libraries(${BaseTargetName}
         PRIVATE
         juce::juce_audio_utils
         juce::juce_dsp
+        juce::juce_cryptography
         BasicPitchCNN
         onnxruntime
         bin_data
         PUBLIC
         juce_recommended_config_flags)
+
+# UpdateInstaller (Windows Standalone self-update): the Restart Manager, the file version
+# resource, and the shell's known folders and ShellExecute.
+if (WIN32)
+    target_link_libraries(${BaseTargetName} PRIVATE Rstrtmgr Version Shell32 Ole32)
+endif ()
 
 if (${LTO})
     target_link_libraries(${BaseTargetName} PUBLIC juce_recommended_lto_flags)

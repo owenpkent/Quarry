@@ -4,6 +4,8 @@
 
 #include "CombinedAudioMidiRegion.h"
 
+#include "Views/UrlDrop.h"
+
 CombinedAudioMidiRegion::CombinedAudioMidiRegion(QuarryAudioProcessor* processor, Keyboard& keyboard)
     : mProcessor(processor)
     , mVBlankAttachment(this, [this]() { _onVBlankCallback(); })
@@ -117,6 +119,37 @@ void CombinedAudioMidiRegion::fileDragExit(const StringArray& files)
     mAudioRegion.repaint();
 }
 
+bool CombinedAudioMidiRegion::isInterestedInTextDrag(const String& text)
+{
+    return quarry::downloadableUrl(text).isNotEmpty();
+}
+
+void CombinedAudioMidiRegion::textDragEnter(const String& text, int x, int y)
+{
+    ignoreUnused(text, x, y);
+    mAudioRegion.setIsFileOver(true);
+    mAudioRegion.repaint();
+}
+
+void CombinedAudioMidiRegion::textDragExit(const String& text)
+{
+    ignoreUnused(text);
+    mAudioRegion.setIsFileOver(false);
+    mAudioRegion.repaint();
+}
+
+void CombinedAudioMidiRegion::textDropped(const String& text, int x, int y)
+{
+    ignoreUnused(x, y);
+    mAudioRegion.setIsFileOver(false);
+    mAudioRegion.repaint();
+
+    const auto url = quarry::downloadableUrl(text);
+
+    if (url.isNotEmpty() && onUrlDropped != nullptr)
+        onUrlDropped(url);
+}
+
 void CombinedAudioMidiRegion::setBaseWidth(int inWidth)
 {
     mBaseWidth = inWidth;
@@ -219,6 +252,10 @@ bool CombinedAudioMidiRegion::_isFileTypeSupported(const String& filename) const
 
 void CombinedAudioMidiRegion::_setZoomLevel(double inZoomLevel)
 {
+    // std::clamp passes a NaN straight through, and a saved project can hold one.
+    if (!std::isfinite(inZoomLevel)) {
+        inZoomLevel = mMinZoomLevel;
+    }
     mZoomLevel = std::clamp(inZoomLevel, mMinZoomLevel, mMaxZoomLevel);
     mPianoRoll.setZoomLevel(mZoomLevel);
     mAudioRegion.setZoomLevel(mZoomLevel);

@@ -24,6 +24,11 @@
 #include "activity_format_test.h"
 #include "progress_strip_test.h"
 #include "stage_caption_test.h"
+#include "url_drop_test.h"
+#include "download_ledger_test.h"
+#include "audio_utils_test.h"
+#include "update_policy_test.h"
+#include "update_network_test.h"
 // Deliberately last: SidecarClient.h (pulled in by sidecar_client_test.h) drags in <windows.h>,
 // whose wingdi.h pollutes the global namespace (TRANSPARENT as a macro, a global Rectangle
 // function that collides with juce::Rectangle) badly enough to break UIDefines.h and
@@ -105,6 +110,20 @@ int main()
 
     std::cout << std::endl << "STAGE CAPTION TEST" << std::endl;
     result |= !stage_caption_test();
+
+    std::cout << std::endl << "URL DROP TEST" << std::endl;
+    result |= !url_drop_test();
+    std::cout << std::endl << "AUDIO UTILS TEST" << std::endl;
+    result |= !audio_utils_test();
+
+    std::cout << std::endl << "UPDATE POLICY TEST" << std::endl;
+    result |= !update_policy_test();
+
+    std::cout << std::endl << "UPDATE NETWORK TEST" << std::endl;
+    result |= !update_network_test();
+
+    std::cout << std::endl << "DOWNLOAD LEDGER TEST" << std::endl;
+    result |= !download_ledger_test();
 
     return result;
 }

@@ -10,6 +10,7 @@
 #include "Views/ActivityDrawerLayout.h"
 #include "Views/ProgressStripLayout.h"
 #include "Views/SampleBarLayout.h"
+#include "Views/UrlDrop.h"
 
 // Last, deliberately: this reaches the Windows audio stack, and windows.h defines a
 // Rectangle() that makes juce::Rectangle ambiguous in anything parsed after it.
@@ -177,7 +178,14 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
     mSampleBar = std::make_unique<SampleBar>(mProcessor);
     addAndMakeVisible(*mSampleBar);
 
-    mUpdateCheck = std::make_unique<UpdateCheck>();
+    mUpdateCheck = std::make_unique<UpdateCheck>(mProcessor.wrapperType == AudioProcessor::wrapperType_Standalone);
+    // The quit an install ends with loses a take that is still being recorded or transcribed,
+    // and a Sample page capture, which has its own recorder and leaves the processor idle.
+    mUpdateCheck->isBusy = [this] {
+        const auto state = mProcessor.getState();
+        return state == Recording || state == Processing
+               || (mSamplePage != nullptr && mSamplePage->isCapturing());
+    };
 
     mSettingsButton = std::make_unique<DrawableButton>("SettingsButton", DrawableButton::ButtonStyle::ImageRaw);
     mSettingsButton->setClickingTogglesState(false);
@@ -243,6 +251,19 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
     check_updates_item.setAction([this] { mUpdateCheck->checkForUpdate(true); });
     mSettingsMenu->addSeparator();
     mSettingsMenu->addItem(check_updates_item);
+
+    // The launch-time check is the one that can be switched off; the item above always works.
+    auto startup_check_item = PopupMenu::Item("Check for updates at startup");
+    startup_check_item.setID(++item_id);
+    startup_check_item.setEnabled(true);
+    mSettingsMenuItemsShouldBeTicked.emplace_back(startup_check_item.itemID,
+                                                  [] { return UpdateCheck::isStartupCheckEnabled(); });
+    startup_check_item.setTicked(mSettingsMenuItemsShouldBeTicked.back().second());
+    startup_check_item.setAction([this] {
+        UpdateCheck::setStartupCheckEnabled(!UpdateCheck::isStartupCheckEnabled());
+        _updateSettingsMenuTicks();
+    });
+    mSettingsMenu->addItem(startup_check_item);
 
     // A top-level PopupMenu only ever uses the look and feel handed to it here; JUCE does
     // not walk up from the target component, so Obsidian never reaches it. The menu is
@@ -314,6 +335,9 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
     // reports that it happened and this decides what that means.
     mSamplePage->onTranscribeRequested = [this]() { _showSamplePage(false); };
 
+    mSamplePage->onDownloadRequested = [this](const String& inUrl, bool inPlaylist) {
+        return _submitDownloadText(inUrl, inPlaylist);
+    };
     mSamplePage->onPreferredWidthChanged = [this]() { _applyWindowSize(); };
 
     _showSamplePage(true);
@@ -337,7 +361,17 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
     updateEnablements();
 
     addChildComponent(mUpdateCheck.get());
-    mUpdateCheck->checkForUpdate(false);
+    if (UpdateCheck::isStartupCheckEnabled()) {
+        mUpdateCheck->checkForUpdate(false);
+    }
+
+    // The installer relaunches the standalone with --updated or --update-blocked. A plugin has
+    // no application object, and no command line of its own worth reading.
+    if (mProcessor.wrapperType == AudioProcessor::wrapperType_Standalone) {
+        if (auto* app = JUCEApplicationBase::getInstance()) {
+            mUpdateCheck->showLaunchNotice(app->getCommandLineParameters());
+        }
+    }
 
     // The header's own progress readout: the stage feed the drawer's status line shows, in the
     // one free band of toolbar above the transport, for whoever never opens the drawer.
@@ -382,15 +416,13 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
 
             return text;
         },
-        [this](const String& inText) {
-            auto* manager = mProcessor.getTranscriptionManager();
+        [this](const String& inText) { _submitDownloadText(inText); });
 
-            if (inText.startsWithIgnoreCase("http://") || inText.startsWithIgnoreCase("https://")) {
-                manager->requestDownload(inText, TakeNaming::folder(mProcessor.getValueTree()));
-            } else {
-                manager->getActivityLog().add(quarry::ActivityLine::Kind::Error, "not a URL: " + inText);
-            }
-        });
+    // A link dragged from a browser onto the waveform is only offered: the drawer opens with it
+    // in the prompt, and Enter starts it.
+    mVisualizationPanel.getCombinedAudioMidiRegion().onUrlDropped = [this](const String& inUrl) {
+        _offerLink(inUrl);
+    };
 
     mActivityDrawer->onClosed = [this]() { grabKeyboardFocus(); };
     addChildComponent(*mActivityDrawer);
@@ -447,7 +479,7 @@ void QuarryMainView::resized()
     // There is no room for it in the narrow window, and an empty rectangle keeps it off screen
     // without touching a visibility this does not own.
     mUpdateCheck->setBounds(narrow ? juce::Rectangle<int>()
-                                   : juce::Rectangle<int>(getWidth() - 320, 719, 290, 20));
+                                   : juce::Rectangle<int>(contentMargin, 717, getWidth() - 2 * contentMargin, 24));
 
 #if JUCE_WINDOWS
     // Between the wordmark and the transport, which is the only clear span in the toolbar.
@@ -516,6 +548,49 @@ void QuarryMainView::_applyWindowSize()
         if (editor->getWidth() != width || editor->getHeight() != height)
             editor->setSize(width, height);
 #endif
+}
+
+std::uint32_t QuarryMainView::_submitDownloadText(const String& inText, bool inPlaylist)
+{
+    auto* manager = mProcessor.getTranscriptionManager();
+    const auto url = quarry::downloadableUrl(inText);
+
+    if (url.isNotEmpty()) {
+        // Where and in what form come from the settings the Sample page edits, so every way in
+        // (drawer, paste, drop, the link box) saves the same thing in the same place.
+        const auto& state = mProcessor.getValueTree();
+
+        TranscriptionManager::DownloadOptions options;
+        options.outDir = TakeNaming::downloadFolder(state);
+        options.libraryRoot = TakeNaming::captureFolder(state);
+        options.media = TakeNaming::downloadMedia(state);
+        options.playlist = inPlaylist;
+
+        return manager->requestDownload(url, options);
+    }
+
+    manager->getActivityLog().add(quarry::ActivityLine::Kind::Error, "not a URL: " + inText);
+    return 0;
+}
+
+void QuarryMainView::_showActivityDrawer()
+{
+    if (!mActivityDrawer->isVisible())
+        _toggleActivityDrawer();
+}
+
+void QuarryMainView::_offerLink(const String& inUrl)
+{
+#if JUCE_WINDOWS
+    if (mSamplePage != nullptr && mSamplePage->isVisible()) {
+        mSamplePage->prefillLink(inUrl);
+        return;
+    }
+#endif
+
+    mActivityDrawer->setPromptText(inUrl);
+    _showActivityDrawer();
+    mActivityDrawer->open();
 }
 
 void QuarryMainView::_toggleActivityDrawer()
@@ -662,6 +737,20 @@ bool QuarryMainView::keyPressed(const KeyPress& key)
     if (key == KeyPress(',', juce::ModifierKeys::noModifiers, 0)) {
         mSettingsButton->triggerClick();
         return true;
+    }
+
+    // Ctrl+V / Cmd+V with a link on the clipboard offers it (link box or drawer prompt) and starts
+    // nothing. A focused TextEditor consumes its own paste before the event bubbles up to this
+    // view, and anything that is not a link is left alone by returning false.
+    if (key == KeyPress('v', juce::ModifierKeys::commandModifier, 0)) {
+        const auto url = quarry::downloadableUrl(SystemClipboard::getTextFromClipboard());
+
+        if (url.isNotEmpty()) {
+            _offerLink(url);
+            return true;
+        }
+
+        return false;
     }
 
     if (key == KeyPress('`', juce::ModifierKeys::noModifiers, 0)) {

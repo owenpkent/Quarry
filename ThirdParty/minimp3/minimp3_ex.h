@@ -29,6 +29,10 @@
 #define MINIMP3_ENABLE_RING 0      /* WIP enable hardware magic ring buffer if available, to make less input buffer memmove(s) in callback IO mode */
 
 /* return error codes */
+#ifndef MINIMP3_MAX_DETECTED_SAMPLES
+#define MINIMP3_MAX_DETECTED_SAMPLES 0x7FFFFFFF /* local patch, see UPSTREAM.txt */
+#endif
+
 #define MP3D_E_PARAM   -1
 #define MP3D_E_MEMORY  -2
 #define MP3D_E_IOERROR -3
@@ -389,6 +393,9 @@ int mp3dec_load_cb(mp3dec_t *dec, mp3dec_io_t *io, uint8_t *buf, size_t buf_size
                 detected_samples -= padding;
             if (!detected_samples)
                 return 0;
+            /* local patch, see UPSTREAM.txt: the frame count is read from the file, so an absurd one is treated as unknown */
+            if (detected_samples > (uint64_t)MINIMP3_MAX_DETECTED_SAMPLES)
+                detected_samples = 0;
         }
         if (ret)
         {
