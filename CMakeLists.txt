@@ -203,11 +203,18 @@ target_link_libraries(${BaseTargetName}
         PRIVATE
         juce::juce_audio_utils
         juce::juce_dsp
+        juce::juce_cryptography
         BasicPitchCNN
         onnxruntime
         bin_data
         PUBLIC
         juce_recommended_config_flags)
+
+# UpdateInstaller (Windows Standalone self-update): the Restart Manager, the file version
+# resource, and the shell's known folders and ShellExecute.
+if (WIN32)
+    target_link_libraries(${BaseTargetName} PRIVATE Rstrtmgr Version Shell32 Ole32)
+endif ()
 
 if (${LTO})
     target_link_libraries(${BaseTargetName} PUBLIC juce_recommended_lto_flags)
