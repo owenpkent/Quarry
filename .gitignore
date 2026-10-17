@@ -72,3 +72,5 @@ tools/bakeoff/checkpoints/
 tools/keybench/out/
 .onnxruntime-cache/
 .tmp-native-security/
+/release/
+/build-release/
