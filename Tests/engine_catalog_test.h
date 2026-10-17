@@ -146,7 +146,7 @@ inline bool engine_catalog_test()
 
         for (int i = 0; i < NumEngines; ++i)
         {
-            const auto width = label.getStringWidthFloat(whenLine(i));
+            const auto width = juce::GlyphArrangement::getStringWidth(label, whenLine(i));
 
             if (width > widest)
             {

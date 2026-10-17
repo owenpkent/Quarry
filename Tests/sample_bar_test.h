@@ -117,7 +117,7 @@ inline bool sample_bar_test()
         // padding: positionComboBoxText insets by the button width plus a small margin.
         constexpr int arrowAndPadding = 30;
 
-        const auto widest = okstudio::obsidian::ui(14.0f).getStringWidthFloat("Single Pitch Bend");
+        const auto widest = juce::GlyphArrangement::getStringWidth(okstudio::obsidian::ui(14.0f), "Single Pitch Bend");
         const auto room = (float) (PITCH_BEND - arrowAndPadding);
 
         check(widest + (float) MIN_TEXT_HEADROOM <= room,
@@ -151,7 +151,7 @@ inline bool sample_bar_test()
 
         for (const auto* sentence : fixed)
         {
-            const auto width = font.getStringWidthFloat(sentence);
+            const auto width = juce::GlyphArrangement::getStringWidth(font, sentence);
 
             if (width > widest)
             {
@@ -180,7 +180,7 @@ inline bool sample_bar_test()
         // What every first run shows: the default folder is Music/Quarry Samples, and
         // SampleBar::_folderLabel renders a folder as its parent name and its own.
         const auto label = juce::String("Music") + juce::File::getSeparatorString() + "Quarry Samples";
-        const auto width = font.getStringWidthFloat(label);
+        const auto width = juce::GlyphArrangement::getStringWidth(font, label);
 
         check(width + (float) MIN_TEXT_HEADROOM <= room,
               "the default save folder's label clears the button that shows it");

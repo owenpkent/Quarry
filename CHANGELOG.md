@@ -41,6 +41,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   buffer from the child and drops note or pedal events with non-finite or out-of-range numbers
   rather than casting them. A re-exported MIDI file is truncated before it is rewritten. The
   sidecar command line is logged as its executable only. A take held in memory stops at two hours.
+- build: JUCE moves from 8.0.6 to 8.0.16-security, the patch release JUCE published on
+  2026-10-13 for malformed String input, which also carries the UTF-8 and base64 overflow fixes
+  from the releases between; RTNeural moves from 2ca066e (2024-09) to 95c3c0f (2026-08). JUCE
+  8.0.16 drops `Font::getStringWidthFloat`, so the look and feel, three tests and the vendored
+  okstudio `Obsidian.h` measure text through `GlyphArrangement::getStringWidth` instead. The kit
+  itself needs the same one-line change before the next `sync_okstudio.py` run.
 - build: `/guard:cf` on MSVC release builds, `-fstack-protector-strong` elsewhere and
   `_FORTIFY_SOURCE` on Linux; CI actions pinned to commit SHAs with `persist-credentials` off;
   macOS signing gets `--timestamp` and refuses to guess between several identities; the Windows

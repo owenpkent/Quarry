@@ -428,7 +428,7 @@ public:
                                                        const juce::PopupMenu::Options&) override
     {
         const auto f = UIDefines::LABEL_FONT();
-        idealWidth = (int) std::ceil(f.getStringWidthFloat(title)) + menuGutterAllowance();
+        idealWidth = (int) std::ceil(GlyphArrangement::getStringWidth(f, title)) + menuGutterAllowance();
         idealHeight = 26;
     }
 

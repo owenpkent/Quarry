@@ -55,7 +55,7 @@ inline bool stage_caption_test()
         const auto entry = quarry::stageCaption("download", "103/200 downloading... 5/9 bytes");
 
         check(entry == "103/200 downloading", "a playlist download caption leads with the entry");
-        check(font.getStringWidthFloat(entry + widest_suffix) <= available,
+        check(juce::GlyphArrangement::getStringWidth(font, entry + widest_suffix) <= available,
               "the playlist caption fits the strip with its percentage");
         check(quarry::stageCaption("download", "downloading... 5/9 bytes") == "downloading",
               "a single download keeps the plain caption");
@@ -74,7 +74,7 @@ inline bool stage_caption_test()
         check(caption != "unused: every slug here is mapped",
               ("slug \"" + slug + "\" is mapped, not falling back to the sidecar's text").toStdString());
 
-        const auto width = font.getStringWidthFloat(caption + widest_suffix);
+        const auto width = juce::GlyphArrangement::getStringWidth(font, caption + widest_suffix);
 
         if (width > widest_width) {
             widest_width = width;
