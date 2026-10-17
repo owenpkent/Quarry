@@ -179,10 +179,12 @@ QuarryMainView::QuarryMainView(QuarryAudioProcessor& processor)
     addAndMakeVisible(*mSampleBar);
 
     mUpdateCheck = std::make_unique<UpdateCheck>(mProcessor.wrapperType == AudioProcessor::wrapperType_Standalone);
-    // The quit an install ends with loses a take that is still being recorded or transcribed.
+    // The quit an install ends with loses a take that is still being recorded or transcribed,
+    // and a Sample page capture, which has its own recorder and leaves the processor idle.
     mUpdateCheck->isBusy = [this] {
         const auto state = mProcessor.getState();
-        return state == Recording || state == Processing;
+        return state == Recording || state == Processing
+               || (mSamplePage != nullptr && mSamplePage->isCapturing());
     };
 
     mSettingsButton = std::make_unique<DrawableButton>("SettingsButton", DrawableButton::ButtonStyle::ImageRaw);

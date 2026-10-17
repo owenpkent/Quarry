@@ -89,6 +89,10 @@ public:
     int narrowContentWidth() const;
     int narrowContentHeight() const;
 
+    /** True while a process or Everything capture is running. Destroying the page discards it.
+        unsaved, so anything that quits the app asks this first. */
+    bool isCapturing() const;
+
 private:
     /** The library list is a second ListBox on the same page, and ListBoxModel cannot be
         implemented twice by one class. This is the second one. */

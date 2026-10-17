@@ -40,8 +40,9 @@ differed, which would have offered an older release.)
    nothing is launched and the banner says "Ableton Live has the Quarry plugin loaded. Close it,
    then choose Install again." (the name is whatever the Restart Manager returns). Install again
    reuses the already verified, still pinned file.
-7. If a take is being recorded or transcribed, the user is asked to confirm, since quitting loses
-   it. Quarry has no project file, so that is the only unsaved work. Cancelling aborts the install.
+7. If a take is being recorded or transcribed, or a Sample page capture is running, the user is
+   asked to confirm, since quitting loses it. Quarry has no project file, so that is the only
+   unsaved work. Cancelling aborts the install.
 8. The installer is started and the app quits through `JUCEApplicationBase::systemRequestedQuit()`,
    the same path as closing the window. The banner reads "Installing. Quarry will restart."
 9. The installer waits for our process to exit, installs, and relaunches `Quarry.exe --updated`
