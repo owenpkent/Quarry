@@ -16,15 +16,19 @@ your favorite Digital Audio Workstation.
 
 ## Install Quarry
 
-Download the latest release for your platform [here](https://github.com/owenpkent/Quarry/releases) (Windows,
-macOS (Universal) and Linux supported)!
+Windows releases are published on the [releases page](https://github.com/owenpkent/Quarry/releases)
+as `QuarrySetup-X.Y.Z.exe` (none has been published yet), which installs the Standalone, the VST3
+or both. The installer is not
+code signed yet, so Windows SmartScreen may warn before it runs. Each release also carries the
+installer's SHA-256 (`QuarrySetup-X.Y.Z.exe.sha256`) and a CycloneDX SBOM.
 
-Installers are available for both Windows and Mac, including Standalone, VST3, and AU (Mac only) versions. The
-installers allow users to select which format(s) they want to install. On macOS, the code is signed, while on Windows,
-it is not. This means you may need to take a few additional steps to use Quarry on Windows.
+Once installed, the Windows Standalone checks for a newer release at startup and can install it
+itself; the plugin and other platforms only say that one exists. The check can be turned off with
+"Check for updates at startup" in the settings menu. How it works, and what the published hash
+does and does not protect against, is in [docs/AUTO_UPDATE.md](docs/AUTO_UPDATE.md).
 
-For Linux, raw binaries are provided for VST3 and Standalone. You can install them by copying the files to the
-appropriate locations.
+No macOS or Linux release is published; see [Build from source](#build-from-source), and
+[PACKAGING.md](PACKAGING.md) for the macOS packaging steps.
 
 ## Usage
 

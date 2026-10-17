@@ -25,7 +25,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and playhead values are clamped to their legal ranges (a zero tempo spun the piano roll
   forever), a source path is only reopened when it is absolute, local and present (a `\server`
   path would have made the plugin authenticate to it on load), and sample, capture and download
-  folders fall back to the default unless they are absolute.
+  folders fall back to the default unless they are absolute. A restored source that fails those
+  checks clears the take that was loaded, rather than leaving it playing under a state that names
+  no source.
 - fix: the sidecar's engines no longer let their libraries fetch weights on their own. Each
   checkpoint is verified against a SHA-256 pinned in `engines.py` before it is handed over, the
   HuggingFace files are fetched at a pinned commit, and the unverified paths (Zenodo via `wget`,
@@ -50,7 +52,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - build: `/guard:cf` on MSVC release builds, `-fstack-protector-strong` elsewhere and
   `_FORTIFY_SOURCE` on Linux; CI actions pinned to commit SHAs with `persist-credentials` off;
   macOS signing gets `--timestamp` and refuses to guess between several identities; the Windows
-  installer declares admin and uses the `{commonpf}`/`{commoncf}` constants instead of `C:`.
+  installer declares admin and uses the `{commonpf}`/`{commoncf}` constants instead of `C:`, and
+  installs in 64-bit mode, without which `{commoncf}` is the (x86) folder 64-bit hosts do not scan.
 
 ### Changed
 
@@ -66,6 +69,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   request runs, since the strip that carries the usual CANCEL is hidden here. "Downloaded 1
   file(s), 1 failed." survives the automatic selection that used to overwrite it. The
   Sample-page branch of the link offer is guarded for non-Windows builds.
+- fix: two more from the same review. In "both" mode a source offering only a muxed webm came
+  down as a webm, the collector looked for an mp4 beside the wav, and the intermediate cleanup
+  deleted the real video; the file each wav was extracted from is now recorded and kept. A
+  download started from the activity drawer into the captures folder never appeared in the
+  capture list; the Sample page now rescans once after any successful download that saved under
+  its folder, not only its own.
 - feat: the Transcribe page leads with which model listens. The choice that moves onset F1 from
   0.775 to 0.98 was an environment variable read once at startup and mentioned nowhere, while
   three rotaries belonging to the engine you could not choose held permanent space above it. The
@@ -144,6 +153,21 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- feat: the Windows Standalone installs its own updates. The check offers only a release strictly
+  newer than the running one (it used to offer any tag that differed, older ones included) and
+  can be turned off with "Check for updates at startup". Install downloads the installer and its
+  `.sha256` from GitHub's own hosts, checking every redirect and capping sizes, holds the file
+  open read-only, checks the hash and the installer's version resource, refuses while a DAW has
+  the plugin loaded or asks first while a take is recording, then quits; the installer updates
+  silently and relaunches Quarry. Plugins and other platforms still only say a release exists.
+  The hash catches corruption and a swapped download, not someone who controls the release; see
+  `docs/AUTO_UPDATE.md`.
+- build: `tools/release/release.py` builds a release from the version in `CMakeLists.txt`. It
+  refuses a dirty tree, an existing tag or a CHANGELOG with no section for the version, runs the
+  unit tests, checks that `Quarry.exe`, the VST3 and the installer all carry that version, and
+  writes the installer's `.sha256`, a CycloneDX SBOM and the release notes. `publish --yes`
+  creates the GitHub release. The installer script no longer carries a version of its own. See
+  `PACKAGING.md`.
 - feat: a link can be handed to the downloader without typing it. Ctrl+V (Cmd+V on macOS) with an
   http(s) URL on the clipboard, or dragging a link from a browser onto the waveform, puts the link
   in the Sample page's link box, or in the activity drawer's prompt on Transcribe, and starts
