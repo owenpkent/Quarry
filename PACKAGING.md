@@ -48,7 +48,7 @@ assumes Windows lives on `C:`.
 The installer is uninstallable. It has a fixed `AppId=Quarry` (never change it: it is what ties an
 upgrade and the Add/Remove Programs entry to the existing install). Uninstalling removes the app folder
 and, if it was installed, the VST3 bundle in `{commoncf}\VST3`. It does not touch settings, samples or
-models under AppData or Documents. If Quarry or a DAW has a file open, the uninstaller says so and stops.
+models under AppData or Documents. If Quarry or a DAW has a file open, the uninstaller says so and stops (the VST3 only counts if this installation put it down).
 `release.py` signs the uninstaller by passing ISCC `/DSignUninstaller` and a `/Squarrysign=...` command
 (omitted with `--no-sign`); see "Code signing" in `docs/AUTO_UPDATE.md`.
 

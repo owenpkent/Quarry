@@ -145,7 +145,10 @@ The installer is uninstallable (Add/Remove Programs, fixed `AppId=Quarry`). An u
 the existing install with the same `AppId`: Inno reuses the install folder and overwrites the
 previous version's files, and settings are not in the install folders, so they are kept. The
 uninstaller removes the app folder and the VST3 bundle only, refuses to run while Quarry or a
-DAW has one of them open, and leaves everything under AppData and Documents.
+DAW has one of them open, and leaves everything under AppData and Documents. The VST3 counts
+only if this installation put it down (recorded as `InstalledVst3` under
+`HKLM\Software\OK Studio\Quarry`), so a standalone-only install is not held up by a DAW using a
+Quarry.vst3 that came from somewhere else.
 
 The installer asks for administrator rights itself (Inno Setup, `PrivilegesRequired=admin`). If
 Quarry launched it with `runas`, the installer would run as the child of an elevated launcher

@@ -64,6 +64,16 @@ Name: "plugin"; Description: "Quarry VST3"; Types: custom; Flags: disablenounins
 Source: "..\..\{#ReleaseDir}\Standalone\Quarry.exe"; DestDir: "{commonpf}\Quarry"; Components:mainapp; Flags: ignoreversion recursesubdirs;
 Source: "..\..\{#ReleaseDir}\VST3\Quarry.vst3\*"; DestDir: "{commoncf}\VST3\Quarry.vst3"; Components:plugin; Flags: ignoreversion recursesubdirs;
 
+[Registry]
+; A record that this installation put the VST3 down, for the uninstaller's open-file check: the
+; shared VST3 folder can hold a Quarry.vst3 this installation never owned (one from a release
+; without an uninstaller, or a hand copy), and that one is neither removed nor a reason to stop.
+; Inno keeps the value when a later update leaves the plugin unselected, which matches the
+; uninstall log: the plugin files from the earlier install are still this installation's to remove.
+Root: HKLM; Subkey: "Software\OK Studio"; Flags: uninsdeletekeyifempty
+Root: HKLM; Subkey: "Software\OK Studio\Quarry"; Flags: uninsdeletekeyifempty
+Root: HKLM; Subkey: "Software\OK Studio\Quarry"; ValueType: dword; ValueName: "InstalledVst3"; ValueData: "1"; Components: plugin; Flags: uninsdeletevalue
+
 [Run]
 ; The in-app updater passes /RELAUNCH so the app comes back, as the user, once the files are in.
 Filename: "{app}\Quarry.exe"; Parameters: "--updated"; Components: mainapp; Flags: nowait runasoriginaluser; Check: RelaunchRequested
@@ -162,7 +172,15 @@ begin
   end;
 end;
 
-{ Refuse to uninstall while the app or a DAW holds a file open, rather than half-remove. }
+{ True if this installation put the VST3 down (the [Registry] record above). }
+function InstalledVst3: Boolean;
+begin
+  Result := RegValueExists(HKLM, 'Software\OK Studio\Quarry', 'InstalledVst3');
+end;
+
+{ Refuse to uninstall while the app or a DAW holds a file open, rather than half-remove. Only
+  files this installation owns count: a VST3 it did not install is not removed, so a DAW holding
+  that one is no reason to stop. }
 function InitializeUninstall(): Boolean;
 begin
   Result := True;
@@ -171,7 +189,8 @@ begin
     SuppressibleMsgBox('Quarry is running. Close it and run the uninstaller again.', mbError, MB_OK, IDOK);
     Result := False;
   end
-  else if FileIsLocked(ExpandConstant('{commoncf}\VST3\Quarry.vst3\Contents\x86_64-win\Quarry.vst3')) then
+  else if InstalledVst3 and
+          FileIsLocked(ExpandConstant('{commoncf}\VST3\Quarry.vst3\Contents\x86_64-win\Quarry.vst3')) then
   begin
     SuppressibleMsgBox('The Quarry VST3 is in use by a host program. Close your DAW and run the uninstaller again.', mbError, MB_OK, IDOK);
     Result := False;
