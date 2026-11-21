@@ -21,7 +21,7 @@
 
 # Package Quarry for Windows
 
-On Windows, Quarry is not code signed for now. To create the installer, the following steps are required:
+On Windows, `tools/release/release.py` signs the binaries and the installer (see "Code signing" in `docs/AUTO_UPDATE.md`; the hardware token must be plugged in, or pass `--no-sign` for a dry run). To create the installer, the following steps are required:
 
 - Build the app and VST3 in Release mode, configured with `-DLTO=OFF`. The prebuilt
   `onnxruntime.lib` is compiled with `/GL` by one specific MSVC version, so with link-time
@@ -95,6 +95,6 @@ file names, the tag and the installer flags are a contract with the in-app updat
    `owenpkent/Quarry`, never a draft or prerelease, with the installer, the `.sha256` and the SBOM
    attached.
 
-Windows builds are not code signed yet, so SmartScreen will warn on first run. Until signing is
-added, the published `.sha256` file is the only integrity check (`sha256sum -c
-QuarrySetup-X.Y.Z.exe.sha256`). Code signing is the follow-up.
+Windows builds are signed with the OK Studio Inc. EV certificate, and `publish` refuses an
+installer that is not (override with `--allow-unsigned`). The published `.sha256` file is the hash
+of the signed installer (`sha256sum -c QuarrySetup-X.Y.Z.exe.sha256`).

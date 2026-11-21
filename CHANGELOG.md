@@ -9,6 +9,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Security
 
+- feat: the Windows release is code signed. `tools/release/release.py` signs `Quarry.exe`, the
+  VST3 binary and the installer with the OK Studio Inc. EV certificate (hardware token, SHA-256,
+  RFC 3161 timestamp) and writes the `.sha256` only after the installer is signed. `--no-sign`
+  skips it for a local dry run, and `publish` refuses an installer that is not validly signed by
+  the pinned certificate unless `--allow-unsigned` is passed. See `docs/AUTO_UPDATE.md`.
 - fix: a file named `.mp3` with nothing decodable in it crashed the host. minimp3 reports such a
   file, and one that switches between mono and stereo part way through, as zero channels, and
   the loader divided by that. Any file dropped on the plugin could do it, and so could a saved

@@ -130,11 +130,29 @@ There are no releases yet, so the download, redirect handling and a real install
 not been exercised against GitHub. The policy functions are covered by the unit tests; the
 Windows I/O compiles and the app starts, nothing more.
 
+## Code signing
+
+The release script signs the Windows binaries and the installer with the OK Studio Inc. EV
+certificate (SHA-1 thumbprint `fc22b5221318f3f3f6b3eb2d969d7f99091557bf`, SHA-256 digest, RFC 3161
+timestamp from `http://timestamp.digicert.com`). The code is `tools/release/sign.py`.
+
+- The key is on a hardware token. Plug it in before `release.py build`; its client software will
+  prompt for the PIN. Use a normal (not elevated) shell, as the token is invisible to admin
+  processes. signtool.exe comes from the Windows SDK.
+- Order: build, sign `Quarry.exe` and the VST3 binary, compile the installer, sign the installer,
+  then write the `.sha256`. The hash is of the signed installer, which is what the updater checks.
+- `release.py build --no-sign` skips signing for a local dry run, with no token needed. The
+  output cannot be published.
+- `release.py publish` checks the installer on disk with `Get-AuthenticodeSignature` and
+  `signtool verify /pa`, and refuses unless it is validly signed by the pinned thumbprint.
+  `--allow-unsigned` overrides that, for an emergency only.
+- The installer's uninstaller is not signed yet.
+
 ## Follow-ups
 
-- **Authenticode pinning.** Once the installer is signed, verify the signature with
-  `WinVerifyTrust` and compare the signer's certificate thumbprint to a pinned value, as
-  alpha-osk does. That is the check that survives a compromised release. Until then this
+- **Authenticode pinning in the updater.** The installer is now signed, so the updater can verify
+  the signature with `WinVerifyTrust` and compare the signer's certificate thumbprint to a pinned
+  value, as alpha-osk does. That is the check that survives a compromised release. Until then this
   design trusts whoever can publish to the repository.
 - **macOS.** Notify only today. An updater there needs a signed and notarized bundle, a
   replacement strategy for a running `.app`, and the same pinning. Nothing in this change
