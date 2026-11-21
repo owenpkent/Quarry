@@ -411,10 +411,11 @@ def sign_tool_argument(signtool: str) -> str:
     """The ISCC /S argument that defines "quarrysign", the command Inno runs on the uninstaller.
 
     Built from sign.sign_command so the thumbprint, digest and timestamp live in one place. Inno
-    replaces $f with the (quoted) file it is signing.
+    replaces $f with the (quoted) file it is signing and $q with a quote, which is how its own
+    documentation says to quote a path here: a literal quote would not survive the command line.
     """
     command = sign.sign_command(signtool, "$f")
-    return "/Squarrysign=" + " ".join(f'"{part}"' if i == 0 or " " in part else part
+    return "/Squarrysign=" + " ".join(f"$q{part}$q" if i == 0 or " " in part else part
                                       for i, part in enumerate(command))
 
 
@@ -452,12 +453,19 @@ def sign_binaries() -> None:
 
 
 def sign_installer(version: str) -> None:
-    """Sign the finished installer. Must run before the .sha256 is written."""
+    """Make sure the finished installer is signed. Must run before the .sha256 is written.
+
+    When Inno signed the uninstaller it signed the installer too (the SignTool directive covers
+    both), so the installer is only signed here if it is not already validly signed. Signing it
+    twice would only cost another PIN prompt.
+    """
     path = os.path.join(RELEASE_DIR, installer_name(version))
     try:
         signtool = sign.find_signtool()
-        sign.sign_file(path, signtool)
         problem = sign.signature_problem(path, signtool)
+        if problem:
+            sign.sign_file(path, signtool)
+            problem = sign.signature_problem(path, signtool)
     except sign.SigningError as error:
         raise ReleaseError(str(error))
     if problem:

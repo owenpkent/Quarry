@@ -94,7 +94,8 @@ class CompileInstallerTests(unittest.TestCase):
         self.assertTrue(arg.endswith(" $f"))
         self.assertIn(sign.CERTIFICATE_SHA1, arg)
         self.assertIn(sign.TIMESTAMP_SERVER, arg)
-        self.assertIn('"C:\\Kits\\x64\\signtool.exe"', arg)
+        self.assertIn("$qC:\\Kits\\x64\\signtool.exe$q", arg)
+        self.assertNotIn('"', arg)
 
     def test_signing_failure_is_a_release_error(self):
         with self.assertRaises(release.ReleaseError):
