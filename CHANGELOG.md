@@ -9,6 +9,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Security
 
+- feat: the Windows installer is now uninstallable and its uninstaller is signed. Quarry appears in
+  Add/Remove Programs (the `AppId` is unchanged, so existing installs upgrade in place). Uninstall
+  removes the app folder and the VST3 bundle and leaves settings, samples and models alone, and it
+  stops with a message if Quarry or a DAW has a file open. `release.py` passes ISCC the
+  `SignUninstaller` define and a `/S` sign command, because signing the finished installer does
+  not sign the uninstaller Inno embeds in it. Contract tests pin the script. See `PACKAGING.md`.
 - feat: the Windows release is code signed. `tools/release/release.py` signs `Quarry.exe`, the
   VST3 binary and the installer with the OK Studio Inc. EV certificate (hardware token, SHA-256,
   RFC 3161 timestamp) and writes the `.sha256` only after the installer is signed. `--no-sign`

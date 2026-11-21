@@ -407,7 +407,18 @@ def build_binaries(lto: bool) -> None:
     run_cmd([UNIT_TESTS_EXE])
 
 
-def compile_installer(version: str) -> None:
+def sign_tool_argument(signtool: str) -> str:
+    """The ISCC /S argument that defines "quarrysign", the command Inno runs on the uninstaller.
+
+    Built from sign.sign_command so the thumbprint, digest and timestamp live in one place. Inno
+    replaces $f with the (quoted) file it is signing.
+    """
+    command = sign.sign_command(signtool, "$f")
+    return "/Squarrysign=" + " ".join(f'"{part}"' if i == 0 or " " in part else part
+                                      for i, part in enumerate(command))
+
+
+def compile_installer(version: str, sign_uninstaller: bool = False) -> None:
     iscc = find_iscc()
     if not iscc:
         raise ReleaseError("ISCC.exe not found. Install Inno Setup 6 or set QUARRY_ISCC.")
@@ -417,8 +428,15 @@ def compile_installer(version: str) -> None:
         os.remove(stale)
     # quarry.iss prefixes ReleaseDir with ..\..\ (it lives two levels down), so pass it relative.
     release_dir_rel = os.path.relpath(ARTEFACTS, ROOT).replace("\\", "/")
-    run_cmd([iscc, ISS, f"/DAppVersion={version}", f"/DReleaseDir={release_dir_rel}",
-             f"/O{RELEASE_DIR}", "/Qp"])
+    command = [iscc, ISS, f"/DAppVersion={version}", f"/DReleaseDir={release_dir_rel}",
+               f"/O{RELEASE_DIR}", "/Qp"]
+    if sign_uninstaller:
+        # Inno signs the uninstaller it embeds; signing the finished installer does not reach it.
+        try:
+            command += ["/DSignUninstaller", sign_tool_argument(sign.find_signtool())]
+        except sign.SigningError as error:
+            raise ReleaseError(str(error))
+    run_cmd(command)
 
 
 def sign_binaries() -> None:
@@ -516,7 +534,7 @@ def cmd_build(args) -> int:
     if not args.no_sign:
         sign_binaries()
     if not args.no_installer:
-        compile_installer(version)
+        compile_installer(version, sign_uninstaller=not args.no_sign)
         if not args.no_sign:
             sign_installer(version)
     # The hash is of the signed installer, so it is written after every signing step.

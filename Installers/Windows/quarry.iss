@@ -9,6 +9,10 @@
 #endif
 
 [Setup]
+; The AppId is the identity Add/Remove Programs and every upgrade key on. It must never change.
+; It is the value Inno derived from AppName before this script was uninstallable, so installs made
+; by earlier versions are recognised as the same app and upgraded in place.
+AppId=Quarry
 AppName=Quarry
 PrivilegesRequired=admin
 ; Quarry is x64 only. Without 64-bit install mode {commonpf} and {commoncf} resolve to the
@@ -33,9 +37,21 @@ AppUpdatesURL=https://github.com/owenpkent/Quarry
 AlwaysShowComponentsList=yes
 Compression=lzma
 SolidCompression=yes
-Uninstallable=no
+; Uninstall removes only what Setup put down: the files below, the Start menu group and the
+; uninstaller. Settings, samples and models live under AppData and Documents, outside every folder
+; this script writes to, so they are left alone. See InitializeUninstall for the open-file check.
+Uninstallable=yes
+UninstallDisplayName=Quarry
+UninstallDisplayIcon={app}\Quarry.exe
 DisableDirPage=yes
 AppCopyright=Copyright (c) 2026 OK Studio. Based on NeuralNote, Copyright (c) 2024 Damien Ronssin.
+
+#ifdef SignUninstaller
+; Inno embeds the uninstaller in the installer, so signing the finished installer does not sign it.
+; release.py defines SignUninstaller and passes the "quarrysign" command (/S) only when signing.
+SignTool=quarrysign
+SignedUninstaller=yes
+#endif
 
 [Types]
 Name: "custom"; Description: "Custom Installation"; Flags: iscustom
@@ -143,5 +159,21 @@ begin
       ExecAsOriginalUser(ExpandConstant('{commonpf}\Quarry\Quarry.exe'), '--update-blocked', '',
         SW_SHOWNORMAL, ewNoWait, ResultCode);
     Result := 'The Quarry VST3 is in use by a host program. Close your DAW and run the installer again.';
+  end;
+end;
+
+{ Refuse to uninstall while the app or a DAW holds a file open, rather than half-remove. }
+function InitializeUninstall(): Boolean;
+begin
+  Result := True;
+  if FileIsLocked(ExpandConstant('{app}\Quarry.exe')) then
+  begin
+    SuppressibleMsgBox('Quarry is running. Close it and run the uninstaller again.', mbError, MB_OK, IDOK);
+    Result := False;
+  end
+  else if FileIsLocked(ExpandConstant('{commoncf}\VST3\Quarry.vst3\Contents\x86_64-win\Quarry.vst3')) then
+  begin
+    SuppressibleMsgBox('The Quarry VST3 is in use by a host program. Close your DAW and run the uninstaller again.', mbError, MB_OK, IDOK);
+    Result := False;
   end;
 end;

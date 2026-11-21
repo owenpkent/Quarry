@@ -110,6 +110,12 @@ owns its process, can quit and be relaunched.
 
 ## Why the verb is `open`, not `runas`
 
+The installer is uninstallable (Add/Remove Programs, fixed `AppId=Quarry`). An update runs over
+the existing install with the same `AppId`: Inno reuses the install folder and overwrites the
+previous version's files, and settings are not in the install folders, so they are kept. The
+uninstaller removes the app folder and the VST3 bundle only, refuses to run while Quarry or a
+DAW has one of them open, and leaves everything under AppData and Documents.
+
 The installer asks for administrator rights itself (Inno Setup, `PrivilegesRequired=admin`). If
 Quarry launched it with `runas`, the installer would run as the child of an elevated launcher
 and its `runasoriginaluser` relaunch would start Quarry elevated. With `open`, Setup starts
@@ -146,7 +152,12 @@ timestamp from `http://timestamp.digicert.com`). The code is `tools/release/sign
 - `release.py publish` checks the installer on disk with `Get-AuthenticodeSignature` and
   `signtool verify /pa`, and refuses unless it is validly signed by the pinned thumbprint.
   `--allow-unsigned` overrides that, for an emergency only.
-- The installer's uninstaller is not signed yet.
+- The uninstaller is signed too. Inno embeds it in the installer, so signing the installer
+  afterwards does not reach it. `compile_installer` passes ISCC `/DSignUninstaller` and a
+  `/Squarrysign=<signtool sign ...> $f` command built from `sign.sign_command` (same thumbprint,
+  digest and timestamp), and `quarry.iss` then sets `SignTool` and `SignedUninstaller=yes`. With
+  `--no-sign` neither argument is passed and the script compiles without them. Inno also signs
+  the installer with this tool, so the token may ask for its PIN more than once per build.
 
 ## Follow-ups
 
