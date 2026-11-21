@@ -558,7 +558,10 @@ notes-per-minute, and never has to get the first slice right.
 > support gate and an absolute floor are both required. Keep them.
 >
 > **State, 2026-11-21: as the note above says, and no further.** The key estimate with
-> **Use it** exists. There is no ribbon, no runner-up and no `Describe`. `NumericTextEditor`
+> **Use it** exists, and so does the global runner-up: `TranscriptionSummary` draws it as
+> "or <key>" beside the estimate whenever the key is valid, from the second-ranked key
+> `KeyEstimate` keeps. Still unbuilt: the ribbon, choosing the alternative with one click, the
+> local (per-section) description and `Describe`. `NumericTextEditor`
 > is still in the codebase and in use (`TranscriptionSummary.h`, `TimeQuantizeOptionsView.h`).
 > `STATS.md` §4 has since measured key on GiantSteps and carries the rework, so read it
 > before this section.
