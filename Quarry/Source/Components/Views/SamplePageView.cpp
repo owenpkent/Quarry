@@ -167,6 +167,12 @@ SamplePageView::SamplePageView(QuarryAudioProcessor& inProcessor)
 {
     mRecorder = std::make_unique<quarry::sampler::SampleRecorder>();
 
+    // Asked once: the label that uses it is painted on every tick.
+    mHostName = File::getSpecialLocation(File::hostApplicationPath).getFileNameWithoutExtension();
+
+    if (mHostName.isEmpty())
+        mHostName = "this host";
+
     mSourceList = std::make_unique<ListBox>("Sources", this);
     mSourceList->setRowHeight(rowHeight);
     mSourceList->setColour(ListBox::backgroundColourId, PANEL_BOT);
@@ -367,8 +373,25 @@ SamplePageView::~SamplePageView()
 
     // Before the recorder is destroyed, so the capture thread is joined while the buffers it
     // writes into are still there to be written to.
+    //
+    // Kept, not discarded. A host closes a plugin window whenever it likes (another track is
+    // selected, the device is folded) and nothing about that says "throw the take away"; it
+    // lands in the library like any other and is there when the window comes back. The same
+    // as a source that vanishes mid-take: a sample that ends early is still a sample.
     if (mRecorder != nullptr && mRecorder->isRecording())
-        mRecorder->discard();
+        mRecorder->stop();
+}
+
+bool SamplePageView::_inHost() const
+{
+    return mProcessor.wrapperType != AudioProcessor::wrapperType_Standalone;
+}
+
+String SamplePageView::_everythingLabel() const
+{
+    // In a host "everything" leaves the host out, and the row has to say so: what is on the
+    // label is what lands in the file.
+    return _inHost() ? "Everything except " + mHostName : String("Everything this computer plays");
 }
 
 //==============================================================================
@@ -630,7 +653,7 @@ void SamplePageView::_paintSelection(Graphics& g)
 
     // The full window title, wrapped. The row above elides it, and with two windows of one
     // application the elided tail is exactly the part that says which of them this is.
-    const auto title = everything ? String("Everything this computer plays")
+    const auto title = everything ? _everythingLabel()
                      : source->windowTitle.isNotEmpty() ? source->windowTitle
                                                         : appLabel(source->name);
 
@@ -989,8 +1012,17 @@ void SamplePageView::timerCallback()
     if (++mTicksSinceSources >= ticksPerSourceRefresh)
     {
         mTicksSinceSources = 0;
-        _refreshSources();
-        repaint();
+
+        // Only while the list can be seen. Behind the Transcribe page, or in a plugin window
+        // the host has hidden, this was a round of COM and a walk of every window on the
+        // desktop four times a second, on a message thread that in a host is not ours to
+        // spend. The tick itself carries on, because the link poll and a running take ride it.
+        if (isShowing())
+        {
+            _refreshSources();
+            repaint();
+        }
+
         return;
     }
 
@@ -1294,7 +1326,7 @@ void SamplePageView::paintListBoxItem(int row, Graphics& g, int width, int heigh
         // The caveat trails the choice it applies to. Right-aligned in its own column it sat
         // level with the header above and read as a label for the whole list.
         auto text = bounds.reduced(8, 0);
-        const auto label = String("Everything this computer plays");
+        const auto label = _everythingLabel();
 
         const auto labelWidth = GlyphArrangement::getStringWidthInt(g.getCurrentFont(), label);
         g.drawText(label, text.removeFromLeft(labelWidth + 12), Justification::centredLeft, true);
@@ -1389,7 +1421,8 @@ void SamplePageView::listBoxItemClicked(int row, const MouseEvent&)
     {
         mSelectedPid = everythingPid;
         mSelectedWindow = 0;
-        mStatusText = "Ready to record everything. The source will be a guess.";
+        mStatusText = _inHost() ? "Ready to record everything except " + mHostName + ". The source will be a guess."
+                                : String("Ready to record everything. The source will be a guess.");
     }
     else
     {
@@ -1520,7 +1553,23 @@ void SamplePageView::_toggleRecording()
 
     if (mSelectedPid == everythingPid)
     {
-        const auto begun = mRecorder->startEndpoint(_libraryRoot());
+        // In a host the endpoint is the wrong thing to record: it carries the host's own
+        // output, this plugin's audition voice with it, so the take would be the session
+        // played back into itself. There "everything" is the machine minus the host's process
+        // tree, which is the same exclusion the list already makes by leaving the host out.
+        //
+        // That needs process loopback. Without it the choice is refused rather than quietly
+        // served from the endpoint, because a take with the host in it is not what was asked for.
+        auto begun = Result::ok();
+
+        if (! _inHost())
+            begun = mRecorder->startEndpoint(_libraryRoot());
+        else if (WasapiProcessLoopback::isSupported())
+            begun = mRecorder->startEverythingExcept((uint32) GetCurrentProcessId(), _libraryRoot());
+        else
+            begun = Result::fail("This version of Windows cannot leave " + mHostName
+                                 + " out of the recording. Use the standalone Quarry for this.");
+
         mStatusText = begun.wasOk() ? "Recording everything ..." : begun.getErrorMessage();
 
         _updateEnablements();
@@ -1778,7 +1827,7 @@ void SamplePageView::_rebuildChooser()
         return;
 
     mSourceChooser->clear(dontSendNotification);
-    mSourceChooser->addItem("Everything this computer plays", 1);
+    mSourceChooser->addItem(_everythingLabel(), 1);
 
     for (size_t i = 0; i < mShownSources.size(); ++i)
     {
