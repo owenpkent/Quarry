@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import types
 import unittest
 from unittest import mock
@@ -179,11 +180,42 @@ class SignCommandTests(unittest.TestCase):
                 mock.patch.object(sign.subprocess, "run", return_value=_done(0, "NotSigned|")):
             self.assertIn("NotSigned", sign.signature_problem("x.exe", "signtool.exe"))
 
+    def test_signature_problem_passes_the_path_as_data(self):
+        with mock.patch.object(sign.os.path, "isfile", return_value=True), \
+                mock.patch.object(sign.subprocess, "run", return_value=_done(0, "NotSigned|")) as run:
+            sign.signature_problem("x.exe", "signtool.exe")
+        command = run.call_args.args[0]
+        self.assertEqual(command[-2], "-Command")  # the script is the last argument: no path after it
+        self.assertEqual(run.call_args.kwargs["env"]["QUARRY_SIGNATURE_PATH"], os.path.abspath("x.exe"))
+
     def test_signature_problem_ok(self):
         out = "Valid|" + sign.CERTIFICATE_SHA1.upper()
         with mock.patch.object(sign.os.path, "isfile", return_value=True), \
                 mock.patch.object(sign.subprocess, "run", side_effect=[_done(0, out), _done(0)]):
             self.assertIsNone(sign.signature_problem("x.exe", "signtool.exe"))
+
+
+
+@unittest.skipUnless(sys.platform == "win32", "asks the real Windows PowerShell")
+class RealSignatureCheckTests(unittest.TestCase):
+    """Not mocked: the mocked tests above cannot tell whether the path reaches PowerShell."""
+
+    def test_a_microsoft_binary_is_valid_but_the_wrong_signer(self):
+        powershell = os.path.join(os.environ["SystemRoot"], "System32", "WindowsPowerShell", "v1.0",
+                                  "powershell.exe")
+        problem = sign.signature_problem(powershell, "signtool.exe")
+        # Read and judged Valid, then refused for its signer. "status is unknown" here would mean
+        # the path never arrived.
+        self.assertIsNotNone(problem)
+        self.assertIn("not the pinned", problem)
+
+    def test_an_unsigned_script_is_not_signed(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "with space", "unsigned.ps1")
+            os.makedirs(os.path.dirname(path))
+            with open(path, "w", encoding="ascii") as handle:
+                handle.write("Write-Output 1\n")
+            self.assertIn("NotSigned", sign.signature_problem(path, "signtool.exe"))
 
 
 class BuildOrderTests(unittest.TestCase):
