@@ -49,6 +49,12 @@ inline File captureFolder(const ValueTree& inState)
     return File::getSpecialLocation(File::userMusicDirectory).getChildFile("Quarry Captures");
 }
 
+/** Whether a take also records the picture. Anything but a stored true reads as off. */
+inline bool samplePicture(const ValueTree& inState)
+{
+    return (bool) inState.getProperty(NnId::SamplePictureId, false);
+}
+
 /** Where a link download is saved: the folder chosen for downloads, or the capture folder until
     one is chosen, so a download lands where the Sample page can list it. */
 inline File downloadFolder(const ValueTree& inState)

@@ -12,6 +12,7 @@
 
 #include "Sampler/SampleLibrary.h"
 #include "Sampler/SampleMath.h"
+#include "Sampler/SampleMetadata.h"
 
 namespace sampler_test_utils
 {
@@ -230,6 +231,87 @@ inline bool sampler_test()
         check(SampleLibrary::siblingNamed(sidecar, "C:\\windows\\x.dll") == juce::File(),
               "an absolute path is refused");
         check(SampleLibrary::siblingNamed(sidecar, "") == juce::File(), "an empty name is refused");
+
+        check(SampleLibrary::siblingNamed(sidecar, "take.mp4") == sidecar.getSiblingFile("take.mp4"),
+              "a video beside the sidecar resolves");
+        check(SampleLibrary::siblingNamed(sidecar, "..\\x.mp4") == juce::File(),
+              "a video name that climbs out is refused");
+    }
+
+    //==========================================================================
+    // The picture, read back through scan() the way the page does.
+    {
+        using quarry::sampler::SampleLibrary;
+
+        const auto dir = juce::File::getSpecialLocation(juce::File::tempDirectory)
+                             .getChildFile("quarry-sampler-video-test");
+        dir.deleteRecursively();
+        dir.createDirectory();
+
+        dir.getChildFile("a.wav").replaceWithText("x");
+        dir.getChildFile("a.mp4").replaceWithText("x");
+        dir.getChildFile("a.json").replaceWithText(
+            "{\"schema\":1,\"capturedAt\":\"2026-08-16T14:30:52.000Z\",\"video\":{\"file\":\"a.mp4\","
+            "\"width\":1280,\"height\":720,\"fps\":60,\"durationSec\":2.5}}");
+        dir.getChildFile("b.wav").replaceWithText("x");
+        dir.getChildFile("b.json").replaceWithText(
+            "{\"schema\":1,\"capturedAt\":\"2026-08-16T14:30:53.000Z\",\"video\":{\"file\":\"..\\\\x.mp4\"}}");
+        dir.getChildFile("c.wav").replaceWithText("x");
+        dir.getChildFile("c.json").replaceWithText("{\"schema\":1,\"capturedAt\":\"2026-08-16T14:30:54.000Z\"}");
+
+        auto entries = SampleLibrary::scan(dir);
+        check(entries.size() == 3, "all three sidecars are read");
+
+        // A sidecar that names a video that is not there reads as having none.
+        dir.getChildFile("a.mp4").deleteFile();
+        {
+            const auto gone = SampleLibrary::scan(dir);
+            auto sawA = false;
+
+            for (const auto& entry : gone)
+                if (entry.sidecarFile.getFileNameWithoutExtension() == "a")
+                {
+                    sawA = true;
+                    check(entry.videoFile == juce::File(), "a named video that is missing is not kept");
+                }
+
+            check(sawA, "the take with the missing video is still listed");
+        }
+
+        dir.getChildFile("a.mp4").replaceWithText("x");
+        entries = SampleLibrary::scan(dir);
+
+        for (const auto& entry : entries)
+        {
+            const auto name = entry.sidecarFile.getFileNameWithoutExtension();
+
+            if (name == "a")
+                check(entry.videoFile == dir.getChildFile("a.mp4"), "a sidecar naming a video resolves it");
+            else
+                check(entry.videoFile == juce::File(), "a traversal name or no video leaves it unset");
+        }
+
+        dir.deleteRecursively();
+    }
+
+    //==========================================================================
+    // The sidecar's video block: there only when there is a picture, and additive.
+    {
+        quarry::sampler::SampleMetadata meta;
+        check(! meta.toJson().contains("\"video\""), "a take without a picture writes no video block");
+
+        meta.video.file = "take.mp4";
+        meta.video.width = 1280;
+        meta.video.height = 720;
+        meta.video.fps = 60.0;
+        meta.video.durationSec = 2.5;
+
+        const auto parsed = juce::JSON::parse(meta.toJson());
+        const auto video = parsed.getProperty("video", juce::var());
+        check(video.isObject(), "a take with a picture writes a video block");
+        check(video.getProperty("file", juce::var()).toString() == "take.mp4", "the video block names the file");
+        check((int) video.getProperty("width", juce::var()) == 1280, "the video block carries the width");
+        check((int) parsed.getProperty("schema", juce::var()) == 1, "the schema number is unchanged");
     }
 
     if (failures == 0)

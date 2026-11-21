@@ -75,10 +75,23 @@ struct SampleMetadata
         double originalDurationSec = 0.0;
     };
 
+    /** The picture recorded with the take, if there was one. The sidecar gets a `video` object
+        only when `file` is set, so a take without a picture reads exactly as it always did and
+        the schema number stays at 1: the key is additive and older readers ignore it. */
+    struct Video
+    {
+        juce::String file;             // filename only, beside the audio
+        int width = 0;
+        int height = 0;
+        double fps = 0.0;
+        double durationSec = 0.0;
+    };
+
     Source source;
     Media media;
     Audio audio;
     Trim trim;
+    Video video;
     juce::StringArray tags;
 
     //==========================================================================
@@ -152,6 +165,17 @@ struct SampleMetadata
         trimVar->setProperty("endSec", trim.endSec);
         trimVar->setProperty("originalDurationSec", trim.originalDurationSec);
         root->setProperty("trim", juce::var(trimVar));
+
+        if (video.file.isNotEmpty())
+        {
+            auto* videoVar = new juce::DynamicObject();
+            videoVar->setProperty("file", video.file);
+            videoVar->setProperty("width", video.width);
+            videoVar->setProperty("height", video.height);
+            videoVar->setProperty("fps", video.fps);
+            videoVar->setProperty("durationSec", video.durationSec);
+            root->setProperty("video", juce::var(videoVar));
+        }
 
         // Both deliberately empty. Analysis is never automatic, and the classifier is
         // undecided; the slots exist so neither changes the schema when it arrives.

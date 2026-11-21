@@ -144,6 +144,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- feat: the Sample page can record the picture too. A new WITH PICTURE switch films the picked
+  window (the main screen for "Everything") to an mp4 beside the wav, with the same computer
+  sound as its soundtrack and no microphone. Video is 60 fps H.264 on the GPU encoder where there
+  is one; the sound is the wav's own samples, counted and never edited, so the two stay in step
+  on a long take. The sidecar gets an optional `video` block and library rows show a VIDEO tag.
+
 - feat: a link can be handed to the downloader without typing it. Ctrl+V (Cmd+V on macOS) with an
   http(s) URL on the clipboard, or dragging a link from a browser onto the waveform, puts the link
   in the Sample page's link box, or in the activity drawer's prompt on Transcribe, and starts

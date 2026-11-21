@@ -203,6 +203,22 @@ void SampleRecorder::discard()
 //==============================================================================
 void SampleRecorder::loopbackBlock(const float* const* channels, int numChannels, int numSamples)
 {
+    recordBlock(channels, numChannels, numSamples);
+
+    // After this recorder's own work, so a slow tap can never delay what the wav keeps. The
+    // tap sees every block while the take is open, including the ones past the length cap.
+    if (tap != nullptr && recording.load())
+        tap->loopbackBlock(channels, numChannels, numSamples);
+}
+
+void SampleRecorder::setTap(okstudio::capture::LoopbackSink* newTap)
+{
+    jassert(! recording.load());
+    tap = newTap;
+}
+
+void SampleRecorder::recordBlock(const float* const* channels, int numChannels, int numSamples)
+{
     if (! recording.load() || channels == nullptr || numChannels <= 0 || numSamples <= 0)
         return;
 
@@ -352,9 +368,22 @@ juce::AudioBuffer<float> SampleRecorder::flatten() const
 }
 
 //==============================================================================
-SampleRecorder::Written SampleRecorder::stop()
+SampleRecorder::Written SampleRecorder::stop(const CompanionVideo* video)
 {
     Written result;
+
+    // The picture's temp file belongs to this call from here on. Whatever way it returns, a
+    // file still sitting at the temp path was not filed, and is deleted rather than left in
+    // the library folder for someone to find. A successful move leaves nothing to delete.
+    struct TempVideoGuard
+    {
+        const CompanionVideo* video;
+        ~TempVideoGuard()
+        {
+            if (video != nullptr)
+                video->tempFile.deleteFile();
+        }
+    } tempVideoGuard { video };
 
     if (! recording.load())
     {
@@ -494,6 +523,25 @@ SampleRecorder::Written SampleRecorder::stop()
         // read back, which is what this scope is for.
         stream.release();
         writer->writeFromAudioSampleBuffer(trimmed, 0, trimmed.getNumSamples());
+    }
+
+    //==========================================================================
+    // The picture, beside the wav and named for it. Moved rather than copied because it can
+    // be large; a copy and delete is the fallback for a temp file on another volume.
+    if (video != nullptr && video->tempFile.existsAsFile())
+    {
+        const auto videoFile = folder.getChildFile(stem + ".mp4");
+
+        if (video->tempFile.moveFileTo(videoFile)
+            || (video->tempFile.copyFileTo(videoFile) && video->tempFile.deleteFile()))
+        {
+            pending.video.file = videoFile.getFileName();
+            pending.video.width = video->width;
+            pending.video.height = video->height;
+            pending.video.fps = video->fps;
+            pending.video.durationSec = video->durationSec;
+            result.videoFile = videoFile;
+        }
     }
 
     //==========================================================================

@@ -44,7 +44,19 @@ public:
         juce::String message;
         juce::File audioFile;
         juce::File sidecarFile;
+        juce::File videoFile;   // invalid unless a picture was recorded and kept
         SampleMetadata metadata;
+    };
+
+    /** A finished picture for stop() to file beside the wav. The recorder only moves it and
+        writes down what it is; ScreenRecorder is what made it. */
+    struct CompanionVideo
+    {
+        juce::File tempFile;
+        int width = 0;
+        int height = 0;
+        double fps = 0.0;
+        double durationSec = 0.0;
     };
 
     SampleRecorder();
@@ -84,8 +96,25 @@ public:
     juce::Result startEverythingExcept(juce::uint32 excludedProcessId, const juce::File& libraryRoot);
 
     /** Stops, trims, measures, and writes. Safe to call when not recording: it reports that
-        rather than throwing. */
-    Written stop();
+        rather than throwing.
+
+        With a `video`, the picture is moved to `<stem>.mp4` beside the wav and named in the
+        sidecar. If the take is not written, the video's temp file is deleted, so a caller
+        that hands one over never has to clean up after a failure. */
+    Written stop(const CompanionVideo* video = nullptr);
+
+    /** Sends a copy of every block to `tap` as well, for the picture's soundtrack. Only legal
+        while not recording.
+
+        No atomic is needed: the tap is set before the stream opens and cleared after stop()
+        or discard() has joined the capture thread, so the capture thread only ever sees it
+        unchanged, and starting and joining that thread is what orders the write against its
+        reads. The tap's loopbackBlock runs on the capture thread and must not block. */
+    void setTap(okstudio::capture::LoopbackSink* newTap);
+
+    /** The rate of the stream that is open, in Hz. Valid once start() or startEndpoint()
+        has returned ok. */
+    double sampleRate() const noexcept { return capturedRate; }
 
     /** Stops and keeps nothing. */
     void discard();
@@ -121,6 +150,11 @@ private:
     //==========================================================================
     void loopbackBlock(const float* const* channels, int numChannels, int numSamples) override;
     void loopbackFailed() override;
+
+    /** Everything loopbackBlock did before there was a tap. */
+    void recordBlock(const float* const* channels, int numChannels, int numSamples);
+
+    okstudio::capture::LoopbackSink* tap = nullptr;
 
     /** Frames per block of captured audio. Appending never reallocates what is already
         held, so a long take costs an occasional small allocation rather than a copy of

@@ -25,6 +25,7 @@ struct LibraryEntry
     juce::File audioFile;
     juce::File sidecarFile;
     juce::File imageFile;
+    juce::File videoFile;   // invalid when the take had no picture
 
     juce::Time capturedAt;
     juce::String appName;
