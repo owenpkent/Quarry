@@ -111,6 +111,7 @@ parent holds focus and `QuarryMainView::keyPressed` (line 504) drives the childr
 | `r` | record |
 | `m` | mute |
 | `c` | center playhead |
+| `Space` or `r`, on the Sample page | record / stop |
 
 **SC 2.1.1 asks for keyboard operability, not for Tab focus specifically**, so the whole
 transport passes. This is also what `MouseOnly.h` prescribes for the line:

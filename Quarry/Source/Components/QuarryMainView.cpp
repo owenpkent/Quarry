@@ -714,6 +714,17 @@ bool QuarryMainView::keyPressed(const KeyPress& key)
         return true;
     }
 
+#if JUCE_WINDOWS
+    // On the Sample page the space bar is RECORD: it starts a take and stops the one running. So
+    // is r, which records on the other page. Both used to reach that page's hidden transport and
+    // record button from here. A focused text box takes its own space before this is asked.
+    if (mSamplePage != nullptr && mSamplePage->isVisible()
+        && (key == KeyPress::spaceKey || key == KeyPress('r', juce::ModifierKeys::noModifiers, 0))) {
+        mSamplePage->triggerRecord();
+        return true;
+    }
+#endif
+
     if (key == KeyPress::spaceKey) {
         mPlayPauseButton->triggerClick();
         return true;
