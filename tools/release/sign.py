@@ -72,7 +72,7 @@ def verify_command(signtool: str, path: str) -> list:
 # Sign and verify
 # --------------------------------------------------------------------------------------
 
-def sign_file(path: str, signtool: str = None) -> None:
+def sign_file(path: str, signtool: str | None = None) -> None:
     """Sign one file, retrying with linear backoff. Raises SigningError after MAX_RETRIES."""
     signtool = signtool or find_signtool()
     name = os.path.basename(path)
@@ -95,7 +95,7 @@ def sign_file(path: str, signtool: str = None) -> None:
                        "hardware token plugged in, and was the PIN entered?")
 
 
-def verify_file(path: str, signtool: str = None) -> bool:
+def verify_file(path: str, signtool: str | None = None) -> bool:
     """True if `signtool verify /pa` accepts the file's signature."""
     signtool = signtool or find_signtool()
     done = subprocess.run(verify_command(signtool, path), capture_output=True, text=True,
@@ -106,7 +106,7 @@ def verify_file(path: str, signtool: str = None) -> bool:
     return False
 
 
-def signature_problem(path: str, signtool: str = None):
+def signature_problem(path: str, signtool: str | None = None):
     """Why `path` is not validly signed by the pinned certificate, or None if it is.
 
     Asks Windows (Get-AuthenticodeSignature) for the status and signer thumbprint, then
@@ -117,7 +117,10 @@ def signature_problem(path: str, signtool: str = None):
     script = ("$s = Get-AuthenticodeSignature -LiteralPath $args[0]; "
               "$t = if ($s.SignerCertificate) { $s.SignerCertificate.Thumbprint } else { '' }; "
               "Write-Output ('{0}|{1}' -f $s.Status, $t)")
-    done = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script, path],
+    # The full path, so a powershell.exe earlier on PATH cannot answer for Windows.
+    powershell = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32",
+                              "WindowsPowerShell", "v1.0", "powershell.exe")
+    done = subprocess.run([powershell, "-NoProfile", "-NonInteractive", "-Command", script, path],
                           capture_output=True, text=True,
                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     status, _, thumbprint = done.stdout.strip().partition("|")
