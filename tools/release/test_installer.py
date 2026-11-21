@@ -52,26 +52,27 @@ class ScriptContractTests(unittest.TestCase):
         self.assertIn("FileIsLocked", ISS_TEXT)
         self.assertIn("function InitializeUninstall", ISS_TEXT)
 
-    def test_vst3_ownership_is_recorded_only_with_the_plugin_component(self):
-        entries = [line for line in ISS_TEXT.splitlines() if 'ValueName: "InstalledVst3"' in line]
-        self.assertEqual(len(entries), 1)
-        self.assertIn("Root: HKLM;", entries[0])
-        self.assertIn("Components: plugin;", entries[0])
-        self.assertIn("uninsdeletevalue", entries[0])
+    def test_ownership_is_recorded_only_with_the_owning_component(self):
+        for value, component in (("InstalledVst3", "plugin"), ("InstalledStandalone", "mainapp")):
+            entries = [line for line in ISS_TEXT.splitlines() if f'ValueName: "{value}"' in line]
+            self.assertEqual(len(entries), 1, value)
+            self.assertIn("Root: HKLM;", entries[0])
+            self.assertIn(f"Components: {component};", entries[0])
+            self.assertIn("uninsdeletevalue", entries[0])
 
-    def test_uninstall_ignores_a_locked_vst3_it_does_not_own(self):
-        # A standalone-only install must not be blocked by a DAW holding a Quarry.vst3 that this
-        # installation never put down: every VST3 lock check in the uninstaller is gated on the
-        # ownership record. The app's own exe is checked without a gate.
+    def test_uninstall_ignores_locked_files_it_does_not_own(self):
+        # Both components are optional. A standalone-only install must not be blocked by a DAW
+        # holding a Quarry.vst3 this installation never put down, and a plugin-only install must
+        # not be blocked by a running Quarry.exe it never put down: every lock check in the
+        # uninstaller is gated on the ownership record of the file it looks at.
         body = ISS_TEXT[ISS_TEXT.index("function InitializeUninstall"):]
         checks = re.findall(r"(\w+ and\s+)?FileIsLocked\(ExpandConstant\('([^']*)'\)\)", body)
         self.assertEqual(len(checks), 2)
         for gate, path in checks:
-            if path.endswith(".vst3"):
-                self.assertTrue(gate.startswith("InstalledVst3 and"), path)
-            else:
-                self.assertEqual(gate, "", path)
-        self.assertIn("RegValueExists(HKLM, 'Software\\OK Studio\\Quarry', 'InstalledVst3')", ISS_TEXT)
+            owner = "InstalledVst3" if path.endswith(".vst3") else "InstalledStandalone"
+            self.assertTrue(gate.startswith(owner + " and"), path)
+        for value in ("InstalledVst3", "InstalledStandalone"):
+            self.assertIn(f"RegValueExists(HKLM, 'Software\\OK Studio\\Quarry', '{value}')", ISS_TEXT)
 
     def test_user_data_is_not_touched(self):
         for forbidden in ("{userappdata}", "{localappdata}", "{userdocs}", "{commonappdata}"):

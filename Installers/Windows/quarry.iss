@@ -65,14 +65,16 @@ Source: "..\..\{#ReleaseDir}\Standalone\Quarry.exe"; DestDir: "{commonpf}\Quarry
 Source: "..\..\{#ReleaseDir}\VST3\Quarry.vst3\*"; DestDir: "{commoncf}\VST3\Quarry.vst3"; Components:plugin; Flags: ignoreversion recursesubdirs;
 
 [Registry]
-; A record that this installation put the VST3 down, for the uninstaller's open-file check: the
-; shared VST3 folder can hold a Quarry.vst3 this installation never owned (one from a release
-; without an uninstaller, or a hand copy), and that one is neither removed nor a reason to stop.
-; Inno keeps the value when a later update leaves the plugin unselected, which matches the
-; uninstall log: the plugin files from the earlier install are still this installation's to remove.
+; A record of which of the two payloads this installation put down, for the uninstaller's
+; open-file check. Both components are optional, and either file can be there without belonging
+; to this installation (from a release without an uninstaller, or a hand copy): such a file is
+; neither removed nor a reason to stop. Inno keeps a value when a later update leaves that
+; component unselected, which matches the uninstall log: the files from the earlier install are
+; still this installation's to remove.
 Root: HKLM; Subkey: "Software\OK Studio"; Flags: uninsdeletekeyifempty
 Root: HKLM; Subkey: "Software\OK Studio\Quarry"; Flags: uninsdeletekeyifempty
 Root: HKLM; Subkey: "Software\OK Studio\Quarry"; ValueType: dword; ValueName: "InstalledVst3"; ValueData: "1"; Components: plugin; Flags: uninsdeletevalue
+Root: HKLM; Subkey: "Software\OK Studio\Quarry"; ValueType: dword; ValueName: "InstalledStandalone"; ValueData: "1"; Components: mainapp; Flags: uninsdeletevalue
 
 [Run]
 ; The in-app updater passes /RELAUNCH so the app comes back, as the user, once the files are in.
@@ -172,19 +174,26 @@ begin
   end;
 end;
 
-{ True if this installation put the VST3 down (the [Registry] record above). }
+{ True if this installation put the Standalone down (the [Registry] records above). }
+function InstalledStandalone: Boolean;
+begin
+  Result := RegValueExists(HKLM, 'Software\OK Studio\Quarry', 'InstalledStandalone');
+end;
+
+{ True if this installation put the VST3 down. }
 function InstalledVst3: Boolean;
 begin
   Result := RegValueExists(HKLM, 'Software\OK Studio\Quarry', 'InstalledVst3');
 end;
 
 { Refuse to uninstall while the app or a DAW holds a file open, rather than half-remove. Only
-  files this installation owns count: a VST3 it did not install is not removed, so a DAW holding
-  that one is no reason to stop. }
+  files this installation owns count: a Quarry.exe or VST3 it did not install is not removed, so
+  one of those being open is no reason to stop. }
 function InitializeUninstall(): Boolean;
 begin
   Result := True;
-  if FileIsLocked(ExpandConstant('{app}\Quarry.exe')) then
+  if InstalledStandalone and
+     FileIsLocked(ExpandConstant('{app}\Quarry.exe')) then
   begin
     SuppressibleMsgBox('Quarry is running. Close it and run the uninstaller again.', mbError, MB_OK, IDOK);
     Result := False;
