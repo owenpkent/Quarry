@@ -47,6 +47,40 @@ assumes Windows lives on `C:`.
 
 The installer will be located in `Installers/Windows/Output`.
 
+## Dependency scans
+
+Three things watch the dependencies. None of them is part of the release script.
+
+- **OSV scan** (`ci.yml` jobs `osv-scan` and `osv-scan-main`, and `.github/workflows/osv-nightly.yml`)
+  reads `tools/sidecar/requirements.txt` and `prototypes/synthesia_detector/requirements.txt` and
+  fails on any known advisory (`fail-on-vuln: true`). On a pull request it fails only on
+  advisories the PR introduces; master is scanned in full on every push and nightly. The git
+  submodules and the pinned onnxruntime are not scanned, because the release SBOM is only written
+  by a full build.
+- **Dependabot** (`.github/dependabot.yml`) opens weekly PRs for GitHub Actions, both Python
+  requirements directories and the submodules. JUCE major bumps are ignored: it is pinned to a
+  security tag and JUCE 9 is a separate migration.
+- **Socket** (`socket.yml`) checks dependency changes on PRs for supply-chain alerts and ignores
+  `ThirdParty/`.
+
+To quarantine an advisory that has no fix yet, add an `osv-scanner.toml` beside the requirements
+file it applies to (the scanner reads it only from that file's directory), with a reason and a
+short expiry:
+
+```toml
+[[IgnoredVulns]]
+id = "GHSA-xxxx-xxxx-xxxx"
+ignoreUntil = 2026-12-31
+reason = "No fixed release yet; not reachable from the sidecar."
+```
+
+Use weeks, not months. When the date passes the scan fails again, which is the reminder to check
+for a fix. Never set `fail-on-vuln` to false.
+
+A failing scan on master blocks a release: fix or pin the dependency, or add a time-boxed ignore
+with a reason, before running `release.py build`. A release should not ship with an open,
+unexplained advisory.
+
 ## Windows release checklist
 
 A release is manual and local. `tools/release/release.py` builds, checks and publishes it; the

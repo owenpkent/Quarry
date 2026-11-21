@@ -1,0 +1,38 @@
+name: OSV nightly
+
+# A full OSV scan of master once a day.
+#
+# The OSV job in ci.yml fails a pull request only on vulnerabilities that pull
+# request introduces, so an advisory published against a dependency already on
+# master never shows up on a PR. This is where it shows up: the run fails, and
+# GitHub emails the user who last modified the cron line below. Fix the
+# dependency, or quarantine the advisory with a time-boxed osv-scanner.toml
+# entry beside the requirements file it applies to (see PACKAGING.md).
+#
+# GitHub disables scheduled workflows after 60 days with no repository
+# activity, and the notification goes to whoever last edited the cron line.
+#
+# Same scan arguments and the same pinned SHA as ci.yml. Bump both together.
+
+on:
+  schedule:
+    - cron: "41 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  osv-scan:
+    name: OSV Scanner (nightly full scan of master)
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@32d3cd482bdadfb38b186c0ad1b031902d55d932 # v2.7.1
+    with:
+      scan-args: |-
+        --lockfile=tools/sidecar/requirements.txt
+        --lockfile=prototypes/synthesia_detector/requirements.txt
+      fail-on-vuln: true
+      upload-sarif: false
