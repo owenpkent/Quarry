@@ -18,8 +18,8 @@ your favorite Digital Audio Workstation.
 
 Windows releases are published on the [releases page](https://github.com/owenpkent/Quarry/releases)
 as `QuarrySetup-X.Y.Z.exe` (none has been published yet), which installs the Standalone, the VST3
-or both. The installer is not
-code signed yet, so Windows SmartScreen may warn before it runs. Each release also carries the
+or both. The installer is code signed
+by OK Studio Inc., and the in-app updater checks that signature. Each release also carries the
 installer's SHA-256 (`QuarrySetup-X.Y.Z.exe.sha256`) and a CycloneDX SBOM.
 
 Once installed, the Windows Standalone checks for a newer release at startup and can install it
