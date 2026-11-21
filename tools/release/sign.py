@@ -114,14 +114,17 @@ def signature_problem(path: str, signtool: str | None = None):
     """
     if not os.path.isfile(path):
         return f"{path} does not exist"
-    script = ("$s = Get-AuthenticodeSignature -LiteralPath $args[0]; "
+    # The path goes in through the environment, as data. Windows PowerShell joins everything after
+    # -Command into the command text, so a path passed as a further argument never reaches $args.
+    script = ("$s = Get-AuthenticodeSignature -LiteralPath $env:QUARRY_SIGNATURE_PATH; "
               "$t = if ($s.SignerCertificate) { $s.SignerCertificate.Thumbprint } else { '' }; "
               "Write-Output ('{0}|{1}' -f $s.Status, $t)")
     # The full path, so a powershell.exe earlier on PATH cannot answer for Windows.
     powershell = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32",
                               "WindowsPowerShell", "v1.0", "powershell.exe")
-    done = subprocess.run([powershell, "-NoProfile", "-NonInteractive", "-Command", script, path],
+    done = subprocess.run([powershell, "-NoProfile", "-NonInteractive", "-Command", script],
                           capture_output=True, text=True,
+                          env=dict(os.environ, QUARRY_SIGNATURE_PATH=os.path.abspath(path)),
                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     status, _, thumbprint = done.stdout.strip().partition("|")
     if done.returncode != 0 or status != "Valid":
