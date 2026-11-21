@@ -35,10 +35,9 @@ updates:
           - "minor"
           - "patch"
 
-  # JUCE is pinned deliberately to a security tag, and JUCE 9 is a planned,
-  # separate migration, so major bumps are ignored. Minor and patch bumps still
-  # open a PR for review. Note: for gitsubmodule, Dependabot tracks the
-  # submodule's branch head, so check the proposed commit is a tagged release.
+  # JUCE is left out: it is pinned deliberately to a security tag, a submodule
+  # has no version for Dependabot to compare (it would propose the branch head),
+  # and JUCE 9 is a planned, separate migration. Bump JUCE by hand.
   - package-ecosystem: "gitsubmodule"
     directory: "/"
     schedule:
@@ -48,4 +47,3 @@ updates:
       - "dependencies"
     ignore:
       - dependency-name: "ThirdParty/JUCE"
-        update-types: ["version-update:semver-major"]

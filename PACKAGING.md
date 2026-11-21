@@ -58,8 +58,8 @@ Three things watch the dependencies. None of them is part of the release script.
   submodules and the pinned onnxruntime are not scanned, because the release SBOM is only written
   by a full build.
 - **Dependabot** (`.github/dependabot.yml`) opens weekly PRs for GitHub Actions, both Python
-  requirements directories and the submodules. JUCE major bumps are ignored: it is pinned to a
-  security tag and JUCE 9 is a separate migration.
+  requirements directories and the RTNeural submodule. JUCE is ignored and bumped by hand: it is
+  pinned to a security tag and JUCE 9 is a separate migration.
 - **Socket** (`socket.yml`) checks dependency changes on PRs for supply-chain alerts and ignores
   `ThirdParty/`.
 
