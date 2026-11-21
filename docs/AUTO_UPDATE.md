@@ -35,17 +35,23 @@ differed, which would have offered an older release.)
    hashed (SHA-256, through that handle) and compared to the published hash. A mismatch deletes
    the file and stops.
 5. The file's version resource must read exactly `X.Y.Z.0`.
-6. The Restart Manager is asked which processes have
+6. The embedded Authenticode signature is verified with `WinVerifyTrust` (generic verify v2, no
+   UI, revocation checked for the whole chain except the root), through the same pinned handle.
+   The signer certificate's SHA-1 thumbprint must be in the accepted list and its subject common
+   name must be exactly `OK Studio Inc.` (`isAcceptedSigner` in `UpdatePolicy`). Anything else,
+   including a failed verification, deletes the file and stops with "Could not verify the
+   installer". The result, thumbprint and name seen are logged.
+7. The Restart Manager is asked which processes have
    `%CommonProgramFiles%\VST3\Quarry.vst3\Contents\x86_64-win\Quarry.vst3` loaded. If a host does,
    nothing is launched and the banner says "Ableton Live has the Quarry plugin loaded. Close it,
    then choose Install again." (the name is whatever the Restart Manager returns). Install again
    reuses the already verified, still pinned file.
-7. If a take is being recorded or transcribed, or a Sample page capture is running, the user is
+8. If a take is being recorded or transcribed, or a Sample page capture is running, the user is
    asked to confirm, since quitting loses it. Quarry has no project file, so that is the only
    unsaved work. Cancelling aborts the install.
-8. The installer is started and the app quits through `JUCEApplicationBase::systemRequestedQuit()`,
+9. The installer is started and the app quits through `JUCEApplicationBase::systemRequestedQuit()`,
    the same path as closing the window. The banner reads "Installing. Quarry will restart."
-9. The installer waits for our process to exit, installs, and relaunches `Quarry.exe --updated`
+10. The installer waits for our process to exit, installs, and relaunches `Quarry.exe --updated`
    unelevated. The standalone shows "Updated to Quarry X.Y.Z".
 
 If the installer finds the VST3 binary locked by a host anyway (a host opened between step 6 and
@@ -54,7 +60,7 @@ shows "Update not installed: a DAW had the Quarry plugin loaded. Close it and ch
 again.", fetches the release again, and adds the Install button to that message.
 
 Errors are short strings in the banner ("Download failed", "Checksum did not match", "Installer
-version did not match", "Could not start the installer") with the detail written through
+version did not match", "Could not verify the installer", "Could not start the installer") with the detail written through
 `juce::Logger::writeToLog`.
 
 ## The contract with the release script and installer
@@ -93,12 +99,37 @@ network layer untouched (`makeRawUrl`), because `juce::URL` would turn a `+` in 
 | File swapped between check and run | Handle held with read-only sharing, hash taken through it | |
 | Release notes carrying control or direction-changing characters | Sanitizing (control characters, bidi overrides, 4000 char cap), notes shown as plain text | |
 | A host holding the plugin makes the install half-succeed | Restart Manager check, installer's own check | |
-| Someone who controls the GitHub release (stolen account or token) | Nothing | They can publish a malicious installer and a matching hash. |
-| Someone who controls the repository's release pipeline | Nothing | Same. |
+| Someone who controls the GitHub release (stolen account or token) publishes an installer and a matching hash | The signer check: the installer must be signed by the pinned OK Studio Inc. certificate | |
+| An installer signed by some other, even valid, certificate | Thumbprint and common name must match | |
+| An installer signed with a certificate that has since been revoked | Revocation check on the chain | |
+| Someone who also holds the signing token (or its PIN) | Nothing | They can sign a malicious installer. |
+| A malicious update shipped through a build the user already trusts | Nothing | The accepted list lives in the client, so it is only as safe as the last release. |
 
 A hash published beside the binary protects against corruption and against tampering with the
 asset alone. It does not protect against anyone who can edit the release, because they can
-replace both files. Closing that needs a signature the client can pin; see the follow-ups.
+replace both files. The signer check closes that: the signature cannot be made without the
+certificate's private key, which sits on a hardware token and never in the repository or the
+release pipeline.
+
+If the revocation servers cannot be reached (offline, a captive portal, a firewall), the
+signature check fails and so does the install, with "Could not verify the installer". This is
+deliberate: the check fails closed. Choosing Install again once the network is reachable works,
+though the file was deleted, so it downloads again. The signed timestamp keeps
+an installer signed in time valid after the certificate expires; revocation is still checked.
+
+## Certificate renewal
+
+The accepted thumbprints are a list in `UpdatePolicy.cpp` (`acceptedSignerThumbprints`). The
+client only trusts what it already knows, so a renewal takes two releases:
+
+1. Ship a release, signed with the current certificate, whose list contains both the current
+   and the new thumbprint.
+2. Once users have updated to it, sign later releases with the new certificate. Only then drop
+   the old thumbprint, in a release signed with the new one.
+
+Signing with the new certificate before step 1 has reached users means their installed copy
+refuses the update and they have to download the installer by hand. If the common name changes
+with the certificate, `expectedSignerName` needs the same two-step treatment.
 
 ## Why the plugin only notifies
 
@@ -128,7 +159,9 @@ user's application data folder, shared by the Standalone and plugin instances.
 
 There are no releases yet, so the download, redirect handling and a real installer launch have
 not been exercised against GitHub. The policy functions are covered by the unit tests; the
-Windows I/O compiles and the app starts, nothing more.
+Windows I/O compiles and the app starts, nothing more. The signer check has been exercised only against a Microsoft-signed file and an
+unsigned one (`Tests/update_signature_test.h`), not against a Quarry installer, because no signed
+release exists yet.
 
 ## Code signing
 
@@ -150,10 +183,6 @@ timestamp from `http://timestamp.digicert.com`). The code is `tools/release/sign
 
 ## Follow-ups
 
-- **Authenticode pinning in the updater.** The installer is now signed, so the updater can verify
-  the signature with `WinVerifyTrust` and compare the signer's certificate thumbprint to a pinned
-  value, as alpha-osk does. That is the check that survives a compromised release. Until then this
-  design trusts whoever can publish to the repository.
 - **macOS.** Notify only today. An updater there needs a signed and notarized bundle, a
   replacement strategy for a running `.app`, and the same pinning. Nothing in this change
   targets it.

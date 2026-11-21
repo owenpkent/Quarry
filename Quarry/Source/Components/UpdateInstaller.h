@@ -28,6 +28,16 @@ struct InstallerResult
     juce::String message;
 };
 
+/** What WinVerifyTrust and the signer certificate said about a file. */
+struct SignerInfo
+{
+    // The value WinVerifyTrust returned (0 means the signature and chain verified), or -1 if it
+    // was never asked.
+    long trustResult {-1};
+    juce::String thumbprint; // lowercase hex SHA-1 of the signer certificate, if one was read
+    juce::String commonName; // subject common name of the signer certificate, if one was read
+};
+
 class UpdateInstaller
 {
 public:
@@ -39,6 +49,14 @@ public:
     static InstallerResult prepare(const ReleaseInfo& inRelease,
                                    const ProgressCallback& inProgress,
                                    const std::atomic<bool>& inCancel);
+
+    /** Verifies the file's embedded Authenticode signature (revocation checked for the chain, root
+     *  excluded) and reads the signer certificate's thumbprint and common name. True only when
+     *  WinVerifyTrust succeeded and the signer was read; outInfo.trustResult is filled either way.
+     *  inFileHandle is an already open handle on the file (read access), so the bytes checked are
+     *  the bytes the caller holds; nullptr makes WinVerifyTrust open the path itself. Whether the
+     *  signer is acceptable is isAcceptedSigner's call, not this function's. Blocking. */
+    static bool readSigner(const juce::File& inFile, void* inFileHandle, SignerInfo& outInfo);
 
     /** Fetches a small text file through the same hand-followed, allowlisted redirect path the
      *  installer uses. Fails, rather than truncates, if the body is over inMaxBytes. Blocking. */

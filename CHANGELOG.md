@@ -9,6 +9,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Security
 
+- feat: the updater checks who signed the installer before running it. After the hash and
+  version checks, `UpdateInstaller` verifies the embedded Authenticode signature with
+  `WinVerifyTrust` (revocation checked, failing closed when it cannot be) through the pinned
+  file handle, and accepts it only if the signer's SHA-1 thumbprint is in a pinned list and its
+  common name is `OK Studio Inc.`. A compromised release that swaps the installer and its
+  `.sha256` no longer gets run. The list takes two releases to change on a certificate renewal;
+  see `docs/AUTO_UPDATE.md`.
 - feat: the Windows release is code signed. `tools/release/release.py` signs `Quarry.exe`, the
   VST3 binary and the installer with the OK Studio Inc. EV certificate (hardware token, SHA-256,
   RFC 3161 timestamp) and writes the `.sha256` only after the installer is signed. `--no-sign`
