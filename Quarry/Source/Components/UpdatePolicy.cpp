@@ -279,6 +279,35 @@ juce::String installerParameters(int inProcessId, bool inPluginInstalled)
            + " /RELAUNCH";
 }
 
+const std::vector<juce::String>& acceptedSignerThumbprints()
+{
+    // OK Studio Inc. EV certificate. Add the next certificate here, in a release signed with
+    // this one, before signing anything with it (docs/AUTO_UPDATE.md, "Certificate renewal").
+    static const std::vector<juce::String> thumbprints {"fc22b5221318f3f3f6b3eb2d969d7f99091557bf"};
+    return thumbprints;
+}
+
+juce::String expectedSignerName()
+{
+    return "OK Studio Inc.";
+}
+
+bool isAcceptedSigner(const juce::String& inThumbprintHex, const juce::String& inCommonName)
+{
+    if (inThumbprintHex.isEmpty() || inCommonName.isEmpty())
+        return false;
+
+    if (inCommonName != expectedSignerName())
+        return false;
+
+    const auto thumbprint = inThumbprintHex.toLowerCase();
+    for (const auto& accepted: acceptedSignerThumbprints()) {
+        if (thumbprint == accepted)
+            return true;
+    }
+    return false;
+}
+
 juce::String hostBlockedMessage(const juce::String& inHostName)
 {
     const auto name = inHostName.isEmpty() ? juce::String("A DAW") : inHostName;

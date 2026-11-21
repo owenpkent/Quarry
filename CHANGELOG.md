@@ -9,6 +9,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Security
 
+- feat: the updater checks who signed the installer before running it. After the hash and
+  version checks, `UpdateInstaller` verifies the embedded Authenticode signature with
+  `WinVerifyTrust` (revocation checked, failing closed when it cannot be) through the pinned
+  file handle, and accepts it only if the signer's SHA-1 thumbprint is in a pinned list and its
+  common name is `OK Studio Inc.`. A compromised release that swaps the installer and its
+  `.sha256` no longer gets run. The list takes two releases to change on a certificate renewal;
+  see `docs/AUTO_UPDATE.md`.
 - feat: the Windows installer is now uninstallable and its uninstaller is signed. Quarry appears in
   Add/Remove Programs (the `AppId` is unchanged, so existing installs upgrade in place). Uninstall
   removes the app folder and the VST3 bundle and leaves settings, samples and models alone, and it
