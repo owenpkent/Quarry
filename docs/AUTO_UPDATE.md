@@ -178,8 +178,9 @@ timestamp from `http://timestamp.digicert.com`). The code is `tools/release/sign
 - The key is on a hardware token. Plug it in before `release.py build`; its client software will
   prompt for the PIN. Use a normal (not elevated) shell, as the token is invisible to admin
   processes. signtool.exe comes from the Windows SDK.
-- Order: build, sign `Quarry.exe` and the VST3 binary, compile the installer, sign the installer,
-  then write the `.sha256`. The hash is of the signed installer, which is what the updater checks.
+- Order: build, sign `Quarry.exe` and the VST3 binary, compile the installer (Inno signs the
+  uninstaller and the installer as it does), check the installer's signature, then write the
+  `.sha256`. The hash is of the signed installer, which is what the updater checks.
 - `release.py build --no-sign` skips signing for a local dry run, with no token needed. The
   output cannot be published.
 - `release.py publish` checks the installer on disk with `Get-AuthenticodeSignature` and
@@ -189,8 +190,9 @@ timestamp from `http://timestamp.digicert.com`). The code is `tools/release/sign
   afterwards does not reach it. `compile_installer` passes ISCC `/DSignUninstaller` and a
   `/Squarrysign=<signtool sign ...> $f` command built from `sign.sign_command` (same thumbprint,
   digest and timestamp), and `quarry.iss` then sets `SignTool` and `SignedUninstaller=yes`. With
-  `--no-sign` neither argument is passed and the script compiles without them. Inno also signs
-  the installer with this tool, so the token may ask for its PIN more than once per build.
+  `--no-sign` neither argument is passed and the script compiles without them. Inno signs the
+  installer with the same tool, so `release.py` only checks the result and signs the installer
+  itself only if that check fails. The path to signtool is quoted with Inno's `$q`.
 
 ## Follow-ups
 
