@@ -1,5 +1,40 @@
 # Quarry — Build Plan
 
+> ## Status, 2026-11-21: the plan against the tree
+>
+> A review of this plan against the code found that the two have parted. The milestones below
+> describe a product built fresh in a new repo: a `src/` tree, the KEEP loop, an editable roll.
+> That repo was never created. The fork became the product, and the work since August went
+> into things this plan has no milestone for. **Nothing is re-decided in this block.** Each
+> milestone below now opens with a **State** line saying what exists today, and whether the
+> unbuilt ones still stand is Owen's call. The older status blocks under this one are the
+> record of their own dates and are left as written.
+>
+> **Built, with no milestone here.**
+>
+> | What | Described in | Landed |
+> |---|---|---|
+> | The Sample page: record one application or window, keep it with its source, browse what was captured | `SAMPLER.md` | #5 and #7, 2026-08-19 |
+> | The sidecar, the engine picker, pedal to MIDI | `SIDECAR.md`, `ANALYSIS.md` §4 | built 2026-08-18, #13 on 2026-08-31 |
+> | The bench, the bake-off and the key bench | `BENCH.md` | 2026-08-18 |
+> | CI, the UI audit and the accessibility standard | `UI.md`, `UI_AUDIT.md`, `ACCESSIBILITY.md` | #9 to #12, 2026-08-28 and 29 |
+> | The activity log: the app says what it is doing | `CHANGELOG.md` | #16, 2026-09-02 |
+> | Download from a link, as audio, video or both | `SIDECAR.md` | #19, 2026-10-17 |
+> | Hardening against crafted input, and JUCE 8.0.16 | `CHANGELOG.md` | #20 and #21, 2026-10-17 |
+> | The release script and the in-app updater | `AUTO_UPDATE.md` | #23, 2026-10-17 |
+>
+> **Not built.** Milestones 1, 2, 4, 5, 7, 8, 10 and 11 have no code. Milestones 3 and 6 are
+> partly built in the fork, in a different shape from the one written here. The batch and
+> library milestone that the 2026-08-18 block names (`STATS.md` §7) has no code either: no
+> `AnalysisReport`, no `quarry-cli`.
+>
+> **Corrections made in this pass.** The effort summary said the core, M0 to M6, came to 43
+> days; its own rows add to 49. 0D lists three files that do not exist. The `src/...` paths
+> throughout name the layout of the repo that was not created, so read them as intent, not as
+> places to look.
+>
+> ---
+>
 > ## Status, 2026-08-18 — the world-class review, and Phase 1
 >
 > A full critical review of the transcription plan against the stated goal (world-class piano
@@ -138,6 +173,9 @@ Four parts, in this order. **Part A ships on day 1** and is deliberately throwaw
 
 ### 0A. The spike, in the existing NeuralNoteVideo checkout (2 days)
 
+> **State, 2026-11-21: done.** See *What landed* below. It was not thrown away after M1,
+> because M1 was not built: this is still how the toolbar Record button hears the computer.
+
 Owen double-clicks `run.py`, plays a YouTube video, clicks **Record**, clicks **Stop**, and
 drags the MIDI onto an Ableton track holding Simpler. That is the entire product thesis
 working, in the fork, before a single architectural decision is locked — and a week of him
@@ -244,6 +282,11 @@ first waits on Owen picking the storage.
 
 ### 0C. Widen the kit (3 days)
 
+> **State, 2026-11-21: item 2 is done, in the fork.** Items 1, 3, 4 and 5 are kit work and
+> cannot be checked from this tree. What can be seen from here: the vendored kit headers are
+> `CaptureMath`, `Fonts`, `Icons`, `MouseOnly`, `Obsidian`, `WasapiLoopback` and
+> `WasapiProcessLoopback`, so Quarry consumes no `RingBuffer.h` and no `Transcribe.h`.
+
 Do this **before** Quarry consumes it; every product on the line benefits.
 
 1. **`okstudio/Transcribe.h`** — add
@@ -278,6 +321,14 @@ deliberate gap injected into the writer is zero-padded to real time, not closed 
 
 ### 0D. Create the Quarry repo (2 days)
 
+> **State, 2026-11-21: overtaken, not done as written.** There is no new repo and no `src/`
+> tree. The fork is the product, and it builds at C++17. From the list below the fork has
+> `PLUGIN_CODE Quar` and manufacturer `OKSt` (`CMakeLists.txt:69-70`), `LICENSE`, `NOTICE` and
+> `CHANGELOG.md`. It does not have `docs/MODEL_LICENSES.md`, `docs/ABLETON.md` or a root
+> `CLAUDE.md` (only `docs/CLAUDE.draft.md`). The fork also sets `NEEDS_MIDI_INPUT FALSE`
+> (`CMakeLists.txt:59`), where this list calls `TRUE` non-negotiable; whether that matters for
+> the fork's plugin type was not checked in this pass.
+
 - `okstudio_add_plugin(Quarry PRODUCT_NAME "Quarry" PLUGIN_CODE Quar BUNDLE_SUFFIX quarry)`
   → `FORMATS VST3 Standalone`, manufacturer `OKSt`, `NEEDS_MIDI_INPUT TRUE`
   (non-negotiable — Live silently refuses an instrument without it and pluginval does not
@@ -304,7 +355,7 @@ deliberate gap injected into the writer is zero-padded to real time, not closed 
   `TimeQuantizeOptions` + `TimeQuantizeUtils.h` (as a pure header), `SynthController` (the
   16-voice MPESynthesiser shrinks to one audition voice), and `Playhead::computePlayheadPositionPixel`
   (already a static pure function). `MidiFileWriter` went into the kit in 0C.
-- **Deleted outright, immediately:** `UpdateCheck`. It polls a public GitHub releases API on
+- **~~Deleted outright, immediately:~~ Kept, see the end of this bullet:** `UpdateCheck`. It polls a public GitHub releases API on
   every launch, which is the wrong update story for a sold product. *(It pointed at
   `DamRsn/NeuralNote/releases/latest`, sending customers to the free upstream. That is fixed
   in the fork, which now polls `owenpkent/NeuralNoteVideo`, but the reason to drop it here
@@ -320,6 +371,13 @@ yet, so `okstudio_add_plugin` emits a plain WASAPI/DirectSound Windows target.*
 ---
 
 ## Milestone 1 — The KEEP loop *(usable by double-clicking `run.py`)*
+
+> **State, 2026-11-21: not started.** No `Listener`, no `TakeStore`, no ring. Capture today
+> is decide-then-play: the toolbar Record button, and the Sample page's per-application
+> recorder (`Quarry/Source/Sampler/`). `SAMPLER.md`, in its 2026-08-18 note on the picker,
+> argues that deciding first and then pressing play is the common case. That reads as the
+> opposite premise to KEEP, so whether this milestone still stands is the first thing to
+> decide.
 
 **Goal.** Quarry listens from launch. Owen plays a YouTube video, clicks **KEEP**, and thirty
 seconds of what he just heard becomes a take: transcribed, shown in a read-only roll, and
@@ -354,6 +412,10 @@ still there. The header KEEP plate cannot be hidden by any fold, detach or layou
 
 ## Milestone 2 — Tempo, and the end of the fictional grid
 
+> **State, 2026-11-21: not started.** There is no tempo estimator. Tempo is still a typed box
+> (`TranscriptionSummary.h:140`, a `NumericTextEditor`). The 2026-08-18 block lists tempo as
+> open, and it still is.
+
 **Goal.** Exported MIDI carries a real tempo map. This is a **bug fix**, not a description
 feature, and it is second in the plan for that reason: until it lands, every `.mid` Quarry
 produces lands in Live at the wrong tempo — at exactly the moment the product is supposed to
@@ -379,6 +441,11 @@ with bar 1 on beat 1, and a wrong answer is one click from right.
 
 ## Milestone 3 — Confidence, honestly
 
+> **State, 2026-11-21: partly built, in the fork.** The three-field note split is done (0C
+> item 2) and 0B's test is green. `TranscriptionSummary` marks which bars the model is unsure
+> of and has a NEXT SHAKY BAR button (`TranscriptionSummary.h:100`, `:124`). Not built: the
+> `CONFIDENCE_FLOOR` control, note-body shading and the legend.
+
 **Goal.** Owen can see which notes the model is unsure about and jump straight to the bars
 that need work.
 
@@ -403,6 +470,9 @@ repeatedly and each click lands on a bar he agrees is wrong.
 ---
 
 ## Milestone 4 — The editable roll
+
+> **State, 2026-11-21: not started.** The roll is still the read-only `PianoRoll`: its only
+> mouse handler is `mouseDown` (`PianoRoll.cpp:129`).
 
 **Goal.** Owen can hear a bad note, click it, and fix it.
 
@@ -450,6 +520,8 @@ a keyboard, a modifier or an edge handle.
 
 ## Milestone 5 — Bulk correction and retroactive re-slice
 
+> **State, 2026-11-21: not started.** It rests on M4.
+
 **Goal.** Correcting a transcription stops being a job.
 
 - **Region select**: one drag along the 34 px ruler. On selection, a bulk-verb row appears on
@@ -484,6 +556,12 @@ notes-per-minute, and never has to get the first slice right.
 > settle is that a raw correlation cannot be shown as a confidence: it never approaches zero
 > on material with no key, and a two-note histogram outscores a real scale, so a pitch-class
 > support gate and an absolute floor are both required. Keep them.
+>
+> **State, 2026-11-21: as the note above says, and no further.** The key estimate with
+> **Use it** exists. There is no ribbon, no runner-up and no `Describe`. `NumericTextEditor`
+> is still in the codebase and in use (`TranscriptionSummary.h`, `TimeQuantizeOptionsView.h`).
+> `STATS.md` §4 has since measured key on GiantSteps and carries the rework, so read it
+> before this section.
 
 **Files:** `src/analysis/KeyEstimator.h` (duration- **and confidence-**weighted 12-bin
 pitch-class histogram vs Temperley-Kostka-Payne, with Krumhansl and Albrecht-Shanahan
@@ -508,6 +586,10 @@ produces a ribbon change within ±2 bars; the paragraph is deterministic for a g
 
 ## Milestone 7 — 🟡 Focus filters *(gated on an ablation)*
 
+> **State, 2026-11-21: not started.** There is no `FocusFilter`. The 2026-08-18 block chose
+> separation through the sidecar for full mixes, which is aimed at the same complaint, so
+> whether the chip row is still wanted after that is undecided.
+
 **Run the ablation before writing a line of it.** Five real YouTube captures Owen chose,
 scored by note F-measure against hand-corrected ground truth: (a) raw mix, (b) HPSS-harmonic,
 (c) a true audio-domain band-pass. **Nobody has published this comparison**, and it is the only
@@ -530,6 +612,9 @@ audio-domain (assert the CNN input differs, not just the output).
 ---
 
 ## Milestone 8 — 🟡 Chords and section boundaries *(gated on measured accuracy, and on Q1)*
+
+> **State, 2026-11-21: not started.** There is no chord or section estimator. `STATS.md` §5
+> covers chords and the prior art, and is newer than this section.
 
 `src/analysis/ChordEstimator.h` (beat-synchronous chroma folded from Quarry's own notes vs 25
 templates — 12 maj, 12 min, N.C. — with a small Viterbi over a self-transition prior) and
@@ -577,6 +662,13 @@ only once there is revenue worth protecting. Nothing else in the plan depends on
 
 ## Milestone 10 — Video audio in
 
+> **State, 2026-11-21: not started, and worth less than when it was written.** No
+> `MediaFoundationReader` exists, in this tree or among the vendored kit headers. Since #19 a
+> link pasted on the Sample page comes down as a wav, an mp4 or both, so this milestone now
+> only buys video files that are already on disk. Those are still refused: the drop target
+> takes the audio extensions from `AudioUtils::getSupportedAudioFileExtensions()`. And
+> "clicking KEEP" below should read "pressing Record", since M1 was not built.
+
 `okstudio/MediaFoundationReader.h` in the kit: header-only `IMFSourceReader` COM wrapper, the
 same shape and size class as `WasapiLoopback.h` (554 lines). Audio half only —
 `readAudioAsPcm(File) -> AudioBuffer<float>` + sample rate. Zero third-party code, zero
@@ -603,6 +695,11 @@ variable-frame-rate file both produce correct durations; an unopenable file retu
 ---
 
 ## Milestone 11 — 🔴 Synthesia scanline *(BLOCKED on 20 URLs from Owen)*
+
+> **State, 2026-11-21: still blocked on the 20 links, and not started.** Only the Python
+> prototype exists, and the code both bugs below point at is unchanged. The equal division
+> itself is at `synthesia_detector.py:91-92` (`keyboard_width / 52.0`). A note's start is
+> taken at `:217`, the first frame its block is seen anywhere above the keyboard (`:133`).
 
 `okstudio/SynthesiaScan.h`, pure `juce_core`, ~300 lines, **no OpenCV and no deep learning**,
 fed frames by `MediaFoundationReader`. A Synthesia video is a deterministic *render of a MIDI
@@ -660,20 +757,25 @@ materially.
 
 ## Effort summary
 
-| M | Title | Days | Status |
-|---|---|---|---|
-| 0 | Preflight, spike, rename | 8 | ✅ ungated |
-| 1 | The KEEP loop *(run.py usable)* | 8 | |
-| 2 | Tempo, and the end of the fictional grid | 4 | |
-| 3 | Confidence, honestly | 4 | ✅ 0B is green |
-| 4 | The editable roll | 14 | largest estimate risk |
-| 5 | Bulk correction + re-slice | 6 | |
-| 6 | Key, ribbon, local description | 5 | |
-| 7 | Focus filters | 7 | 🟡 gated on ablation |
-| 8 | Chords + section boundaries | 7 | 🟡 gated on accuracy + Q1 |
-| ~~9~~ | ~~The Claude read~~ | ~~3~~ | ❌ **cut** |
-| 10 | Video audio in | 6 | |
-| 11 | Synthesia scanline | 20 | 🔴 blocked |
+| M | Title | Days | Gate | State, 2026-11-21 |
+|---|---|---|---|---|
+| 0 | Preflight, spike, rename | 8 | ✅ ungated | 0A done; 0B half done, the mirror is Owen's; 0C item 2 only; 0D overtaken |
+| 1 | The KEEP loop *(run.py usable)* | 8 | | not started |
+| 2 | Tempo, and the end of the fictional grid | 4 | | not started |
+| 3 | Confidence, honestly | 4 | ✅ 0B is green | partly built, in the fork |
+| 4 | The editable roll | 14 | largest estimate risk | not started |
+| 5 | Bulk correction + re-slice | 6 | | not started |
+| 6 | Key, ribbon, local description | 5 | | the key half only |
+| 7 | Focus filters | 7 | 🟡 gated on ablation | not started |
+| 8 | Chords + section boundaries | 7 | 🟡 gated on accuracy + Q1 | not started |
+| ~~9~~ | ~~The Claude read~~ | ~~3~~ | ❌ **cut** | cut |
+| 10 | Video audio in | 6 | | not started |
+| 11 | Synthesia scanline | 20 | 🔴 blocked | not started |
+| | Batch and the library report (`STATS.md` §7) | not estimated here | | not started |
 
-**Unblocked, ungated core (M0–M6): 43 days.** Everything after that is optional and each
-piece can be cut without touching the spine.
+**Unblocked, ungated core (M0–M6): 49 days.** *(This line said 43; the rows above add to 49.)*
+Everything after that is optional and each piece can be cut without touching the spine.
+
+The days are the original estimates for the new-repo build. They have not been re-estimated
+against the fork, and the work listed in the 2026-11-21 status block at the top is not in
+this table at all.
