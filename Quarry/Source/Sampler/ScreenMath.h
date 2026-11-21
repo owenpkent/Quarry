@@ -84,6 +84,22 @@ inline juce::int64 tickDue (juce::int64 origin, juce::int64 tick, juce::int64 qp
     return origin + (tick / rate) * qpcFrequency + ((tick % rate) * qpcFrequency) / rate;
 }
 
+/**
+ * How much of a captured frame to copy into the encoder's texture, from the top left corner.
+ *
+ * The frame reports the size of the window's content, but its surface keeps the size the
+ * capture pool was created with until the pool is recreated, and that happens only after the
+ * frame has been handled. So right after a window grows, the content can be larger than the
+ * surface it sits in. A copy box that reaches past the source texture is undefined in
+ * Direct3D, so the extent is bounded by all three: the content, the surface and the
+ * destination. Either side of the result may be zero, and then there is nothing to copy.
+ */
+inline Size copyExtent (Size content, Size source, Size destination) noexcept
+{
+    return { std::max (0, std::min ({ content.width, source.width, destination.width })),
+             std::max (0, std::min ({ content.height, source.height, destination.height })) };
+}
+
 //==============================================================================
 /** What to do with the first block of sound so that it lands where it belongs. */
 struct StartAlignment

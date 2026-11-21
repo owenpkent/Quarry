@@ -410,7 +410,10 @@ How it works (the method was proven in `tools/screen_spike`; the code is
   repeating it when nothing changed, so the file is constant frame rate.
 - H.264 and AAC through a Media Foundation sink writer, hardware encoder first, then software,
   then a CPU read-back path if the GPU sample path cannot start. Size is fixed from the first
-  frame (even sides, at least 16 px); a window resized mid-take is clipped or padded black.
+  frame (even sides, at least 16 px); a window resized mid-take is clipped or padded black. The
+  copy into the encoder is bounded by the size of the captured surface as well as the content
+  size, because a surface keeps the size of the capture pool until the pool is recreated, which
+  happens only after the first frame at a new size; that frame copies what fits.
   Bitrate is about 0.05 bit per pixel per frame, held between 4 and 30 Mbps.
 - The mp4 is written to a hidden `.quarry-picture-*.mp4.part` file in the capture folder and
   renamed beside the wav when the take is filed, so the library scan never sees a half file.

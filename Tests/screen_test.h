@@ -39,6 +39,30 @@ inline bool screen_test()
     }
 
     //==========================================================================
+    // The copy box.
+    {
+        const sm::Size encode { 1920, 1080 };
+
+        check(sm::copyExtent({ 1920, 1080 }, { 1920, 1080 }, encode) == sm::Size { 1920, 1080 },
+              "a frame the size of the encoder is copied whole");
+        check(sm::copyExtent({ 1280, 720 }, { 1280, 720 }, encode) == sm::Size { 1280, 720 },
+              "a smaller window is copied whole, to be padded");
+        check(sm::copyExtent({ 3000, 2000 }, { 3000, 2000 }, encode) == sm::Size { 1920, 1080 },
+              "a larger window is clipped to the encoder");
+
+        // Start at 1920x1080, shrink to 1280x720 so the pool is recreated at that size, then
+        // grow to 1600x900: the first frame reports 1600x900 but its surface is still 1280x720.
+        check(sm::copyExtent({ 1600, 900 }, { 1280, 720 }, encode) == sm::Size { 1280, 720 },
+              "the transition frame after a shrink then grow stays inside the old pool");
+        check(sm::copyExtent({ 1600, 900 }, { 1600, 900 }, encode) == sm::Size { 1600, 900 },
+              "the frame after the pool is recreated is copied whole");
+        check(sm::copyExtent({ 1600, 700 }, { 1280, 720 }, encode) == sm::Size { 1280, 700 },
+              "each side is bounded on its own");
+        check(sm::copyExtent({ 0, 0 }, { 1280, 720 }, encode) == sm::Size { 0, 0 }, "an empty frame copies nothing");
+        check(sm::copyExtent({ -5, 100 }, { 1280, 720 }, encode) == sm::Size { 0, 100 }, "a negative side is never passed on");
+    }
+
+    //==========================================================================
     // Bitrate.
     {
         check(sm::bitrate(1920, 1080, 60) == 6220800u, "1080p60 is a twentieth of a bit per pixel");

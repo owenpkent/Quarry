@@ -287,13 +287,25 @@ private:
                     if (contentSize.Width != encW || contentSize.Height != encH)
                         clearLatest();
 
-                    D3D11_BOX box{};
-                    box.right = static_cast<UINT>(std::min(contentSize.Width, encW));
-                    box.bottom = static_cast<UINT>(std::min(contentSize.Height, encH));
-                    box.back = 1;
-                    context->CopySubresourceRegion(latest.Get(), 0, 0, 0, 0, texture.Get(), 0, &box);
-                    used = false;
-                    haveFrame = true;
+                    // The surface is still the size of the pool it came from, which after a
+                    // resize can be smaller than the content it reports, so the copy is bounded
+                    // by the surface as well. Such a transition frame copies what fits.
+                    D3D11_TEXTURE2D_DESC sourceDesc{};
+                    texture->GetDesc(&sourceDesc);
+                    const auto extent = sm::copyExtent({ contentSize.Width, contentSize.Height },
+                                                       { static_cast<int>(sourceDesc.Width), static_cast<int>(sourceDesc.Height) },
+                                                       { encW, encH });
+
+                    if (extent.width > 0 && extent.height > 0)
+                    {
+                        D3D11_BOX box{};
+                        box.right = static_cast<UINT>(extent.width);
+                        box.bottom = static_cast<UINT>(extent.height);
+                        box.back = 1;
+                        context->CopySubresourceRegion(latest.Get(), 0, 0, 0, 0, texture.Get(), 0, &box);
+                        used = false;
+                        haveFrame = true;
+                    }
                 }
 
                 if (contentSize.Width != poolW || contentSize.Height != poolH)
