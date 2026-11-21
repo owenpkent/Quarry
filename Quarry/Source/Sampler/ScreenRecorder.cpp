@@ -14,6 +14,11 @@
 // Before any JUCE include, deliberately: C++/WinRT wants to see the Windows headers first, and
 // this file mentions juce:: by name everywhere rather than using the namespace, which is what
 // keeps windows.h's Rectangle() from making juce::Rectangle ambiguous.
+//
+// Which is why the outer guard is the compiler's _WIN32 and not JUCE_WINDOWS: the sources are
+// globbed on every platform, and JUCE's macro does not exist yet this high in the file.
+#ifdef _WIN32
+
 #define WIN32_LEAN_AND_MEAN 1
 #define NOMINMAX 1
 #define _SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS
@@ -1255,3 +1260,5 @@ void ScreenRecorder::loopbackBlock(const float* const* channels, int numChannels
 } // namespace quarry::sampler
 
 #endif // JUCE_WINDOWS
+
+#endif // _WIN32
