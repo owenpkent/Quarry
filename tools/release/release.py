@@ -393,6 +393,9 @@ def build_binaries(lto: bool) -> None:
     # LTO is off by default for the reason run.py and ci.yml give: the prebuilt onnxruntime.lib is
     # compiled with /GL by one MSVC version and fails to link with C1047 under any other.
     # --lto is for a machine that has that compiler.
+    # Bounds the compiler for everything cmake starts from here on, the juceaide build inside
+    # JUCE's configure step included. See build_environment in run.py.
+    os.environ.setdefault("CL_MPCount", str(run.build_jobs()))
     run_cmd(["cmake", "-S", ".", "-B", BUILD_DIR, f"-DLTO={'ON' if lto else 'OFF'}",
              "-DBUILD_UNIT_TESTS=ON"])
     # Half the cores, the same cap run.py builds under: a release is cut on a machine somebody

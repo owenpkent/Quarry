@@ -245,7 +245,7 @@ def run_cmake(args) -> int:
     if exe is None:
         return 1
     try:
-        return subprocess.run([exe] + list(args)).returncode
+        return subprocess.run([exe] + list(args), env=build_environment()).returncode
     except OSError as exc:
         print(f"{YELLOW}Could not run cmake ({exe}):{RESET}")
         print(f"{YELLOW}  {exc}{RESET}")
@@ -282,9 +282,96 @@ def cache_value(cache_path: str, name: str) -> str:
     return ""
 
 
+def build_environment() -> dict:
+    """The environment cmake runs in: this one, with the compiler bounded.
+
+    MSBuild reads CL_MPCount from the environment as readily as from -p, and the environment
+    reaches a build the command line does not: JUCE builds juceaide from inside its configure
+    step, through a nested `cmake --build` that parallel_args never sees. A CL_MPCount that is
+    already set is left alone.
+    """
+    env = dict(os.environ)
+    # Asked of os.environ, which ignores case on Windows as the system does; the copy does not.
+    if "CL_MPCount" not in os.environ:
+        env["CL_MPCount"] = str(build_jobs())
+    return env
+
+
 def unit_tests_are_on(cache_path: str) -> bool:
-    """True if the build tree was configured with the unit tests in it."""
+    """True if the build tree was asked for the unit tests. Not that it has them: see
+    needs_configure."""
     return cache_value(cache_path, "BUILD_UNIT_TESTS").upper() in ("ON", "1", "TRUE", "YES", "Y")
+
+
+def is_multi_config(cache_path: str) -> bool:
+    """True if the tree's generator picks the configuration when it builds, not when it
+    configures: Visual Studio, Xcode and Ninja Multi-Config."""
+    generator = cache_value(cache_path, "CMAKE_GENERATOR")
+    return generator.startswith("Visual Studio") or generator == "Xcode" or "Multi-Config" in generator
+
+
+def built_config(cache_path: str, requested: str) -> str:
+    """The configuration a build of this tree actually produces.
+
+    --config chooses it only under a multi-config generator. A single-config tree (Ninja,
+    Makefiles) builds the CMAKE_BUILD_TYPE it was configured with whatever --config says, and
+    one configured with no build type has no configuration at all.
+    """
+    if is_multi_config(cache_path):
+        return requested
+    return cache_value(cache_path, "CMAKE_BUILD_TYPE")
+
+
+def unit_tests_exe(build_dir: str, cache_path: str, requested_config: str) -> str:
+    """Where the unit test binary is: JUCE writes it to Tests/UnitTests_artefacts/<config>/,
+    and straight into UnitTests_artefacts when the tree has no configuration."""
+    parts = [build_dir, "Tests", "UnitTests_artefacts"]
+    config = built_config(cache_path, requested_config)
+    if config:
+        parts.append(config)
+    return os.path.join(*parts, "UnitTests.exe")
+
+
+# Written into the build tree once a configure that asked for the unit tests has finished.
+UNIT_TESTS_STAMP = ".quarry-unit-tests-generated"
+
+
+def needs_configure(build_dir: str, cache_path: str, want_tests: bool) -> bool:
+    """True if the tree has to be configured before it can build what was asked for.
+
+    Always on a cold tree, and on one configured with LTO on, which cannot link against the
+    prebuilt onnxruntime here. For the unit tests the cache is not enough to go on:
+    BUILD_UNIT_TESTS=ON there records what was asked for, and CMake saves it even when the
+    configure then fails, with the solution from the earlier test-less configure still on
+    disk. Trusting the cache handed that tree to MSBuild on every retry, which failed on a
+    project that was never generated (MSB1009). The stamp is only there when a configure that
+    asked for the tests ran to the end.
+    """
+    if not build_system_exists(build_dir) or lto_is_on(cache_path):
+        return True
+    if not want_tests:
+        return False
+    stamped = os.path.exists(os.path.join(build_dir, UNIT_TESTS_STAMP))
+    return not (stamped and unit_tests_are_on(cache_path))
+
+
+def configure_build_tree(build_dir: str, want_tests: bool) -> bool:
+    """Configure the tree, with the unit tests in it if they were asked for. False on failure."""
+    stamp = os.path.join(build_dir, UNIT_TESTS_STAMP)
+    # Taken away first, so a configure that fails leaves nothing saying the tests are there.
+    try:
+        os.remove(stamp)
+    except OSError:
+        pass
+    configure = ["-S", ROOT, "-B", build_dir, "-DLTO=OFF"]
+    if want_tests:
+        configure.append("-DBUILD_UNIT_TESTS=ON")
+    if run_cmake(configure) != 0:
+        return False
+    if want_tests:
+        with open(stamp, "w", encoding="utf-8") as handle:
+            handle.write("The last configure of this tree that asked for the unit tests finished.\n")
+    return True
 
 
 def parallel_args(cache_path: str, jobs: int = 0) -> list:
@@ -302,13 +389,13 @@ def parallel_args(cache_path: str, jobs: int = 0) -> list:
     return ["--parallel", str(jobs)]
 
 
-def run_unit_tests(config: str) -> int:
+def run_unit_tests(build_dir: str, cache_path: str, config: str) -> int:
     """Run the unit test binary and return its exit code.
 
     Tests.cpp is its own runner and ORs its cases into the exit code, so there is no ctest
     step. This is the call CI makes.
     """
-    exe = os.path.join(ROOT, "build", "Tests", "UnitTests_artefacts", config, "UnitTests.exe")
+    exe = unit_tests_exe(build_dir, cache_path, config)
     if not os.path.exists(exe):
         print(f"{YELLOW}UnitTests.exe not found at {exe} - run py run.py --tests without "
               f"--no-build first.{RESET}")
@@ -684,10 +771,9 @@ def main() -> int:
         if not ensure_onnxruntime():
             return 1
 
-        # Only configure on a cold build tree, on one configured with LTO on, which
-        # cannot link against the prebuilt onnxruntime here, or on one without the unit
-        # tests when they are what was asked for. The VS generator re-runs CMake by itself
-        # when CMakeLists.txt changes, so configuring every launch is dead time.
+        # Only configure when needs_configure says the tree cannot build what was asked for.
+        # The VS generator re-runs CMake by itself when CMakeLists.txt changes, so
+        # configuring every launch is dead time.
         build_dir = os.path.join(ROOT, "build")
         cache = os.path.join(build_dir, "CMakeCache.txt")
 
@@ -704,12 +790,8 @@ def main() -> int:
                 print(f"{YELLOW}  Close it, delete that folder, and run this again.{RESET}")
                 return 1
 
-        needs_tests = args.tests and not unit_tests_are_on(cache)
-        if not build_system_exists(build_dir) or lto_is_on(cache) or needs_tests:
-            configure = ["-S", ".", "-B", "build", "-DLTO=OFF"]
-            if args.tests:
-                configure.append("-DBUILD_UNIT_TESTS=ON")
-            if run_cmake(configure) != 0:
+        if needs_configure(build_dir, cache, args.tests):
+            if not configure_build_tree(build_dir, args.tests):
                 print(f"{YELLOW}Configuring the build tree failed, so nothing was built.{RESET}")
                 print(f"{YELLOW}  Fix the cause above and run this again; it will retry the "
                       f"configure. If it keeps failing, delete {build_dir} first.{RESET}")
@@ -724,7 +806,8 @@ def main() -> int:
         print(f"{GREEN}Built {built} in {time.monotonic() - started:.1f}s{RESET}")
 
     if args.tests:
-        return run_unit_tests(args.config)
+        tree = os.path.join(ROOT, "build")
+        return run_unit_tests(tree, os.path.join(tree, "CMakeCache.txt"), args.config)
 
     if not os.path.exists(exe):
         print(f"{YELLOW}{exe_name} not found at {exe} - run without --no-build first.{RESET}")

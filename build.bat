@@ -33,6 +33,8 @@ if "%extract%" == "true" (
 :: project at a time so the two do not multiply. Keep in step with parallel_args in run.py.
 set /a jobs=%NUMBER_OF_PROCESSORS% / 2
 if %jobs% LSS 1 set jobs=1
+:: In the environment as well, for the juceaide build JUCE runs inside the configure step.
+set CL_MPCount=%jobs%
 
 set config=Release
 cmake -S . -B build -DBUILD_UNIT_TESTS=ON || exit /b
