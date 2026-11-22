@@ -216,6 +216,7 @@ SamplePageView::SamplePageView(QuarryAudioProcessor& inProcessor)
     mRecordButton = std::make_unique<TextButton>("RECORD");
     quarry::lnf::setRole(*mRecordButton, quarry::lnf::Role::primary);
     mRecordButton->onClick = [this]() { _toggleRecording(); };
+    mRecordButton->setTooltip("Start or stop recording (Space)");
     addAndMakeVisible(*mRecordButton);
 
     mFixVolumeButton = std::make_unique<TextButton>("SET TO 100%");

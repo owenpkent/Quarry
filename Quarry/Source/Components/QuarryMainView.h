@@ -20,6 +20,7 @@
 #include <okstudio/Obsidian.h>
 #include "NnId.h"
 #include "UpdateCheck.h"
+#include "KeyRepeatLatch.h"
 
 // Forward declared rather than included: its header reaches the Windows audio stack, and
 // windows.h defines a Rectangle() that makes juce::Rectangle ambiguous in everything parsed
@@ -51,6 +52,12 @@ public:
     void repaintPianoRoll();
 
     bool keyPressed(const KeyPress& key) override;
+
+    bool keyStateChanged(bool isKeyDown) override;
+
+    void focusLost(FocusChangeType cause) override;
+
+    void focusOfChildComponentChanged(FocusChangeType cause) override;
 
 private:
     void updateEnablements();
@@ -134,6 +141,9 @@ private:
         two pages are not peers. Shown on Transcribe, absent on the page it returns to. */
     std::unique_ptr<TextButton> mBackToSamplesButton;
     std::unique_ptr<SamplePageView> mSamplePage;
+
+    /** Space or r held down on the Sample page is one click on RECORD, not one per key repeat. */
+    quarry::KeyRepeatLatch mSampleRecordKey;
 #endif
 
     std::unique_ptr<TooltipWindow> mTooltipWindow;

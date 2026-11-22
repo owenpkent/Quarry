@@ -77,6 +77,10 @@ public:
     /** Puts a link in the box and focuses it, without starting anything. */
     void prefillLink(const String& inUrl);
 
+    /** The same as a click on RECORD: starts a take, or stops the one running, and does nothing
+        while the button is disabled. For the space bar, which the view that owns this page hears. */
+    void triggerRecord() { mRecordButton->triggerClick(); }
+
     /** Called with a cleaned URL when the "paste a link" field submits one. The page does not
         know how a download starts; the view that owns the processor and both pages does, and
         it is the same entry point the activity drawer, Ctrl+V and a link drop use. Returns the

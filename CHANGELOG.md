@@ -147,6 +147,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- feat: the space bar records on the Sample page. Space starts a take and stops the one running,
+  the same as a click on RECORD, and so does `r`. Both used to reach the Transcribe page's hidden
+  play and record buttons from there. A focused text box still gets its own space, and a key held
+  down is one click, not one per key repeat.
 - feat: a take drags out of the Sample page's library and onto a track in Ableton, or into any
   other app that takes an audio file. Press a row and drag it past the edge of Quarry's window.
   The file is offered as a copy and stays in the library.
