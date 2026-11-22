@@ -158,3 +158,49 @@ jobs:
       # needs the missing onnxruntime library to link.
       - name: Compile the shared code
         run: cmake --build build --target Quarry
+
+  # OSV scan of the two Python requirements files, pinned by SHA like every
+  # other action here (tag refs are mutable). The git submodules under
+  # ThirdParty/ and the pinned onnxruntime are NOT scanned: release.py only
+  # writes its SBOM as part of a full build, so there is nothing to feed the
+  # scanner without one. Dependabot covers the submodules instead.
+  #
+  # On a pull request the reusable PR workflow scans base and head and fails
+  # only on vulnerabilities the PR introduces. On a push to master
+  # (osv-scan-main) and nightly (osv-nightly.yml) everything is scanned, so an
+  # advisory against something already on master shows up as one failed
+  # scheduled run, not a red X on every PR.
+  #
+  # fail-on-vuln: true in both modes. If a CVE cannot be fixed yet, add a
+  # time-boxed osv-scanner.toml entry beside the requirements file it applies
+  # to (the scanner reads it only from the scanned file's own directory); see
+  # PACKAGING.md. Do not flip fail-on-vuln to false.
+  osv-scan:
+    name: OSV Scanner (deps CVE check)
+    if: github.event_name == 'pull_request'
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml@32d3cd482bdadfb38b186c0ad1b031902d55d932 # v2.7.1
+    with:
+      scan-args: |-
+        --lockfile=tools/sidecar/requirements.txt
+        --lockfile=prototypes/synthesia_detector/requirements.txt
+      fail-on-vuln: true
+      upload-sarif: false
+
+  osv-scan-main:
+    name: OSV Scanner (full scan of master)
+    if: github.event_name == 'push'
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@32d3cd482bdadfb38b186c0ad1b031902d55d932 # v2.7.1
+    with:
+      scan-args: |-
+        --lockfile=tools/sidecar/requirements.txt
+        --lockfile=prototypes/synthesia_detector/requirements.txt
+      fail-on-vuln: true
+      upload-sarif: false

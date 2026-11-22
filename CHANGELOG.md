@@ -9,6 +9,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Security
 
+- ci: added OSV scanning of the Python requirements files (on pull requests, on pushes to
+  master and nightly), Dependabot for GitHub Actions, pip and the submodules (JUCE is
+  left out and bumped by hand), and a `socket.yml` that skips `ThirdParty/`. See `PACKAGING.md`.
 - fix: a file named `.mp3` with nothing decodable in it crashed the host. minimp3 reports such a
   file, and one that switches between mono and stereo part way through, as zero channels, and
   the loader divided by that. Any file dropped on the plugin could do it, and so could a saved
