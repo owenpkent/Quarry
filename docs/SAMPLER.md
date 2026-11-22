@@ -410,7 +410,10 @@ How it works (the method was proven in `tools/screen_spike`; the code is
   repeating it when nothing changed, so the file is constant frame rate.
 - H.264 and AAC through a Media Foundation sink writer, hardware encoder first, then software,
   then a CPU read-back path if the GPU sample path cannot start. Size is fixed from the first
-  frame (even sides, at least 16 px); a window resized mid-take is clipped or padded black.
+  frame (even sides, at least 16 px); a window resized mid-take is clipped or padded black. The
+  copy into the encoder is bounded by the size of the captured surface as well as the content
+  size, because a surface keeps the size of the capture pool until the pool is recreated, which
+  happens only after the first frame at a new size; that frame copies what fits.
   Bitrate is about 0.05 bit per pixel per frame, held between 4 and 30 Mbps.
 - The mp4 is written to a hidden `.quarry-picture-*.mp4.part` file in the capture folder and
   renamed beside the wav when the take is filed, so the library scan never sees a half file.
@@ -421,7 +424,13 @@ block to the picture recorder, which counts samples and nothing else:
 - Timestamps come from the running sample count. Samples are never dropped or reordered once
   the stream has started.
 - The first block after the picture's start is aligned once: leading silence if it began after
-  the start, or its head dropped if it began before.
+  the start, or its head dropped if it began before. "Began" is when it was captured, which the
+  loopback streams report with each block (`LoopbackBlockTime`, from GetBuffer's counter
+  position), and not when it was handed over. The distinction matters for the silence a stream
+  makes up after an idle gap: it arrives in a burst, dated by counting back from the sound that
+  follows it. The part before the picture's start is trimmed off on the capture thread, as the
+  block arrives and before anything else is decided about it, so it is gone whether or not the
+  worker has already begun filling a stall; the sound resumes where it did on the clock.
 - After that silence is inserted only when the source has delivered nothing for half a second,
   which means it stalled (endpoint loopback does whenever nothing is playing). A sound card
   whose clock merely runs slow keeps delivering, so it is never filled. Sound that runs ahead
@@ -432,6 +441,14 @@ block to the picture recorder, which counts samples and nothing else:
   ends the accounting.
 - The encoder takes 44.1 or 48 kHz. Any other mix rate is resampled to 48 kHz on the worker
   thread with a windowed-sinc interpolator.
+
+**Stopping.** The sound stops first. Pressing Stop (or closing the editor) tells the picture to
+stop accepting audio and ends the audio take (`ScreenRecorder::requestStop`,
+`SampleRecorder::endCapture`), and only then is the picture finished and the take filed
+(`ScreenRecorder::finish`, `SampleRecorder::stop`). Finishing can be slow, because the encoder
+drains and the worker may still be waiting for a first frame, and the wav must not keep sound
+that arrived while it did. The wait for the first frame ends at once on a stop request, not
+after its two seconds. The wav and the mp4 are still filed together.
 
 The picture runs on its own worker thread and never touches the audio take: if it cannot start
 or dies (the window closed, the encoder failed), the status line says "picture stopped" and the

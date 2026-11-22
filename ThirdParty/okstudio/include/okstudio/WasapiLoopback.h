@@ -25,6 +25,7 @@
 #include <audioclient.h>
 
 #include <atomic>
+#include <cmath>
 #include <memory>
 #include <vector>
 
@@ -96,7 +97,38 @@ struct ComScope
     const bool owned;
     JUCE_DECLARE_NON_COPYABLE(ComScope)
 };
+
+/** The performance counter in 100 ns units, which is what GetBuffer reports a packet's
+    capture time in. Split into seconds and a remainder so the product never overflows. */
+inline juce::int64 qpcNow100ns()
+{
+    LARGE_INTEGER frequency, now;
+    QueryPerformanceFrequency(&frequency);
+    QueryPerformanceCounter(&now);
+    return (now.QuadPart / frequency.QuadPart) * 10000000
+           + ((now.QuadPart % frequency.QuadPart) * 10000000) / frequency.QuadPart;
+}
+
+/** When the first frame of a packet was captured, in 100 ns performance counter units.
+    The driver's own figure when it gave a usable one; otherwise the packet is taken to have
+    ended now, which is when the poll thread found it. */
+inline juce::int64 packetStart100ns(UINT64 qpcPosition, DWORD flags, UINT32 frames, double sampleRate)
+{
+    if (qpcPosition != 0 && (flags & AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR) == 0)
+        return (juce::int64) qpcPosition;
+
+    return qpcNow100ns() - (juce::int64) std::llround((double) frames / juce::jmax(1.0, sampleRate) * 1.0e7);
+}
 } // namespace detail
+
+/** When a block was captured, for a sink that lines the sound up with something else. */
+struct LoopbackBlockTime
+{
+    /** The performance counter, in 100 ns units, when the first frame of the block was
+        captured. For the silence that closes a gap it is where that silence would have
+        begun, counted back from the packet that follows it. Zero when not known. */
+    juce::int64 startQpc100ns = 0;
+};
 
 /** Where loopback audio goes. Called from the capture thread, never the message thread. */
 struct LoopbackSink
@@ -105,6 +137,14 @@ struct LoopbackSink
 
     /** Deinterleaved float, one pointer per channel, always `numChannels` of them. */
     virtual void loopbackBlock(const float* const* channels, int numChannels, int numSamples) = 0;
+
+    /** The same block with the time it was captured. What the stream calls. A sink that does
+        not care about time leaves this alone and gets loopbackBlock. */
+    virtual void loopbackBlockAt(const float* const* channels, int numChannels, int numSamples,
+                                 const LoopbackBlockTime& /*when*/)
+    {
+        loopbackBlock(channels, numChannels, numSamples);
+    }
 
     /** The stream died: the endpoint was unplugged, or its format changed underneath us. */
     virtual void loopbackFailed() {}
@@ -425,7 +465,7 @@ private:
     float* channelStart(int channel) { return scratch.data() + (size_t) channel * (size_t) scratchFrames; }
 
     /** Deinterleaves one packet into the scratch planes and hands it over. */
-    void deliver(const BYTE* data, int frames, bool silent)
+    void deliver(const BYTE* data, int frames, bool silent, juce::int64 startQpc100ns)
     {
         if (frames <= 0 || sink == nullptr)
             return;
@@ -471,12 +511,14 @@ private:
         for (int ch = 0; ch < channels; ++ch)
             pointers[(size_t) ch] = channelStart(ch);
 
-        sink->loopbackBlock(pointers.data(), channels, frames);
+        LoopbackBlockTime when;
+        when.startQpc100ns = startQpc100ns;
+        sink->loopbackBlockAt(pointers.data(), channels, frames, when);
     }
 
     /** Writes `frames` of silence, in scratch-sized chunks. See the class comment: an idle
         endpoint produces no packets, and without this the recording would lose that time. */
-    void deliverSilence(juce::int64 frames)
+    void deliverSilence(juce::int64 frames, juce::int64 endQpc100ns)
     {
         const auto cap = (juce::int64) (rate * maxSilencePadSeconds);
         auto remaining = juce::jlimit((juce::int64) 0, cap, frames);
@@ -484,7 +526,11 @@ private:
         while (remaining > 0)
         {
             const auto chunk = (int) juce::jmin((juce::int64) scratchFrames, remaining);
-            deliver(nullptr, chunk, true);
+
+            // The silence is the time just before the packet that follows it, so each chunk
+            // is dated by counting back from that packet and not by when it is handed over.
+            deliver(nullptr, chunk, true,
+                    endQpc100ns - (juce::int64) std::llround((double) remaining / rate * 1.0e7));
             remaining -= chunk;
         }
     }
@@ -515,17 +561,20 @@ private:
                 UINT32 frames       = 0;
                 DWORD flags         = 0;
                 UINT64 position     = 0;
+                UINT64 qpcPosition  = 0;
 
-                if (FAILED(capture->GetBuffer(&data, &frames, &flags, &position, nullptr)))
+                if (FAILED(capture->GetBuffer(&data, &frames, &flags, &position, &qpcPosition)))
                 {
                     fail();
                     return;
                 }
 
-                if (havePosition && position > nextExpectedPosition)
-                    deliverSilence((juce::int64) (position - nextExpectedPosition));
+                const auto packetStart = detail::packetStart100ns(qpcPosition, flags, frames, rate);
 
-                deliver(data, (int) frames, (flags & AUDCLNT_BUFFERFLAGS_SILENT) != 0);
+                if (havePosition && position > nextExpectedPosition)
+                    deliverSilence((juce::int64) (position - nextExpectedPosition), packetStart);
+
+                deliver(data, (int) frames, (flags & AUDCLNT_BUFFERFLAGS_SILENT) != 0, packetStart);
 
                 capture->ReleaseBuffer(frames);
 

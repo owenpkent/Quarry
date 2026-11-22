@@ -429,12 +429,20 @@ String SamplePageView::_everythingLabel() const
 
 String SamplePageView::_finishTake(bool& outWritten)
 {
-    // The picture first, so its file is finished and closed before the recorder is asked to
-    // move it, and so its soundtrack ends where the picture does. The audio take is still
-    // running while this happens: the screen recorder stops accepting blocks itself.
+    // The sound stops first, at once: the picture is told to stop and the audio take ends,
+    // and only then is the picture finished. Finishing can take a while (the encoder drains,
+    // or the first frame was still awaited), and sound arriving meanwhile must not be kept
+    // after the person pressed Stop.
     quarry::sampler::ScreenRecorder::Finished picture;
     const auto hadPicture = mTakeHasPicture;
 
+    if (hadPicture)
+        mScreen->requestStop();
+
+    mRecorder->endCapture();
+
+    // Its file is finished and closed before the recorder is asked to move it, and its
+    // soundtrack ends where the picture does.
     if (hadPicture)
         picture = mScreen->finish();
 

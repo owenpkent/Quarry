@@ -207,23 +207,13 @@ public:
         try { pool.Close(); } catch (...) {}
     }
 
-    bool waitFirstFrame(int milliseconds, const std::atomic<bool>& giveUp)
+    /** Waits for the first frame, but not past an abandon or a stop request. */
+    bool waitFirstFrame(int milliseconds, const std::atomic<bool>& abandon, const std::atomic<bool>& stop)
     {
-        const auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds(milliseconds);
-
-        while (std::chrono::steady_clock::now() < end && ! giveUp.load())
-        {
-            {
-                std::lock_guard<std::mutex> g(m);
-
-                if (haveFrame)
-                    return true;
-            }
-
-            Sleep(2);
-        }
-
-        return false;
+        return sm::waitUntilReady(
+            milliseconds,
+            [this] { std::lock_guard<std::mutex> g(m); return haveFrame; },
+            [&] { return abandon.load() || stop.load(); });
     }
 
     /** Copies the newest frame into `dst`, a texture the caller owns. False if there has been
@@ -287,13 +277,25 @@ private:
                     if (contentSize.Width != encW || contentSize.Height != encH)
                         clearLatest();
 
-                    D3D11_BOX box{};
-                    box.right = static_cast<UINT>(std::min(contentSize.Width, encW));
-                    box.bottom = static_cast<UINT>(std::min(contentSize.Height, encH));
-                    box.back = 1;
-                    context->CopySubresourceRegion(latest.Get(), 0, 0, 0, 0, texture.Get(), 0, &box);
-                    used = false;
-                    haveFrame = true;
+                    // The surface is still the size of the pool it came from, which after a
+                    // resize can be smaller than the content it reports, so the copy is bounded
+                    // by the surface as well. Such a transition frame copies what fits.
+                    D3D11_TEXTURE2D_DESC sourceDesc{};
+                    texture->GetDesc(&sourceDesc);
+                    const auto extent = sm::copyExtent({ contentSize.Width, contentSize.Height },
+                                                       { static_cast<int>(sourceDesc.Width), static_cast<int>(sourceDesc.Height) },
+                                                       { encW, encH });
+
+                    if (extent.width > 0 && extent.height > 0)
+                    {
+                        D3D11_BOX box{};
+                        box.right = static_cast<UINT>(extent.width);
+                        box.bottom = static_cast<UINT>(extent.height);
+                        box.back = 1;
+                        context->CopySubresourceRegion(latest.Get(), 0, 0, 0, 0, texture.Get(), 0, &box);
+                        used = false;
+                        haveFrame = true;
+                    }
                 }
 
                 if (contentSize.Width != poolW || contentSize.Height != poolH)
@@ -643,13 +645,13 @@ struct ScreenRecorder::Impl
     std::atomic<bool> abandon { false };
 
     // The hand-off. Written by the capture thread only while `accepting`, read by the worker.
-    // The first block's arrival is what the start alignment needs, and is written before the
+    // When the first block began is what the start alignment needs, and is written before the
     // block is published.
     juce::AbstractFifo fifo { 4 };
     std::vector<float> fifoData;   // interleaved stereo, 2 floats per frame
     std::atomic<bool> accepting { false };
     std::atomic<juce::int64> originQpc { 0 };
-    std::atomic<juce::int64> firstBlockQpc { 0 };
+    std::atomic<juce::int64> firstBlockStartQpc { 0 };
     std::atomic<juce::int64> firstBlockFrames { 0 };
 
     // Silence the worker wrote for a stalled source, in the source's frames, which the capture
@@ -671,7 +673,7 @@ struct ScreenRecorder::Impl
         abandon.store(false);
         accepting.store(false);
         originQpc.store(0);
-        firstBlockQpc.store(0);
+        firstBlockStartQpc.store(0);
         firstBlockFrames.store(0);
         silenceCredit.store(0);
         result = Finished();
@@ -787,8 +789,8 @@ struct ScreenRecorder::Impl
                 if (! started)
                 {
                     started = true;
-                    const auto align = sm::alignFirstBlock(impl.originQpc.load(), impl.firstBlockQpc.load(),
-                                                           qpcFrequency(), impl.firstBlockFrames.load(), impl.inRate);
+                    const auto align = sm::alignFirstBlockAt(impl.originQpc.load(), impl.firstBlockStartQpc.load(),
+                                                             qpcFrequency(), impl.firstBlockFrames.load(), impl.inRate);
 
                     writeSilence(static_cast<juce::int64>(std::llround(
                         static_cast<double>(align.silenceFrames) * impl.outRate / impl.inRate)));
@@ -948,10 +950,15 @@ struct ScreenRecorder::Impl
                 throw std::runtime_error("could not open an encoder: " + lastError);
         }
 
-        if (! capturer.waitFirstFrame(2000, abandon))
+        if (! capturer.waitFirstFrame(2000, abandon, stopRequested))
         {
             if (abandon.load())
                 return;
+
+            // Stopped before the picture began. The wait ends at once rather than running out
+            // its two seconds, so the take is not held up (or its sound extended) behind it.
+            if (stopRequested.load())
+                throw std::runtime_error("the take was too short for a picture");
 
             throw std::runtime_error("nothing was drawn in two seconds");
         }
@@ -1130,10 +1137,17 @@ juce::Result ScreenRecorder::start(const Target& target, const juce::File& tempF
     return juce::Result::ok();
 }
 
-void ScreenRecorder::stopWorker()
+void ScreenRecorder::requestStop()
 {
+    // Both are atomics and nothing is joined, so this is as quick as the caller needs for it
+    // to mark where the sound ends. The capture thread sees `accepting` on its next block.
     impl->accepting.store(false);
     impl->stopRequested.store(true);
+}
+
+void ScreenRecorder::stopWorker()
+{
+    requestStop();
 
     if (impl->thread.joinable())
         impl->thread.join();
@@ -1178,13 +1192,44 @@ void ScreenRecorder::discard()
 //==============================================================================
 void ScreenRecorder::loopbackBlock(const float* const* channels, int numChannels, int numSamples)
 {
+    loopbackBlockAt(channels, numChannels, numSamples, okstudio::capture::LoopbackBlockTime());
+}
+
+void ScreenRecorder::loopbackBlockAt(const float* const* channels, int numChannels, int numSamples,
+                                     const okstudio::capture::LoopbackBlockTime& when)
+{
     // The capture thread. Nothing here may block, allocate or wait: it converts, copies into
     // the FIFO and returns. Until the worker has set the origin, and once finish() has begun,
     // the block is not wanted and is ignored.
     if (! impl->accepting.load() || channels == nullptr || numChannels <= 0 || numSamples <= 0)
         return;
 
+    // Time before the picture is not part of the take, and it is trimmed here, first, rather than
+    // on the worker: the worker may already have begun filling a stall, and then it never
+    // aligns a first block at all. Until the first block is published, the frames at the head of
+    // a block that the stream dates before the origin are left out. A block wholly before it is
+    // not a dropped block, so it is not counted. The origin is valid here because it is stored
+    // before `accepting` is set. A block with no time from the stream is taken to end on
+    // arrival, which is after the origin, so `early` is 0 for it and nothing changes.
+    int early = 0;
+
+    if (when.startQpc100ns > 0 && impl->firstBlockStartQpc.load(std::memory_order_relaxed) == 0)
+        early = static_cast<int>(sm::framesBeforeOrigin(impl->originQpc.load(),
+                                                         sm::qpcFrom100ns(when.startQpc100ns, qpcFrequency()),
+                                                         qpcFrequency(), numSamples, impl->inRate));
+
+    if (early >= numSamples)
+        return;
+
+    numSamples -= early;
+
     const auto usable = std::min(numChannels, 8);
+
+    // The block as far as everything below is concerned: the same channels, past the early head.
+    const float* head[8];
+
+    for (int c = 0; c < usable; ++c)
+        head[c] = channels[c] + early;
 
     // Silence the worker already wrote while this source was stalled is not written again.
     // Only a block of pure zeros is ever shortened, and the first block with sound in it ends
@@ -1193,7 +1238,7 @@ void ScreenRecorder::loopbackBlock(const float* const* channels, int numChannels
 
     if (const auto credit = impl->silenceCredit.load(std::memory_order_relaxed); credit > 0)
     {
-        if (sm::isSilent(channels, usable, numSamples))
+        if (sm::isSilent(head, usable, numSamples))
         {
             skipped = static_cast<int>(sm::silenceAlreadyWritten(credit, numSamples, true));
             impl->silenceCredit.fetch_sub(skipped, std::memory_order_relaxed);
@@ -1217,10 +1262,20 @@ void ScreenRecorder::loopbackBlock(const float* const* channels, int numChannels
         return;
     }
 
-    if (impl->firstBlockQpc.load(std::memory_order_relaxed) == 0)
+    // When the first block began, not when it arrived: after an idle gap the stream hands over
+    // the silence it missed in a burst, and that burst arrives long after the time it stands
+    // for. Without a time from the stream the block is taken to have ended on arrival. A block
+    // whose head was trimmed above now begins at the origin, so the worker neither drops nor
+    // pads it a second time.
+    if (impl->firstBlockStartQpc.load(std::memory_order_relaxed) == 0)
     {
+        const auto start = early > 0 ? impl->originQpc.load()
+                           : when.startQpc100ns > 0
+                             ? sm::qpcFrom100ns(when.startQpc100ns, qpcFrequency())
+                             : sm::blockStartFromArrival(qpcNow(), numSamples, impl->inRate, qpcFrequency());
+
         impl->firstBlockFrames.store(numSamples, std::memory_order_relaxed);
-        impl->firstBlockQpc.store(qpcNow(), std::memory_order_relaxed);
+        impl->firstBlockStartQpc.store(std::max<juce::int64>(1, start), std::memory_order_relaxed);
     }
 
     constexpr int piece = 512;
@@ -1237,7 +1292,7 @@ void ScreenRecorder::loopbackBlock(const float* const* channels, int numChannels
         const auto taking = std::min(piece, size1 + size2 - done);
 
         for (int c = 0; c < usable; ++c)
-            shifted[c] = channels[c] + skipped + done;
+            shifted[c] = head[c] + skipped + done;
 
         sm::downmixToStereo(shifted, usable, taking, stereo);
 

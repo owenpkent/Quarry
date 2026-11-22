@@ -82,18 +82,33 @@ public:
     juce::String failure() const;
 
     /**
+     * Stops accepting audio and asks the worker to stop ticking, without waiting for it. This
+     * is the moment the picture's sound ends: call it the instant Stop is pressed, before
+     * anything slow, and finish() afterwards to collect the file. Also ends the wait for the
+     * first frame. Message thread; does nothing when no picture is being recorded.
+     */
+    void requestStop();
+
+    /**
      * Stops ticking, stops accepting audio, writes out what the audio has already delivered,
      * pads the sound with silence to where the picture ends, finalises the mp4 and joins the
      * worker. Safe to call when start() failed or never ran. When ok is false the temp file
-     * has been deleted.
+     * has been deleted. Calls requestStop() itself, so it may be used alone.
      */
     Finished finish();
 
     /** Stops and deletes the temp file. The destructor does this too. */
     void discard();
 
-    /** Capture thread. Hands a copy of the block to the worker, or drops it and counts. */
+    /** Capture thread. Hands a copy of the block to the worker, or drops it and counts. The
+        time of the block is not known here, so it is taken to have ended on arrival. */
     void loopbackBlock(const float* const* channels, int numChannels, int numSamples) override;
+
+    /** The same, with when the block was captured. The first block's time is what the sound
+        is lined up with the picture by, so silence a stream makes up after an idle gap is
+        placed by the time it stands for and not by when it was handed over. */
+    void loopbackBlockAt(const float* const* channels, int numChannels, int numSamples,
+                         const okstudio::capture::LoopbackBlockTime& when) override;
 
     /** Blocks dropped because the worker fell two seconds behind, for the take's own record. */
     juce::int64 droppedAudioFrames() const noexcept { return droppedFrames.load(); }

@@ -30,6 +30,7 @@ SampleRecorder::~SampleRecorder()
 void SampleRecorder::reset()
 {
     chunks.clear();
+    captureEnded = false;
     framesInLastChunk = 0;
     capturedChannels = 0;
     capturedRate = 0.0;
@@ -203,12 +204,19 @@ void SampleRecorder::discard()
 //==============================================================================
 void SampleRecorder::loopbackBlock(const float* const* channels, int numChannels, int numSamples)
 {
+    loopbackBlockAt(channels, numChannels, numSamples, okstudio::capture::LoopbackBlockTime());
+}
+
+void SampleRecorder::loopbackBlockAt(const float* const* channels, int numChannels, int numSamples,
+                                     const okstudio::capture::LoopbackBlockTime& when)
+{
     recordBlock(channels, numChannels, numSamples);
 
     // After this recorder's own work, so a slow tap can never delay what the wav keeps. The
-    // tap sees every block while the take is open, including the ones past the length cap.
+    // tap sees every block while the take is open, including the ones past the length cap,
+    // and with the time each was captured, which is what it lines the picture up by.
     if (tap != nullptr && recording.load())
-        tap->loopbackBlock(channels, numChannels, numSamples);
+        tap->loopbackBlockAt(channels, numChannels, numSamples, when);
 }
 
 void SampleRecorder::setTap(okstudio::capture::LoopbackSink* newTap)
@@ -368,6 +376,18 @@ juce::AudioBuffer<float> SampleRecorder::flatten() const
 }
 
 //==============================================================================
+void SampleRecorder::endCapture()
+{
+    if (! recording.load())
+        return;
+
+    // The flag first: from here the capture thread keeps nothing and forwards nothing to the
+    // tap, so the sound ends at this call however long the join below takes.
+    recording.store(false);
+    _stopStream();
+    captureEnded = true;
+}
+
 SampleRecorder::Written SampleRecorder::stop(const CompanionVideo* video)
 {
     Written result;
@@ -385,16 +405,15 @@ SampleRecorder::Written SampleRecorder::stop(const CompanionVideo* video)
         }
     } tempVideoGuard { video };
 
-    if (! recording.load())
+    if (! recording.load() && ! captureEnded)
     {
         result.message = "Not recording";
         return result;
     }
 
-    recording.store(false);
-
-    // Joins the capture thread, so everything below runs with the chunk list to itself.
-    _stopStream();
+    // A no-op when endCapture() already did it. Either way the capture thread is joined, so
+    // everything below runs with the chunk list to itself.
+    endCapture();
 
     const auto rate = capturedRate > 0.0
                         ? capturedRate

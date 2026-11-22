@@ -559,19 +559,22 @@ private:
                 UINT32 frames   = 0;
                 DWORD flags     = 0;
                 UINT64 position = 0;
+                UINT64 qpcPosition = 0;
 
-                if (FAILED(capture->GetBuffer(&data, &frames, &flags, &position, nullptr)))
+                if (FAILED(capture->GetBuffer(&data, &frames, &flags, &position, &qpcPosition)))
                 {
                     fail();
                     break;
                 }
 
+                const auto packetStart = detail::packetStart100ns(qpcPosition, flags, frames, rate);
+
                 // Insurance, not a fix for something seen: this stream clocks through
                 // silence, so unlike endpoint loopback there has never been a gap to close.
                 if (havePosition && position > nextExpectedPosition)
-                    deliverSilence((juce::int64) (position - nextExpectedPosition));
+                    deliverSilence((juce::int64) (position - nextExpectedPosition), packetStart);
 
-                deliver(data, (int) frames, (flags & AUDCLNT_BUFFERFLAGS_SILENT) != 0);
+                deliver(data, (int) frames, (flags & AUDCLNT_BUFFERFLAGS_SILENT) != 0, packetStart);
 
                 capture->ReleaseBuffer(frames);
 
@@ -648,7 +651,7 @@ private:
 
     /** Deinterleaves one packet into the scratch planes and hands it over. The format is
         always float32 because we asked for it, so there is no sample type to guess at. */
-    void deliver(const BYTE* data, int frames, bool silent)
+    void deliver(const BYTE* data, int frames, bool silent, juce::int64 startQpc100ns)
     {
         // Loaded ONCE. Reading the member again at the bottom could see the nullptr that
         // stop() writes in between, which is the crash this is here to avoid.
@@ -681,10 +684,12 @@ private:
         for (int ch = 0; ch < channels; ++ch)
             pointers[(size_t) ch] = channelStart(ch);
 
-        destination->loopbackBlock(pointers.data(), channels, frames);
+        LoopbackBlockTime when;
+        when.startQpc100ns = startQpc100ns;
+        destination->loopbackBlockAt(pointers.data(), channels, frames, when);
     }
 
-    void deliverSilence(juce::int64 frames)
+    void deliverSilence(juce::int64 frames, juce::int64 endQpc100ns)
     {
         const auto cap = (juce::int64) (rate * maxSilencePadSeconds);
         auto remaining = juce::jlimit((juce::int64) 0, cap, frames);
@@ -692,7 +697,10 @@ private:
         while (remaining > 0)
         {
             const auto chunk = (int) juce::jmin((juce::int64) scratchFrames, remaining);
-            deliver(nullptr, chunk, true);
+
+            // Dated by counting back from the packet that follows, as in WasapiLoopback.
+            deliver(nullptr, chunk, true,
+                    endQpc100ns - (juce::int64) std::llround((double) remaining / rate * 1.0e7));
             remaining -= chunk;
         }
     }

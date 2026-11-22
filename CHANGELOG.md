@@ -149,6 +149,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   sound as its soundtrack and no microphone. Video is 60 fps H.264 on the GPU encoder where there
   is one; the sound is the wav's own samples, counted and never edited, so the two stay in step
   on a long take. The sidecar gets an optional `video` block and library rows show a VIDEO tag.
+  A window that is shrunk and then grown mid-take no longer reads past the edge of the captured
+  surface on the first frame at the new size. Stop ends the sound before the picture is finished,
+  so a slow encoder no longer lengthens the wav, and a stop during the first-frame wait no longer
+  waits out its two seconds. Sound that returns after an endpoint sat idle across the start of
+  the picture is placed by when it was captured, not by when the stream caught up, so it no
+  longer lands hundreds of milliseconds late. The vendored loopback streams pass each block's
+  capture time to the sink (`loopbackBlockAt`).
 
 - feat: a link can be handed to the downloader without typing it. Ctrl+V (Cmd+V on macOS) with an
   http(s) URL on the clipboard, or dragging a link from a browser onto the waveform, puts the link
