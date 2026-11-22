@@ -75,6 +75,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- build: local builds take half the machine's logical cores, not all of them. JUCE compiles with
+  `/MP`, so `run.py` used every core even without asking MSBuild for parallel projects, and
+  `build.bat` and `tools/release/release.py` asked for that as well. All three now build one
+  project at a time with the compiler bounded by `CL_MPCount`; `QUARRY_BUILD_JOBS` sets another
+  count. CI is unchanged.
+- build: `py run.py --tests` builds the unit tests and runs them, the same binary CI runs.
 - fix: eight findings from the review of the link download. The "both" mode cleanup deleted any
   file in the folder that shared a title's stem (`One.final.wav` went with `One.f137.mp4`); it
   now removes only the intermediates yt-dlp reported downloading for that request. A playlist
