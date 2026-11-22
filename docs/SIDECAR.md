@@ -35,7 +35,7 @@ One virtualenv serves the sidecar and the bake-off tooling: `tools/bakeoff/.venv
 
 ```
 py -m venv tools/bakeoff/.venv
-tools/bakeoff/.venv/Scripts/python -m pip install --no-deps "torch==2.11.0+cu128" --index-url https://download.pytorch.org/whl/cu128
+tools/bakeoff/.venv/Scripts/python -m pip install --no-deps "torch==2.13.0+cu130" --index-url https://download.pytorch.org/whl/cu130
 tools/bakeoff/.venv/Scripts/python -m pip install -r tools/sidecar/requirements.txt
 ```
 
@@ -82,11 +82,16 @@ the newest, so TRANSCRIBE is one click away. The settings apply to the drawer, p
 
 Traps met once so nobody meets them twice:
 
-- **The CUDA build must be forced.** The cu128 index tops out at torch 2.11, and pip does not
-  consider `2.13.0+cpu` older than `2.11.0+cu128`, so an already-installed CPU torch silently
-  survives a plain install. Use `--force-reinstall --no-deps "torch==2.11.0+cu128"` if a CPU
-  build got there first. On Blackwell (sm_120) the CPU build is not a slow path, it is the
-  only path, and a 30 s take costs 48 s instead of 6.
+- **The CUDA build must be forced.** pip does not consider `2.15.0+cpu` older than
+  `2.13.0+cu130`, so an already-installed CPU torch silently survives a plain install. Use
+  `--force-reinstall --no-deps "torch==2.13.0+cu130"` if a CPU build got there first. On
+  Blackwell (sm_120) the CPU build is not a slow path, it is the only path, and a 30 s take
+  costs 48 s instead of 6.
+- **The pin is on the cu130 index, not cu128.** The cu128 index tops out at torch 2.11, and
+  every torch before 2.13.0 carries CVE-2025-3000 (memory corruption in `torch.jit.script`).
+  The CUDA 13.0 wheels may want a newer NVIDIA driver than cu128 did, so check
+  `torch.cuda.is_available()` after a rebuild. torchaudio stays on the 2.11 line because
+  it has no later release; 2.11.1 is the one built to load against any torch from 2.11 up.
 - **librosa is pinned to 0.9.2**: `piano_transcription_inference` calls a pre-lazy-loader API
   that librosa 1.0 removed, and it also needs `audioread` installed even though it does not
   declare it.

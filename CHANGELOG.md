@@ -9,6 +9,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Security
 
+- fix: the sidecar's torch pin moves from `2.11.0+cu128` to `2.13.0+cu130`, the version the
+  advisory for CVE-2025-3000 (GHSA-rrmf-rvhw-rf47, memory corruption in `torch.jit.script`)
+  lists as fixed, and torchaudio to 2.11.1. The cu128 wheel index stops at 2.11, so the CUDA
+  runtime changes with it. The sidecar venv has to be rebuilt; see `docs/SIDECAR.md`.
 - feat: the updater checks who signed the installer before running it. After the hash and
   version checks, `UpdateInstaller` verifies the embedded Authenticode signature with
   `WinVerifyTrust` (revocation checked, failing closed when it cannot be) through the pinned

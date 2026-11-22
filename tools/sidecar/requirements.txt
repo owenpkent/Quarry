@@ -2,7 +2,7 @@
 #
 # torch must come from the CUDA index, so install it first (and force it if a CPU build is
 # already present, see docs/SIDECAR.md):
-#   python -m pip install --no-deps "torch==2.11.0+cu128" --index-url https://download.pytorch.org/whl/cu128
+#   python -m pip install --no-deps "torch==2.13.0+cu130" --index-url https://download.pytorch.org/whl/cu130
 # then everything else from PyPI:
 #   python -m pip install -r tools/sidecar/requirements.txt
 # demucs is meant to be installed without its own dependency resolution (its loose torch pin
@@ -20,9 +20,10 @@ resampy==0.4.3
 soundfile==0.14.0
 torchlibrosa==0.1.0
 
-# torch (CUDA 128 build, see above)
-torch==2.11.0+cu128
-torchaudio==2.11.0
+# torch (CUDA 13.0 build, see above; the cu128 index stops at 2.11, which has GHSA-rrmf-rvhw-rf47).
+# torchaudio has no 2.13 release: 2.11.1 is the build that accepts any torch from 2.11 up.
+torch==2.13.0+cu130
+torchaudio==2.11.1
 
 # engines
 piano-transcription-inference==0.0.6
