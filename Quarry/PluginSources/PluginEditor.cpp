@@ -8,8 +8,13 @@ QuarryEditor::QuarryEditor(QuarryAudioProcessor& p)
 {
     mMainView = std::make_unique<QuarryMainView>(p);
 
-    addAndMakeVisible(*mMainView);
+    // Size first, then the view. Adding the view is what lets it ask for the size its page
+    // wants (QuarryMainView::parentHierarchyChanged), and that answer has to be the last word:
+    // the other way round the editor reported 1000 x 755 and then corrected itself the moment
+    // it was attached, which in a host is a resize request made against a window it has only
+    // just been given.
     setSize(1000, 755);
+    addAndMakeVisible(*mMainView);
 
     getLookAndFeel().setDefaultSansSerifTypeface(UIDefines::MONTSERRAT_REGULAR());
 

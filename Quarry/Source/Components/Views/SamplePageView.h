@@ -41,6 +41,7 @@ class SamplePageView
     : public Component
     , public Timer
     , public ListBoxModel
+    , public DragAndDropContainer
 {
 public:
     explicit SamplePageView(QuarryAudioProcessor& inProcessor);
@@ -61,6 +62,12 @@ public:
     void paintListBoxItem(int row, Graphics& g, int width, int height, bool isSelected) override;
 
     void listBoxItemClicked(int row, const MouseEvent& event) override;
+
+    /** A take dragged out of the library and past the edge of the window becomes a file drag, so
+        it can be dropped on a track in a DAW. See Sampler/TakeDrag.h. */
+    bool shouldDropFilesWhenDraggedExternally(const DragAndDropTarget::SourceDetails& details,
+                                              StringArray& files,
+                                              bool& canMoveFiles) override;
 
     /** Called once a capture has been loaded into the transcriber, so the window can follow it
         there. This page knows nothing about where the other page lives; the view that owns
@@ -93,8 +100,8 @@ public:
     int narrowContentWidth() const;
     int narrowContentHeight() const;
 
-    /** True while a process or Everything capture is running. Destroying the page discards it.
-        unsaved, so anything that quits the app asks this first. */
+    /** True while a process or Everything capture is running. Destroying the page ends the
+        take there and keeps it, so anything that quits the app asks this first. */
     bool isCapturing() const;
 
 private:
@@ -107,6 +114,8 @@ private:
         int getNumRows() override;
         void paintListBoxItem(int row, Graphics& g, int width, int height, bool isSelected) override;
         void listBoxItemClicked(int row, const MouseEvent& event) override;
+        var getDragSourceDescription(const SparseSet<int>& rowsToDescribe) override;
+        String getTooltipForRow(int row) override;
 
         SamplePageView& owner;
     };
@@ -184,6 +193,15 @@ private:
     QuarryAudioProcessor& mProcessor;
 
     std::unique_ptr<quarry::sampler::SampleRecorder> mRecorder;
+
+    /** True when this is a plugin in someone else's process rather than the standalone. */
+    bool _inHost() const;
+
+    /** What the first row is called: it records a different thing in a host, and says so. */
+    String _everythingLabel() const;
+
+    /** The host's name, for that label. Only meaningful when _inHost(). */
+    String mHostName;
 
     /** Rebuilds the dropdown from mSources. Only when the list changes shape: doing it every
         refresh would shut a menu under the pointer four times a second. */

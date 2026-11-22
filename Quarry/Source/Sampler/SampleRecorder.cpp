@@ -94,6 +94,56 @@ juce::Result SampleRecorder::startEndpoint(const juce::File& libraryRoot)
     reset();
     root = libraryRoot;
 
+    _describeGuessedSource(0);
+
+    usingEndpoint = true;
+    recording.store(true);
+
+    // An empty endpoint id means the default playback device, and a channel cap of 2 keeps a
+    // 5.1 output from becoming a six channel sample nobody asked for.
+    const auto opened = endpointLoopback.start({}, *this, 2);
+
+    if (opened.failed())
+    {
+        recording.store(false);
+        usingEndpoint = false;
+        return opened;
+    }
+
+    capturedRate = endpointLoopback.sampleRate();
+    return juce::Result::ok();
+}
+
+juce::Result SampleRecorder::startEverythingExcept(juce::uint32 excludedProcessId, const juce::File& libraryRoot)
+{
+    if (recording.load())
+        return juce::Result::fail("Already recording");
+
+    reset();
+    root = libraryRoot;
+
+    _describeGuessedSource(excludedProcessId);
+
+    // The process stream, pointed at the one tree to leave out. Same channel cap as the
+    // endpoint path, for the same reason.
+    usingEndpoint = false;
+    recording.store(true);
+
+    const auto opened = loopback.start(excludedProcessId, *this,
+                                       okstudio::capture::WasapiProcessLoopback::Scope::everythingElse, 2);
+
+    if (opened.failed())
+    {
+        recording.store(false);
+        return opened;
+    }
+
+    capturedRate = loopback.sampleRate();
+    return juce::Result::ok();
+}
+
+void SampleRecorder::_describeGuessedSource(juce::uint32 excludedProcessId)
+{
     pending = SampleMetadata();
     pending.capturedAt = juce::Time::getCurrentTime();
     pending.source.isolatedToProcess = false;
@@ -106,8 +156,14 @@ juce::Result SampleRecorder::startEndpoint(const juce::File& libraryRoot)
     const auto sessions = okstudio::capture::WasapiProcessLoopback::sessions();
 
     for (const auto& session : sessions)
+    {
+        // Whatever is left out of the take cannot be what the take is of.
+        if (excludedProcessId != 0 && session.processId == excludedProcessId)
+            continue;
+
         if (loudest == nullptr || session.peak > loudest->peak)
             loudest = &session;
+    }
 
     if (loudest != nullptr && loudest->peak > 0.0001f)
     {
@@ -127,23 +183,6 @@ juce::Result SampleRecorder::startEndpoint(const juce::File& libraryRoot)
     // to be making noise, and photographing it, is not covered by it. A banking tab that
     // beeped at the wrong moment would end up as a URL and a picture on disk, and would
     // travel with any sample pack built from that folder.
-
-    usingEndpoint = true;
-    recording.store(true);
-
-    // An empty endpoint id means the default playback device, and a channel cap of 2 keeps a
-    // 5.1 output from becoming a six channel sample nobody asked for.
-    const auto opened = endpointLoopback.start({}, *this, 2);
-
-    if (opened.failed())
-    {
-        recording.store(false);
-        usingEndpoint = false;
-        return opened;
-    }
-
-    capturedRate = endpointLoopback.sampleRate();
-    return juce::Result::ok();
 }
 
 void SampleRecorder::_stopStream()
