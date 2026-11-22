@@ -144,13 +144,18 @@ that process rather than the output, focus does not matter. Arm the tab, hit rec
 the browser, play it, switch back, stop. Nothing you did in between is in the file, and the
 silence at the end is trimmed off anyway.
 
+**Space starts a take and stops it**, the same as a click on RECORD, and so does `r`. Holding
+the key down is still one click. Close the window in the middle of a take and the take is
+stopped and kept, not thrown away.
+
 **Two browser windows are two rows**, told apart by what each is showing. They are one process
 underneath, so this is about naming the capture correctly rather than separating the sound:
 picking the window is the only way anything can know which of them you meant.
 
 This is Windows 10 build 20348 and later; the page hides itself elsewhere. **Everything this
 computer plays** sits at the top of the list as the fallback, and says plainly that its source
-can only be guessed at.
+can only be guessed at. Loaded as a plugin, that row reads **Everything except** the host: the
+machine minus the DAW Quarry is sitting in, so a take does not contain the host's own output.
 
 ### What a capture knows about itself
 
@@ -195,6 +200,10 @@ reasonable thing to ask. Several words narrow, and searching looks through every
 than the one you are standing in. **TRANSCRIBE** hands a capture to the other page, which is
 also how you listen to one, and deleting moves a file to the recycle bin rather than destroying
 it.
+
+**Drag a take into Ableton.** Press a take in the list, drag it past the edge of Quarry's
+window and drop it on a track, or into any other app that takes an audio file. It lands as a
+copy; the take stays in the library.
 
 **Turn it off** and the window shrinks to the source picker, which becomes a dropdown: Quarry
 folds down to a small capture tool that records and gets out of the way. It reopens the way you
