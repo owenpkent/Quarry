@@ -310,6 +310,56 @@ inline bool screen_test()
             check(written == 19200, "resumed sound lands at +400 ms after a gap longer than one chunk");
         }
 
+        // The ingress trim and the alignment share one rounding rule: the head the trim takes
+        // off the straddling chunk is the 480 frames the alignment would have dropped.
+        check(sm::framesBeforeOrigin(origin, origin - freq / 100, freq, 9600, rate) == 480, "the trim takes the 10 ms before the origin");
+        check(sm::framesBeforeOrigin(origin, origin, freq, 9600, rate) == 0, "nothing is trimmed from a block at the origin");
+        check(sm::framesBeforeOrigin(origin, origin - freq, freq, 480, rate) == 480, "the trim is capped at the block length");
+        check(sm::framesBeforeOrigin(origin, origin - freq, 0, 480, rate) == 0, "a zero counter frequency trims nothing");
+
+        // A gap longer than the stall threshold. The last packet ended 100 ms before the origin
+        // and sound returns at +650 ms, so 750 ms (36000 frames) is made up as chunks of 9600,
+        // 9600, 9600 and 7200. By its +633 ms tick the worker has already filled 28000 frames
+        // of stall silence, so the stream has started and 28000 is owed back. The first chunk
+        // spans -100 ms to +100 ms: its 4800 early frames are trimmed first, and only then does
+        // the credit look at what is left.
+        {
+            const juce::int64 backfill[4] = { 9600, 9600, 9600, 7200 };
+            const auto resumeLong = origin + freq * 65 / 100;
+            auto chunkStart = resumeLong - (juce::int64) std::llround(36000.0 / rate * (double) freq);
+            check(chunkStart == origin - freq / 10, "the stalled gap begins 100 ms before the origin");
+
+            juce::int64 written = 28000;   // the worker's stall fill
+            juce::int64 credit = 28000;
+            bool recorded = false;
+
+            for (const auto frames : backfill)
+            {
+                const auto early = recorded ? 0 : sm::framesBeforeOrigin(origin, chunkStart, freq, frames, rate);
+                chunkStart += (juce::int64) std::llround((double) frames / rate * (double) freq);
+
+                if (early >= frames)
+                    continue;
+
+                const auto kept = frames - early;
+                const auto skipped = sm::silenceAlreadyWritten(credit, (int) kept, true);
+                credit -= skipped;
+
+                if (kept - skipped > 0)
+                {
+                    written += kept - skipped;
+                    recorded = true;
+                }
+            }
+
+            check(credit == 0, "the whole credit is spent on time after the origin");
+            check(written == 31200, "sound after a stalled gap lands at +650 ms");
+
+            // Without the trim the 4800 early frames were counted against the credit, and the
+            // same 28000 credit left 8000 of the 36000 to be written: sound at +750 ms.
+            check(28000 + (36000 - 28000) == 36000, "without the trim the sound would have landed at +750 ms");
+        }
+
         check(! sm::blockPredatesOrigin(origin, origin - freq / 100, freq, 960, rate),
               "a chunk that straddles the origin does not predate it");
         check(sm::blockPredatesOrigin(origin, origin - freq / 100, freq, 480, rate),

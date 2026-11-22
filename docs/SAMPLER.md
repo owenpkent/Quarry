@@ -428,8 +428,9 @@ block to the picture recorder, which counts samples and nothing else:
   loopback streams report with each block (`LoopbackBlockTime`, from GetBuffer's counter
   position), and not when it was handed over. The distinction matters for the silence a stream
   makes up after an idle gap: it arrives in a burst, dated by counting back from the sound that
-  follows it, so chunks wholly before the picture's start are left out, the one that straddles it
-  loses its head, and the sound resumes where it did on the clock.
+  follows it. The part before the picture's start is trimmed off on the capture thread, as the
+  block arrives and before anything else is decided about it, so it is gone whether or not the
+  worker has already begun filling a stall; the sound resumes where it did on the clock.
 - After that silence is inserted only when the source has delivered nothing for half a second,
   which means it stalled (endpoint loopback does whenever nothing is playing). A sound card
   whose clock merely runs slow keeps delivering, so it is never filled. Sound that runs ahead

@@ -1204,17 +1204,32 @@ void ScreenRecorder::loopbackBlockAt(const float* const* channels, int numChanne
     if (! impl->accepting.load() || channels == nullptr || numChannels <= 0 || numSamples <= 0)
         return;
 
-    // Time before the picture is not part of the take. Until the first block is published, a
-    // block the stream dates as ending at or before the origin is left out: it is not a dropped
-    // block, so it is not counted. The origin is valid here because it is stored before
-    // `accepting` is set. A block with no time from the stream is taken to end on arrival, which
-    // is after the origin, so this never applies to it and behaviour is unchanged.
-    if (when.startQpc100ns > 0 && impl->firstBlockStartQpc.load(std::memory_order_relaxed) == 0
-        && sm::blockPredatesOrigin(impl->originQpc.load(), sm::qpcFrom100ns(when.startQpc100ns, qpcFrequency()),
-                                   qpcFrequency(), numSamples, impl->inRate))
+    // Time before the picture is not part of the take, and it is trimmed here, first, rather than
+    // on the worker: the worker may already have begun filling a stall, and then it never
+    // aligns a first block at all. Until the first block is published, the frames at the head of
+    // a block that the stream dates before the origin are left out. A block wholly before it is
+    // not a dropped block, so it is not counted. The origin is valid here because it is stored
+    // before `accepting` is set. A block with no time from the stream is taken to end on
+    // arrival, which is after the origin, so `early` is 0 for it and nothing changes.
+    int early = 0;
+
+    if (when.startQpc100ns > 0 && impl->firstBlockStartQpc.load(std::memory_order_relaxed) == 0)
+        early = static_cast<int>(sm::framesBeforeOrigin(impl->originQpc.load(),
+                                                         sm::qpcFrom100ns(when.startQpc100ns, qpcFrequency()),
+                                                         qpcFrequency(), numSamples, impl->inRate));
+
+    if (early >= numSamples)
         return;
 
+    numSamples -= early;
+
     const auto usable = std::min(numChannels, 8);
+
+    // The block as far as everything below is concerned: the same channels, past the early head.
+    const float* head[8];
+
+    for (int c = 0; c < usable; ++c)
+        head[c] = channels[c] + early;
 
     // Silence the worker already wrote while this source was stalled is not written again.
     // Only a block of pure zeros is ever shortened, and the first block with sound in it ends
@@ -1223,7 +1238,7 @@ void ScreenRecorder::loopbackBlockAt(const float* const* channels, int numChanne
 
     if (const auto credit = impl->silenceCredit.load(std::memory_order_relaxed); credit > 0)
     {
-        if (sm::isSilent(channels, usable, numSamples))
+        if (sm::isSilent(head, usable, numSamples))
         {
             skipped = static_cast<int>(sm::silenceAlreadyWritten(credit, numSamples, true));
             impl->silenceCredit.fetch_sub(skipped, std::memory_order_relaxed);
@@ -1249,10 +1264,13 @@ void ScreenRecorder::loopbackBlockAt(const float* const* channels, int numChanne
 
     // When the first block began, not when it arrived: after an idle gap the stream hands over
     // the silence it missed in a burst, and that burst arrives long after the time it stands
-    // for. Without a time from the stream the block is taken to have ended on arrival.
+    // for. Without a time from the stream the block is taken to have ended on arrival. A block
+    // whose head was trimmed above now begins at the origin, so the worker neither drops nor
+    // pads it a second time.
     if (impl->firstBlockStartQpc.load(std::memory_order_relaxed) == 0)
     {
-        const auto start = when.startQpc100ns > 0
+        const auto start = early > 0 ? impl->originQpc.load()
+                           : when.startQpc100ns > 0
                              ? sm::qpcFrom100ns(when.startQpc100ns, qpcFrequency())
                              : sm::blockStartFromArrival(qpcNow(), numSamples, impl->inRate, qpcFrequency());
 
@@ -1274,7 +1292,7 @@ void ScreenRecorder::loopbackBlockAt(const float* const* channels, int numChanne
         const auto taking = std::min(piece, size1 + size2 - done);
 
         for (int c = 0; c < usable; ++c)
-            shifted[c] = channels[c] + skipped + done;
+            shifted[c] = head[c] + skipped + done;
 
         sm::downmixToStereo(shifted, usable, taking, stereo);
 

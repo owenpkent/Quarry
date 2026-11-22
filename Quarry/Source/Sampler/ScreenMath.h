@@ -161,6 +161,14 @@ inline StartAlignment alignFirstBlock (juce::int64 originQpc, juce::int64 arriva
     return result;
 }
 
+/** Where a block began relative to the origin, in frames: negative before it. The one rounding
+    rule every alignment decision here shares. */
+inline juce::int64 framesFromOrigin (juce::int64 originQpc, juce::int64 startQpc, juce::int64 qpcFrequency,
+                                     double sampleRate) noexcept
+{
+    return (juce::int64) std::llround ((double) (startQpc - originQpc) / (double) qpcFrequency * sampleRate);
+}
+
 /**
  * Lines a block up with the picture's clock by when it began, not when it was handed over.
  *
@@ -179,7 +187,7 @@ inline StartAlignment alignFirstBlockAt (juce::int64 originQpc, juce::int64 star
     if (qpcFrequency <= 0 || blockFrames <= 0 || sampleRate <= 0.0)
         return result;
 
-    const auto startOffset = (juce::int64) std::llround ((double) (startQpc - originQpc) / (double) qpcFrequency * sampleRate);
+    const auto startOffset = framesFromOrigin (originQpc, startQpc, qpcFrequency, sampleRate);
 
     if (startOffset > 0)
         result.silenceFrames = startOffset;
@@ -187,6 +195,25 @@ inline StartAlignment alignFirstBlockAt (juce::int64 originQpc, juce::int64 star
         result.dropFrames = std::min (-startOffset, blockFrames);
 
     return result;
+}
+
+/**
+ * How many frames at the head of a block lie before the origin, from 0 to the block's length.
+ * Zero for arguments that cannot be used.
+ *
+ * Used on the capture thread to trim the head of the first block off before anything else is
+ * decided about it, so the trim happens whether or not the worker has already begun filling a
+ * stall: a block that straddles the origin must not have its early frames counted against
+ * silence that was written for time after the origin.
+ */
+inline juce::int64 framesBeforeOrigin (juce::int64 originQpc, juce::int64 startQpc, juce::int64 qpcFrequency,
+                                       juce::int64 blockFrames, double sampleRate) noexcept
+{
+    if (qpcFrequency <= 0 || blockFrames <= 0 || sampleRate <= 0.0)
+        return 0;
+
+    const auto startOffset = framesFromOrigin (originQpc, startQpc, qpcFrequency, sampleRate);
+    return startOffset < 0 ? std::min (-startOffset, blockFrames) : 0;
 }
 
 /**
@@ -200,11 +227,7 @@ inline StartAlignment alignFirstBlockAt (juce::int64 originQpc, juce::int64 star
 inline bool blockPredatesOrigin (juce::int64 originQpc, juce::int64 startQpc, juce::int64 qpcFrequency,
                                  juce::int64 blockFrames, double sampleRate) noexcept
 {
-    if (qpcFrequency <= 0 || blockFrames <= 0 || sampleRate <= 0.0)
-        return false;
-
-    const auto startOffset = (juce::int64) std::llround ((double) (startQpc - originQpc) / (double) qpcFrequency * sampleRate);
-    return startOffset + blockFrames <= 0;
+    return blockFrames > 0 && framesBeforeOrigin (originQpc, startQpc, qpcFrequency, blockFrames, sampleRate) >= blockFrames;
 }
 
 /** When a block began, in counter ticks, for a source that cannot say: it is taken to have
