@@ -82,10 +82,18 @@ public:
     juce::String failure() const;
 
     /**
+     * Stops accepting audio and asks the worker to stop ticking, without waiting for it. This
+     * is the moment the picture's sound ends: call it the instant Stop is pressed, before
+     * anything slow, and finish() afterwards to collect the file. Also ends the wait for the
+     * first frame. Message thread; does nothing when no picture is being recorded.
+     */
+    void requestStop();
+
+    /**
      * Stops ticking, stops accepting audio, writes out what the audio has already delivered,
      * pads the sound with silence to where the picture ends, finalises the mp4 and joins the
      * worker. Safe to call when start() failed or never ran. When ok is false the temp file
-     * has been deleted.
+     * has been deleted. Calls requestStop() itself, so it may be used alone.
      */
     Finished finish();
 

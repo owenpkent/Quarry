@@ -3,7 +3,9 @@
 #include <juce_core/juce_core.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <thread>
 
 //
 // The arithmetic behind recording a picture with a take: how big the video is, how fast it is
@@ -42,6 +44,30 @@ constexpr double stallFillMarginSeconds = 0.05;
 /** Bitrate bounds, bits per second. */
 constexpr double minBitrate = 4.0e6;
 constexpr double maxBitrate = 30.0e6;
+
+/**
+ * Polls `ready` every couple of milliseconds until it is true, `milliseconds` have passed or
+ * `giveUp` is true, whichever comes first. True only when `ready` was seen.
+ *
+ * Both the stop request and the abandon flag are given up on here, so that a stop pressed while
+ * the worker is still waiting for the first frame ends the wait at once instead of after the
+ * whole timeout, during which the sound would keep being written to the take.
+ */
+template <typename Ready, typename GiveUp>
+inline bool waitUntilReady (int milliseconds, Ready ready, GiveUp giveUp)
+{
+    const auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds (milliseconds);
+
+    while (std::chrono::steady_clock::now() < end && ! giveUp())
+    {
+        if (ready())
+            return true;
+
+        std::this_thread::sleep_for (std::chrono::milliseconds (2));
+    }
+
+    return false;
+}
 
 //==============================================================================
 struct Size

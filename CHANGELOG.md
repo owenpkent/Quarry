@@ -150,7 +150,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   is one; the sound is the wav's own samples, counted and never edited, so the two stay in step
   on a long take. The sidecar gets an optional `video` block and library rows show a VIDEO tag.
   A window that is shrunk and then grown mid-take no longer reads past the edge of the captured
-  surface on the first frame at the new size.
+  surface on the first frame at the new size. Stop ends the sound before the picture is finished,
+  so a slow encoder no longer lengthens the wav, and a stop during the first-frame wait no longer
+  waits out its two seconds.
 
 - feat: a link can be handed to the downloader without typing it. Ctrl+V (Cmd+V on macOS) with an
   http(s) URL on the clipboard, or dragging a link from a browser onto the waveform, puts the link

@@ -436,6 +436,14 @@ block to the picture recorder, which counts samples and nothing else:
 - The encoder takes 44.1 or 48 kHz. Any other mix rate is resampled to 48 kHz on the worker
   thread with a windowed-sinc interpolator.
 
+**Stopping.** The sound stops first. Pressing Stop (or closing the editor) tells the picture to
+stop accepting audio and ends the audio take (`ScreenRecorder::requestStop`,
+`SampleRecorder::endCapture`), and only then is the picture finished and the take filed
+(`ScreenRecorder::finish`, `SampleRecorder::stop`). Finishing can be slow, because the encoder
+drains and the worker may still be waiting for a first frame, and the wav must not keep sound
+that arrived while it did. The wait for the first frame ends at once on a stop request, not
+after its two seconds. The wav and the mp4 are still filed together.
+
 The picture runs on its own worker thread and never touches the audio take: if it cannot start
 or dies (the window closed, the encoder failed), the status line says "picture stopped" and the
 wav carries on.

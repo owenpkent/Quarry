@@ -207,23 +207,13 @@ public:
         try { pool.Close(); } catch (...) {}
     }
 
-    bool waitFirstFrame(int milliseconds, const std::atomic<bool>& giveUp)
+    /** Waits for the first frame, but not past an abandon or a stop request. */
+    bool waitFirstFrame(int milliseconds, const std::atomic<bool>& abandon, const std::atomic<bool>& stop)
     {
-        const auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds(milliseconds);
-
-        while (std::chrono::steady_clock::now() < end && ! giveUp.load())
-        {
-            {
-                std::lock_guard<std::mutex> g(m);
-
-                if (haveFrame)
-                    return true;
-            }
-
-            Sleep(2);
-        }
-
-        return false;
+        return sm::waitUntilReady(
+            milliseconds,
+            [this] { std::lock_guard<std::mutex> g(m); return haveFrame; },
+            [&] { return abandon.load() || stop.load(); });
     }
 
     /** Copies the newest frame into `dst`, a texture the caller owns. False if there has been
@@ -960,10 +950,15 @@ struct ScreenRecorder::Impl
                 throw std::runtime_error("could not open an encoder: " + lastError);
         }
 
-        if (! capturer.waitFirstFrame(2000, abandon))
+        if (! capturer.waitFirstFrame(2000, abandon, stopRequested))
         {
             if (abandon.load())
                 return;
+
+            // Stopped before the picture began. The wait ends at once rather than running out
+            // its two seconds, so the take is not held up (or its sound extended) behind it.
+            if (stopRequested.load())
+                throw std::runtime_error("the take was too short for a picture");
 
             throw std::runtime_error("nothing was drawn in two seconds");
         }
@@ -1142,10 +1137,17 @@ juce::Result ScreenRecorder::start(const Target& target, const juce::File& tempF
     return juce::Result::ok();
 }
 
-void ScreenRecorder::stopWorker()
+void ScreenRecorder::requestStop()
 {
+    // Both are atomics and nothing is joined, so this is as quick as the caller needs for it
+    // to mark where the sound ends. The capture thread sees `accepting` on its next block.
     impl->accepting.store(false);
     impl->stopRequested.store(true);
+}
+
+void ScreenRecorder::stopWorker()
+{
+    requestStop();
 
     if (impl->thread.joinable())
         impl->thread.join();

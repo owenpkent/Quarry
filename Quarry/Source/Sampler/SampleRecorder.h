@@ -95,8 +95,15 @@ public:
      */
     juce::Result startEverythingExcept(juce::uint32 excludedProcessId, const juce::File& libraryRoot);
 
+    /** Stops accepting audio and joins the capture thread, and nothing else: no trimming and
+        no files. This is the point where the take's sound ends, so it is called the moment
+        Stop is pressed, before anything slow such as finishing a picture. stop() then writes
+        what was captured. Safe to call when not recording, and when already called. After it
+        isRecording() is false but stop() still files the take. */
+    void endCapture();
+
     /** Stops, trims, measures, and writes. Safe to call when not recording: it reports that
-        rather than throwing.
+        rather than throwing. Calls endCapture() first if that has not been done.
 
         With a `video`, the picture is moved to `<stem>.mp4` beside the wav and named in the
         sidecar. If the take is not written, the video's temp file is deleted, so a caller
@@ -191,6 +198,11 @@ private:
 
     std::atomic<bool> limitHit { false };
     std::atomic<bool> recording { false };
+
+    /** Set by endCapture() and cleared by reset(): the stream is stopped but the take has not
+        been filed yet. Message thread only. */
+    bool captureEnded = false;
+
     std::atomic<juce::int64> totalFrames { 0 };
     std::atomic<float> peakSinceRead[2] { { 0.0f }, { 0.0f } };
 

@@ -6,8 +6,11 @@
 #ifndef QUARRY_SCREEN_TEST_H
 #define QUARRY_SCREEN_TEST_H
 
+#include <atomic>
+#include <chrono>
 #include <cmath>
 #include <iostream>
+#include <thread>
 #include <vector>
 
 #include "Sampler/ScreenMath.h"
@@ -60,6 +63,88 @@ inline bool screen_test()
               "each side is bounded on its own");
         check(sm::copyExtent({ 0, 0 }, { 1280, 720 }, encode) == sm::Size { 0, 0 }, "an empty frame copies nothing");
         check(sm::copyExtent({ -5, 100 }, { 1280, 720 }, encode) == sm::Size { 0, 100 }, "a negative side is never passed on");
+    }
+
+    //==========================================================================
+    // Stopping while the picture is still starting up, or finishing.
+    {
+        using Clock = std::chrono::steady_clock;
+        const auto millisecondsSince = [](Clock::time_point from)
+        {
+            return (int) std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - from).count();
+        };
+
+        // The wait is cut short by a stop request, and by nothing else but its own timeout.
+        {
+            std::atomic<bool> stop { false };
+            const auto begun = Clock::now();
+            std::thread stopper([&stop] { std::this_thread::sleep_for(std::chrono::milliseconds(30)); stop.store(true); });
+            const auto ready = sm::waitUntilReady(2000, [] { return false; }, [&stop] { return stop.load(); });
+            stopper.join();
+            check(! ready, "a wait that is stopped does not report a frame");
+            check(millisecondsSince(begun) < 1000, "a stop request ends the first frame wait at once");
+        }
+
+        {
+            std::atomic<bool> frame { false };
+            std::thread drawer([&frame] { std::this_thread::sleep_for(std::chrono::milliseconds(30)); frame.store(true); });
+            const auto ready = sm::waitUntilReady(2000, [&frame] { return frame.load(); }, [] { return false; });
+            drawer.join();
+            check(ready, "a frame that arrives ends the wait with true");
+        }
+
+        {
+            const auto begun = Clock::now();
+            const auto ready = sm::waitUntilReady(40, [] { return false; }, [] { return false; });
+            check(! ready && millisecondsSince(begun) >= 35, "with no frame and no stop the wait runs its timeout");
+        }
+
+        // The order Stop uses, against a worker that is slow to finish: the sound stops being
+        // accepted the moment Stop is requested, so what the slow shutdown takes is not kept.
+        {
+            std::atomic<bool> accepting { true };
+            std::atomic<bool> stopRequested { false };
+            std::atomic<bool> running { true };
+            std::atomic<int> kept { 0 };
+
+            // Stands in for the capture thread: a block counts only while it is accepted.
+            std::thread source([&]
+            {
+                while (running.load())
+                {
+                    if (accepting.load())
+                        kept.fetch_add(1);
+
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                }
+            });
+
+            // Stands in for the worker: still waiting for a first frame that never comes, then
+            // slow to finalise.
+            std::thread worker([&]
+            {
+                sm::waitUntilReady(2000, [] { return false; }, [&stopRequested] { return stopRequested.load(); });
+                std::this_thread::sleep_for(std::chrono::milliseconds(300));
+            });
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+            const auto begun = Clock::now();
+            accepting.store(false);
+            stopRequested.store(true);
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));   // a block already in flight lands
+            const auto atStop = kept.load();
+
+            worker.join();
+            const auto joinMs = millisecondsSince(begun);
+            const auto afterJoin = kept.load();
+            running.store(false);
+            source.join();
+
+            check(atStop > 0, "the modelled source delivered before the stop");
+            check(afterJoin == atStop, "no sound is kept after the stop, however long finalising takes");
+            check(joinMs >= 250 && joinMs < 1500, "the worker is joined after its finalisation but not after the startup timeout");
+        }
     }
 
     //==========================================================================
