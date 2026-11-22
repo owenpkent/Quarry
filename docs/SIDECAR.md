@@ -96,27 +96,25 @@ Traps met once so nobody meets them twice:
   The CUDA 13.0 wheels may want a newer NVIDIA driver than cu128 did, so check
   `torch.cuda.is_available()` after a rebuild. torchaudio stays on the 2.11 line because
   it has no later release; 2.11.1 is the one built to load against any torch from 2.11 up.
-- **librosa is pinned to 0.9.2**: `piano_transcription_inference` calls a pre-lazy-loader API
-  that librosa 1.0 removed, and it also needs `audioread` installed even though it does not
-  declare it.
-- **`pkg_resources` is a stand-in.** setuptools 82 removed it, and every setuptools below 82
-  carries advisories that are only fixed in 83 and 84, so the venv is on a current setuptools
-  and has no `pkg_resources`. Two pinned packages still import it, for `resource_filename`
-  only: librosa 0.9.2 at import (so kong does not import without it) and transkun 2.0.1 inside
-  its `main()`. `tools/sidecar/pkg_resources_compat.py` supplies that one function. `engines.py`
-  and `run_bakeoff.py` install it before any engine package, and both start transkun through it
-  as a launcher, because a subprocess does not inherit it. Anything else that imports librosa
-  in this venv (a REPL, a new script) must call `pkg_resources_compat.install()` first. Without
-  the stand-in a failed import only makes an engine "not installed", so kong and `sep+kong`
-  vanish without an error; `test_sidecar.py --env` is the check.
-- **The way off the stand-in** (not done, state of 2026-11-22). librosa stopped importing
-  `pkg_resources` in 0.10.2, but kong's `load_audio` calls `librosa.core.audio.resample(y,
-  sr_native, sr, ...)` positionally and those arguments have been keyword-only since 0.10.0, so
-  a newer librosa needs the sidecar to load audio itself instead of calling `load_audio`, plus a
-  check that kong's output does not move. `piano_transcription_inference` has no release after
-  0.0.6. transkun has an open report (Yujia-Yan/Transkun issue 39) and no fix; it only needs
-  `main()` to stop calling `resource_filename`, which the sidecar could bypass since it already
-  passes `--weight` and `--conf`.
+- **kong's audio is loaded by `tools/sidecar/kong_audio.py`, not by the library.**
+  `piano_transcription_inference.load_audio` calls `librosa.core.audio.resample(y, sr_native,
+  sr, ...)` positionally, and librosa made those arguments keyword-only in 0.10.0, so on the
+  pinned librosa 1.0.1 the library's loader raises a TypeError. `kong_audio.load_audio` is the
+  same loader with keyword arguments: ffmpeg decode through `audioread`, channel average,
+  resampy's `kaiser_best`. On four corpus files (mono and stereo, 44.1 kHz and 16 kHz) kong's
+  notes and pedal events came out identical to librosa 0.9.2 with the library's loader.
+  `audioread` and `resampy` are pinned for it, since librosa no longer brings them. The library
+  has no release after 0.0.6; go back to its `load_audio` when one passes the rates by keyword.
+- **`pkg_resources` is gone, and transkun still wants it.** setuptools 82 removed it, and every
+  setuptools below 82 carries advisories that are only fixed in 83 and 84, so the venv is on a
+  current setuptools. librosa stopped importing it in 0.10.2. transkun 2.0.1 still calls
+  `pkg_resources.resource_filename` inside its `main()` (Yujia-Yan/Transkun issue 39, no fix
+  released), so `engines.py` and `run_bakeoff.py` start it through
+  `tools/sidecar/pkg_resources_compat.py`, a launcher that supplies that one function, instead
+  of `python -m transkun.transcribe`. Delete the launcher when transkun stops importing it.
+- **A failed import hides an engine.** An engine package that does not import is only "not
+  installed", so the engine and its `sep+` twin vanish without an error and Quarry falls back
+  to BasicPitch. `test_sidecar.py --env` is the check after any change to the pins.
 - **kong's checkpoint fetch shells out to `wget`**, which Windows does not have. Fetch it
   once by hand (Zenodo, ~165 MB) to the exact path the library expects:
   `~/piano_transcription_inference_data/note_F1=0.9677_pedal_F1=0.9186.pth`.

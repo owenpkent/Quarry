@@ -13,11 +13,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   advisory for CVE-2025-3000 (GHSA-rrmf-rvhw-rf47, memory corruption in `torch.jit.script`)
   lists as fixed, and torchaudio to 2.11.1. The cu128 wheel index stops at 2.11, so the CUDA
   runtime changes with it. setuptools is pinned to 84.2.1: torch 2.13 no longer caps it, and
-  every release old enough to still ship `pkg_resources` has open advisories. librosa 0.9.2 and
-  transkun 2.0.1 still import `pkg_resources`, so `tools/sidecar/pkg_resources_compat.py` stands
-  in for it in the sidecar and the bake-off. `test_sidecar.py --env` checks a rebuilt venv:
-  every engine package imports, transkun starts, and every engine is advertised. The sidecar
-  venv has to be rebuilt; see `docs/SIDECAR.md`.
+  every release old enough to still ship `pkg_resources` has open advisories. That takes librosa
+  from 0.9.2 to 1.0.1, which no longer imports `pkg_resources`; kong's audio is now loaded by
+  `tools/sidecar/kong_audio.py`, because the library's own loader does not run on a current
+  librosa (kong's output is unchanged). transkun 2.0.1 still imports `pkg_resources`, so it is
+  started through `tools/sidecar/pkg_resources_compat.py`. `test_sidecar.py --env` checks a
+  rebuilt venv: transkun starts, kong's loader works, every engine package imports and every
+  engine is advertised. The sidecar venv has to be rebuilt; see `docs/SIDECAR.md`.
 - feat: the updater checks who signed the installer before running it. After the hash and
   version checks, `UpdateInstaller` verifies the embedded Authenticode signature with
   `WinVerifyTrust` (revocation checked, failing closed when it cannot be) through the pinned

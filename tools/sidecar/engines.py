@@ -31,14 +31,10 @@ import subprocess
 import sys
 import tempfile
 
-# Before any engine package: librosa 0.9.2 (under kong) imports pkg_resources, which setuptools
-# no longer ships. See pkg_resources_compat.py.
+import pretty_midi
+import torch
+
 import pkg_resources_compat
-
-pkg_resources_compat.install()
-
-import pretty_midi  # noqa: E402
-import torch  # noqa: E402
 
 
 class EngineError(RuntimeError):
@@ -247,10 +243,12 @@ def run_kong(transcriber, wav_path, _device: str, report=None):
     intervals; kong's own write_events_to_midi turns each one into exactly the CC64 on/off pair
     reproduced below, so the sidecar's pedal list matches what a kong-written MIDI file would
     contain."""
-    from piano_transcription_inference import load_audio
     from piano_transcription_inference import sample_rate as kong_sample_rate
 
-    audio, _ = load_audio(str(wav_path), sr=kong_sample_rate, mono=True)
+    # Not the library's own load_audio: it does not run on a current librosa. See kong_audio.py.
+    import kong_audio
+
+    audio, _ = kong_audio.load_audio(str(wav_path), sr=kong_sample_rate, mono=True)
 
     if report:
         report("infer", "running kong inference")
@@ -315,8 +313,8 @@ def run_transkun(transcriber, wav_path, device: str, report=None):
 
         if report:
             report("infer", "running transkun in a subprocess (weights reload every request)")
-        # Through the launcher rather than `-m`: transkun's main() calls pkg_resources, and a
-        # fresh interpreter does not inherit the stand-in installed above.
+        # Through the launcher rather than `-m`: transkun's main() imports pkg_resources, which
+        # setuptools no longer ships. See pkg_resources_compat.py.
         subprocess.run(
             [sys.executable, pkg_resources_compat.LAUNCHER, "transkun.transcribe", str(wav_path), str(out_path),
              "--device", device,

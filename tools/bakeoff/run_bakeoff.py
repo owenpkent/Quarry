@@ -27,12 +27,12 @@ import time
 
 SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
 
-# kong (through librosa 0.9.2) and transkun import pkg_resources, which setuptools no longer
-# ships. The stand-in lives with the sidecar; see tools/sidecar/pkg_resources_compat.py.
+# Two workarounds for the engine packages live with the sidecar and are shared from there:
+# kong_audio (kong's own loader does not run on a current librosa) and pkg_resources_compat
+# (transkun's main() imports pkg_resources, which setuptools no longer ships).
 sys.path.insert(1, str(SCRIPT_DIR.parent / "sidecar"))
+import kong_audio  # noqa: E402
 import pkg_resources_compat  # noqa: E402
-
-pkg_resources_compat.install()
 
 from mir_eval_scoring import Counts, load_notes_from_midi, print_table, score_case, write_notes_midi  # noqa: E402
 
@@ -79,10 +79,9 @@ def make_kong_transcriber():
 
 def run_kong(transcriber, wav_path, out_path):
     """Kong et al.'s piano_transcription_inference writes MIDI directly; nothing to convert."""
-    from piano_transcription_inference import load_audio
     from piano_transcription_inference import sample_rate as kong_sample_rate
 
-    audio, _ = load_audio(str(wav_path), sr=kong_sample_rate, mono=True)
+    audio, _ = kong_audio.load_audio(str(wav_path), sr=kong_sample_rate, mono=True)
     transcriber.transcribe(audio, str(out_path))
 
 
@@ -95,7 +94,7 @@ def make_transkun_transcriber():
 
 
 def run_transkun(_transcriber, wav_path, out_path):
-    # Through the launcher rather than `-m`, so the subprocess gets the pkg_resources stand-in too.
+    # Through the launcher rather than `-m`, so the subprocess gets the pkg_resources stand-in.
     subprocess.run([sys.executable, pkg_resources_compat.LAUNCHER, "transkun.transcribe", str(wav_path),
                     str(out_path), "--device", "cpu"],
                    check=True)

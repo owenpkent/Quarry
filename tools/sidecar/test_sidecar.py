@@ -17,15 +17,15 @@ tools/bakeoff/.venv/Scripts/python.exe tools/sidecar/test_sidecar.py
     a real URL); checks a wav lands on disk, stage events arrive, and the response schema.
 (d) the download options (audio/video/both, playlist on/off) against a mocked yt_dlp module: no
     network and no ffmpeg, always runs.
-Before all of those, the environment: pkg_resources (real, or the stand-in from
-pkg_resources_compat.py) finds the files librosa and transkun ask it for, transkun starts through
-the launcher, every engine package in requirements.txt imports, and the sidecar advertises every
-engine. An engine whose import fails is otherwise only "not installed" and (a) and (b) skip it,
+Before all of those, the environment: transkun starts through the pkg_resources_compat.py
+launcher, kong_audio.py loads and resamples a wav, every engine package in requirements.txt
+imports, and the sidecar advertises every engine. An engine whose import fails is otherwise only "not installed" and (a) and (b) skip it,
 so a broken rebuild would pass. `--env` runs this part alone: no corpus, no weights, well under a
 minute. Run it after rebuilding the venv.
 """
 
 import importlib
+import importlib.util
 import json
 import os
 import pathlib
@@ -580,20 +580,15 @@ def test_download_outputs():
 def test_environment():
     print("\n=== environment ===")
 
-    # Importing engines (above) installed the pkg_resources stand-in if this venv has no real one.
-    stand_in = engines.pkg_resources_compat.install()
-    print(f"  pkg_resources: {'stand-in (pkg_resources_compat.py)' if stand_in else 'the real module, from setuptools'}")
+    real = importlib.util.find_spec("pkg_resources") is not None
+    print(f"  pkg_resources: {'the real module, from setuptools' if real else 'absent; transkun gets the stand-in'}")
 
-    # The two files librosa 0.9.2 and transkun 2.0.1 ask pkg_resources for, by the names they use.
-    import pkg_resources
-    for module, resource in [("librosa.util.files", "example_data/registry.txt"),
-                             ("transkun.transcribe", "pretrained/2.0.pt")]:
-        try:
-            importlib.import_module(module.rsplit(".", 1)[0])
-            path = pathlib.Path(pkg_resources.resource_filename(module, resource))
-            check(path.is_file(), f"pkg_resources finds {module}'s {resource}")
-        except Exception as exc:
-            check(False, f"pkg_resources finds {module}'s {resource}: {type(exc).__name__}: {exc}")
+    # The stand-in's one function, asked for the file transkun 2.0.1 asks for, by the same names.
+    try:
+        weight = pathlib.Path(engines.pkg_resources_compat.resource_filename("transkun.transcribe", "pretrained/2.0.pt"))
+        check(weight.is_file(), "the pkg_resources stand-in finds transkun's pretrained/2.0.pt")
+    except Exception as exc:
+        check(False, f"the pkg_resources stand-in finds transkun's pretrained/2.0.pt: {type(exc).__name__}: {exc}")
 
     # transkun runs as a subprocess and only reaches pkg_resources inside its main(), so neither
     # the import below nor the lookup above proves it starts. --help gets past that line.
@@ -603,9 +598,27 @@ def test_environment():
           "transkun.transcribe starts through the launcher"
           + ("" if helped.returncode == 0 else f": {helped.stderr.strip().splitlines()[-1:]}"))
 
+    # kong's audio goes through kong_audio.load_audio, which calls librosa. One second of stereo
+    # at 44.1 kHz must come back as 16000 mono float32 samples: a librosa that has changed one of
+    # those calls fails here rather than in the middle of a transcription.
+    try:
+        import kong_audio
+        import numpy as np
+        import soundfile
+
+        with tempfile.TemporaryDirectory(prefix="quarry_sidecar_env_") as tmp:
+            tone = 0.25 * np.sin(2 * np.pi * 440.0 * np.arange(44100) / 44100.0)
+            soundfile.write(str(pathlib.Path(tmp) / "tone.wav"), np.stack([tone, tone], axis=1), 44100, subtype="PCM_16")
+            samples, rate = kong_audio.load_audio(str(pathlib.Path(tmp) / "tone.wav"), sr=16000, mono=True)
+
+        check(rate == 16000 and samples.shape == (16000,) and samples.dtype == np.float32
+              and 0.2 < float(np.abs(samples).max()) < 0.3,
+              f"kong_audio loads and resamples a wav ({samples.shape}, {samples.dtype}, {rate} Hz)")
+    except Exception as exc:
+        check(False, f"kong_audio loads and resamples a wav: {type(exc).__name__}: {exc}")
+
     # engines.available_engines() swallows the ImportError, so import each package here too and
-    # show why it failed: "No module named 'pkg_resources'" under kong means the stand-in was not
-    # installed before librosa was imported, not a missing engine.
+    # show why it failed.
     for engine, module in REQUIRED_ENGINE_MODULES:
         try:
             importlib.import_module(module)

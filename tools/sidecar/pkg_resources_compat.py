@@ -1,27 +1,22 @@
 """A stand-in for `pkg_resources`, which setuptools 82 removed.
 
-Two pinned engine packages still import it, for one function each:
-
-- librosa 0.9.2, at import: `from pkg_resources import resource_filename` (librosa/util/files.py).
-  kong (piano_transcription_inference) imports librosa, so without this kong does not import.
-- transkun 2.0.1, inside transkun.transcribe:main: `pkg_resources.resource_filename(...)` for its
-  default weight paths, evaluated even when --weight and --conf are passed.
+One pinned engine package still imports it: transkun 2.0.1, inside transkun.transcribe:main,
+calls `pkg_resources.resource_filename(...)` for its default weight paths, and does so even when
+--weight and --conf are passed. (Yujia-Yan/Transkun issue 39; no release has a fix.)
 
 Staying on a setuptools that still ships pkg_resources is not an option: every release below 82
 carries advisories that are only fixed in 83 and 84. So this module supplies the one function
-both callers use, and nothing else. It never replaces a real pkg_resources.
+transkun uses, and nothing else. It never replaces a real pkg_resources.
 
-Use it in-process:
-
-    import pkg_resources_compat
-    pkg_resources_compat.install()   # before importing librosa or an engine package
-
-or as a launcher for a module that is normally run with `python -m`, which is how transkun is
-driven (a fresh interpreter does not inherit an in-process stand-in):
+transkun is driven as a subprocess, normally `python -m transkun.transcribe ...`, so the stand-in
+has to be put in place inside that process. Run this file as the launcher instead of `-m`:
 
     python pkg_resources_compat.py transkun.transcribe in.wav out.mid --device cuda
 
-Delete this file, and its callers' use of it, once neither package imports pkg_resources.
+`install()` is also there for in-process use, before importing whatever needs pkg_resources.
+
+Delete this file, and go back to `-m transkun.transcribe`, once transkun stops importing
+pkg_resources.
 """
 
 import importlib.util
@@ -35,8 +30,8 @@ LAUNCHER = str(pathlib.Path(__file__).resolve())
 
 
 def resource_filename(package_or_requirement, resource_name):
-    """pkg_resources.resource_filename for the only case the two callers need: a module or
-    package name that is installed as plain files. The resource is found next to the module's
+    """pkg_resources.resource_filename for the only case transkun needs: a module or package
+    name that is installed as plain files. The resource is found next to the module's
     file (for a package, next to its __init__.py), which is where pkg_resources looks too."""
     module = sys.modules.get(package_or_requirement)
     origin = getattr(module, "__file__", None)

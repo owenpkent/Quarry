@@ -14,12 +14,13 @@ numpy==2.5.2
 scipy==1.18.0
 mir_eval==0.8.2
 pretty_midi==0.2.11.post0
+# audioread and resampy are no longer librosa dependencies, but kong's audio path needs both
+# (ffmpeg decoding and the kaiser_best resampler): see tools/sidecar/kong_audio.py.
 audioread==3.1.0
-librosa==0.9.2
+librosa==1.0.1
 # torch needs setuptools. Pinned to a release without open advisories, which means one without
-# pkg_resources (removed in 82). librosa 0.9.2 and transkun 2.0.1 still import it, so the sidecar
-# and the bake-off supply a stand-in: tools/sidecar/pkg_resources_compat.py. Outside those two
-# entry points, `import librosa` fails in this venv.
+# pkg_resources (removed in 82). transkun 2.0.1 still imports it inside main(), so it is started
+# through a stand-in: tools/sidecar/pkg_resources_compat.py.
 setuptools==84.2.1
 resampy==0.4.3
 soundfile==0.14.0
