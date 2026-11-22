@@ -9,6 +9,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Security
 
+- feat: the Windows release is code signed. `tools/release/release.py` signs `Quarry.exe`, the
+  VST3 binary and the installer with the OK Studio Inc. EV certificate (hardware token, SHA-256,
+  RFC 3161 timestamp) and writes the `.sha256` only after the installer is signed. `--no-sign`
+  skips it for a local dry run, and `publish` refuses an installer that is not validly signed by
+  the pinned certificate unless `--allow-unsigned` is passed. See `docs/AUTO_UPDATE.md`.
 - ci: added OSV scanning of the Python requirements files (on pull requests, on pushes to
   master and nightly), Dependabot for GitHub Actions, pip and the submodules (JUCE is
   left out and bumped by hand), and a `socket.yml` that skips `ThirdParty/`. See `PACKAGING.md`.
