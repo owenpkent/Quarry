@@ -35,7 +35,7 @@ source is the metadata, and transcription is something you may never run.
 | Post-capture | Trim edge silence, measure loudness. No fades, no loop detection |
 | Quarry analysis | Nothing automatic. Key, tempo and MIDI are one click, never a default |
 | Semantic tagging | Deferred, with a schema slot reserved. See *Open: classification* |
-| Library | Folder browser over the sidecars, with search, no index file. Can be turned off |
+| Library | Folder browser over the sidecars, with search, no index file. Can be turned off. A take drags out of the list onto a DAW track |
 
 ---
 
