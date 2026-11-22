@@ -162,6 +162,52 @@ inline StartAlignment alignFirstBlock (juce::int64 originQpc, juce::int64 arriva
 }
 
 /**
+ * Lines a block up with the picture's clock by when it began, not when it was handed over.
+ *
+ * `startQpc` is when the block's first frame was captured, in counter ticks. This is what
+ * alignFirstBlock does when the arrival cannot be trusted to be the end of the block, which is
+ * so for silence a stream makes up after an idle gap: the stream hands over the whole gap in a
+ * burst when sound returns, and the burst arrives long after the time it stands for. Dating
+ * each chunk by its own capture time puts the part that predates the origin before it, where
+ * its head is dropped, and the rest where it belongs.
+ */
+inline StartAlignment alignFirstBlockAt (juce::int64 originQpc, juce::int64 startQpc, juce::int64 qpcFrequency,
+                                         juce::int64 blockFrames, double sampleRate) noexcept
+{
+    StartAlignment result;
+
+    if (qpcFrequency <= 0 || blockFrames <= 0 || sampleRate <= 0.0)
+        return result;
+
+    const auto startOffset = (juce::int64) std::llround ((double) (startQpc - originQpc) / (double) qpcFrequency * sampleRate);
+
+    if (startOffset > 0)
+        result.silenceFrames = startOffset;
+    else if (startOffset < 0)
+        result.dropFrames = std::min (-startOffset, blockFrames);
+
+    return result;
+}
+
+/** When a block began, in counter ticks, for a source that cannot say: it is taken to have
+    ended at `arrivalQpc`, which is how a capture thread that has just been woken sees it. */
+inline juce::int64 blockStartFromArrival (juce::int64 arrivalQpc, juce::int64 blockFrames, double sampleRate,
+                                          juce::int64 qpcFrequency) noexcept
+{
+    if (sampleRate <= 0.0)
+        return arrivalQpc;
+
+    return arrivalQpc - (juce::int64) std::llround ((double) blockFrames / sampleRate * (double) qpcFrequency);
+}
+
+/** Converts the 100 ns units WASAPI reports capture times in to counter ticks. Split into
+    seconds and a remainder so the product stays small. */
+inline juce::int64 qpcFrom100ns (juce::int64 time100ns, juce::int64 qpcFrequency) noexcept
+{
+    return (time100ns / 10000000) * qpcFrequency + ((time100ns % 10000000) * qpcFrequency) / 10000000;
+}
+
+/**
  * Frames of silence to insert because the source has stopped delivering.
  *
  * A stall is a source that has handed over nothing for half a second, not sound that is

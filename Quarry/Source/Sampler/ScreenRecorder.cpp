@@ -645,13 +645,13 @@ struct ScreenRecorder::Impl
     std::atomic<bool> abandon { false };
 
     // The hand-off. Written by the capture thread only while `accepting`, read by the worker.
-    // The first block's arrival is what the start alignment needs, and is written before the
+    // When the first block began is what the start alignment needs, and is written before the
     // block is published.
     juce::AbstractFifo fifo { 4 };
     std::vector<float> fifoData;   // interleaved stereo, 2 floats per frame
     std::atomic<bool> accepting { false };
     std::atomic<juce::int64> originQpc { 0 };
-    std::atomic<juce::int64> firstBlockQpc { 0 };
+    std::atomic<juce::int64> firstBlockStartQpc { 0 };
     std::atomic<juce::int64> firstBlockFrames { 0 };
 
     // Silence the worker wrote for a stalled source, in the source's frames, which the capture
@@ -673,7 +673,7 @@ struct ScreenRecorder::Impl
         abandon.store(false);
         accepting.store(false);
         originQpc.store(0);
-        firstBlockQpc.store(0);
+        firstBlockStartQpc.store(0);
         firstBlockFrames.store(0);
         silenceCredit.store(0);
         result = Finished();
@@ -789,8 +789,8 @@ struct ScreenRecorder::Impl
                 if (! started)
                 {
                     started = true;
-                    const auto align = sm::alignFirstBlock(impl.originQpc.load(), impl.firstBlockQpc.load(),
-                                                           qpcFrequency(), impl.firstBlockFrames.load(), impl.inRate);
+                    const auto align = sm::alignFirstBlockAt(impl.originQpc.load(), impl.firstBlockStartQpc.load(),
+                                                             qpcFrequency(), impl.firstBlockFrames.load(), impl.inRate);
 
                     writeSilence(static_cast<juce::int64>(std::llround(
                         static_cast<double>(align.silenceFrames) * impl.outRate / impl.inRate)));
@@ -1192,6 +1192,12 @@ void ScreenRecorder::discard()
 //==============================================================================
 void ScreenRecorder::loopbackBlock(const float* const* channels, int numChannels, int numSamples)
 {
+    loopbackBlockAt(channels, numChannels, numSamples, okstudio::capture::LoopbackBlockTime());
+}
+
+void ScreenRecorder::loopbackBlockAt(const float* const* channels, int numChannels, int numSamples,
+                                     const okstudio::capture::LoopbackBlockTime& when)
+{
     // The capture thread. Nothing here may block, allocate or wait: it converts, copies into
     // the FIFO and returns. Until the worker has set the origin, and once finish() has begun,
     // the block is not wanted and is ignored.
@@ -1231,10 +1237,17 @@ void ScreenRecorder::loopbackBlock(const float* const* channels, int numChannels
         return;
     }
 
-    if (impl->firstBlockQpc.load(std::memory_order_relaxed) == 0)
+    // When the first block began, not when it arrived: after an idle gap the stream hands over
+    // the silence it missed in a burst, and that burst arrives long after the time it stands
+    // for. Without a time from the stream the block is taken to have ended on arrival.
+    if (impl->firstBlockStartQpc.load(std::memory_order_relaxed) == 0)
     {
+        const auto start = when.startQpc100ns > 0
+                             ? sm::qpcFrom100ns(when.startQpc100ns, qpcFrequency())
+                             : sm::blockStartFromArrival(qpcNow(), numSamples, impl->inRate, qpcFrequency());
+
         impl->firstBlockFrames.store(numSamples, std::memory_order_relaxed);
-        impl->firstBlockQpc.store(qpcNow(), std::memory_order_relaxed);
+        impl->firstBlockStartQpc.store(std::max<juce::int64>(1, start), std::memory_order_relaxed);
     }
 
     constexpr int piece = 512;

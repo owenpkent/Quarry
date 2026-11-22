@@ -204,12 +204,19 @@ void SampleRecorder::discard()
 //==============================================================================
 void SampleRecorder::loopbackBlock(const float* const* channels, int numChannels, int numSamples)
 {
+    loopbackBlockAt(channels, numChannels, numSamples, okstudio::capture::LoopbackBlockTime());
+}
+
+void SampleRecorder::loopbackBlockAt(const float* const* channels, int numChannels, int numSamples,
+                                     const okstudio::capture::LoopbackBlockTime& when)
+{
     recordBlock(channels, numChannels, numSamples);
 
     // After this recorder's own work, so a slow tap can never delay what the wav keeps. The
-    // tap sees every block while the take is open, including the ones past the length cap.
+    // tap sees every block while the take is open, including the ones past the length cap,
+    // and with the time each was captured, which is what it lines the picture up by.
     if (tap != nullptr && recording.load())
-        tap->loopbackBlock(channels, numChannels, numSamples);
+        tap->loopbackBlockAt(channels, numChannels, numSamples, when);
 }
 
 void SampleRecorder::setTap(okstudio::capture::LoopbackSink* newTap)

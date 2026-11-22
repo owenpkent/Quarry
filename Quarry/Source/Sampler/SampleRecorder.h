@@ -156,6 +156,8 @@ public:
 private:
     //==========================================================================
     void loopbackBlock(const float* const* channels, int numChannels, int numSamples) override;
+    void loopbackBlockAt(const float* const* channels, int numChannels, int numSamples,
+                         const okstudio::capture::LoopbackBlockTime& when) override;
     void loopbackFailed() override;
 
     /** Everything loopbackBlock did before there was a tap. */

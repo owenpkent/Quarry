@@ -218,6 +218,73 @@ inline bool screen_test()
     }
 
     //==========================================================================
+    // An idle gap that spans the start, closed by silence the stream makes up.
+    {
+        const juce::int64 freq = 10000000;
+        const double rate = 48000.0;
+
+        check(sm::qpcFrom100ns(10000000, freq) == freq, "a second in 100 ns units is a second of ticks");
+        check(sm::qpcFrom100ns(15, 3000000) == 4, "the conversion rounds down");
+        check(sm::qpcFrom100ns(36000000000LL, 3000000) == 10800000000LL, "an hour on a 3 MHz counter converts exactly");
+        check(sm::blockStartFromArrival(freq, 480, rate, freq) == freq - 100000, "a 10 ms block ends on arrival");
+
+        // The packet before the gap ended 10 ms before the origin; sound returns at +400 ms, and
+        // the stream hands over the 410 ms it missed as chunks of 9600, 9600 and 480 frames.
+        const juce::int64 chunks[3] = { 9600, 9600, 480 };
+        const juce::int64 origin = 5 * freq;
+        const juce::int64 resume = origin + freq * 4 / 10;
+        const juce::int64 gapFrames = chunks[0] + chunks[1] + chunks[2];
+
+        // What the stream reports: each chunk dated by counting back from the packet after it.
+        juce::int64 start = resume - (juce::int64) std::llround((double) gapFrames / rate * (double) freq);
+        const auto firstChunkStart = start;
+        check(firstChunkStart == origin - freq / 100, "the first chunk begins 10 ms before the origin");
+
+        const auto align = sm::alignFirstBlockAt(origin, firstChunkStart, freq, chunks[0], rate);
+        check(align.silenceFrames == 0 && align.dropFrames == 480, "the part of the gap before the origin is dropped");
+
+        // Everything written ahead of the resumed sound, and where that puts it.
+        const auto soundAt = align.silenceFrames + gapFrames - align.dropFrames;
+        check(soundAt == 19200, "resumed sound lands at +400 ms");
+
+        // The old rule stamped the first chunk with its delivery, and put it at +610 ms.
+        const auto oldStart = sm::blockStartFromArrival(resume, chunks[0], rate, freq);
+        const auto old = sm::alignFirstBlock(origin, resume, freq, chunks[0], rate);
+        check(oldStart > origin && old.silenceFrames == 9600, "stamped on delivery, the first chunk gets 9600 frames in front");
+        check(old.silenceFrames + gapFrames == 29280, "which is what put the sound at +610 ms");
+
+        // That is under the stall threshold, so the stall rule leaves it alone.
+        check(sm::stallFill(0.4, 0.0, soundAt, rate) == 0, "no stall fill has happened by +400 ms");
+
+        // The next chunks follow the first without a gap or an overlap in their own times.
+        start += (juce::int64) std::llround((double) chunks[0] / rate * (double) freq);
+        check(start == origin + freq * 19 / 100,
+              "the second chunk begins where the first ended");
+
+        // A gap that began after the origin keeps its silence, in front of the first chunk.
+        {
+            const juce::int64 lateGap = 9600 + 7200;   // last packet ended +50 ms, sound back at +400 ms
+            const auto begins = resume - (juce::int64) std::llround((double) lateGap / rate * (double) freq);
+            const auto a = sm::alignFirstBlockAt(origin, begins, freq, 9600, rate);
+            check(a.dropFrames == 0 && a.silenceFrames == 2400, "a gap that began after the origin is led by its own silence");
+            check(a.silenceFrames + lateGap == 19200, "and the sound still lands at +400 ms");
+        }
+
+        // A block that began exactly on the origin, or one the source could not date, behaves as before.
+        check(sm::alignFirstBlockAt(origin, origin, freq, 480, rate).silenceFrames == 0
+                  && sm::alignFirstBlockAt(origin, origin, freq, 480, rate).dropFrames == 0,
+              "a block that began on the origin needs nothing");
+        {
+            const auto a = sm::alignFirstBlockAt(origin, sm::blockStartFromArrival(origin + freq / 250, 480, rate, freq),
+                                                 freq, 480, rate);
+            const auto b = sm::alignFirstBlock(origin, origin + freq / 250, freq, 480, rate);
+            check(a.silenceFrames == b.silenceFrames && a.dropFrames == b.dropFrames,
+                  "dated from its arrival, a block aligns as it always did");
+        }
+        check(sm::alignFirstBlockAt(origin, origin, 0, 480, rate).silenceFrames == 0, "a zero counter frequency is a no-op");
+    }
+
+    //==========================================================================
     // Catch-up.
     {
         const double rate = 48000.0;

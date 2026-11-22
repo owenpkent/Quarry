@@ -424,7 +424,12 @@ block to the picture recorder, which counts samples and nothing else:
 - Timestamps come from the running sample count. Samples are never dropped or reordered once
   the stream has started.
 - The first block after the picture's start is aligned once: leading silence if it began after
-  the start, or its head dropped if it began before.
+  the start, or its head dropped if it began before. "Began" is when it was captured, which the
+  loopback streams report with each block (`LoopbackBlockTime`, from GetBuffer's counter
+  position), and not when it was handed over. The distinction matters for the silence a stream
+  makes up after an idle gap: it arrives in a burst, dated by counting back from the sound that
+  follows it, so the part of the gap before the picture's start is dropped and the sound
+  resumes where it did on the clock.
 - After that silence is inserted only when the source has delivered nothing for half a second,
   which means it stalled (endpoint loopback does whenever nothing is playing). A sound card
   whose clock merely runs slow keeps delivering, so it is never filled. Sound that runs ahead

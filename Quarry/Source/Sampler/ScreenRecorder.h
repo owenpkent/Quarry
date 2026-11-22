@@ -100,8 +100,15 @@ public:
     /** Stops and deletes the temp file. The destructor does this too. */
     void discard();
 
-    /** Capture thread. Hands a copy of the block to the worker, or drops it and counts. */
+    /** Capture thread. Hands a copy of the block to the worker, or drops it and counts. The
+        time of the block is not known here, so it is taken to have ended on arrival. */
     void loopbackBlock(const float* const* channels, int numChannels, int numSamples) override;
+
+    /** The same, with when the block was captured. The first block's time is what the sound
+        is lined up with the picture by, so silence a stream makes up after an idle gap is
+        placed by the time it stands for and not by when it was handed over. */
+    void loopbackBlockAt(const float* const* channels, int numChannels, int numSamples,
+                         const okstudio::capture::LoopbackBlockTime& when) override;
 
     /** Blocks dropped because the worker fell two seconds behind, for the take's own record. */
     juce::int64 droppedAudioFrames() const noexcept { return droppedFrames.load(); }
