@@ -89,6 +89,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- build: the vendored okstudio kit headers are re-pinned from `490f1d1` to `8cd8616`, now that
+  the kit's main branch carries everything Quarry vendors. The kit has the `Obsidian.h`
+  text-width change for JUCE 8.0.16 itself, so the hand edit to the vendored copy is no longer a
+  difference. The typefaces the kit draws in are released when JUCE shuts down, not during
+  plugin unload; `fonts::useEmbedded` reports a face that fails to load, does nothing when an
+  editor calls it a second time, and makes the regular face the default sans as well. Quarry's
+  own calls are unchanged.
 - build: local builds take half the machine's logical cores, not all of them. JUCE compiles with
   `/MP`, so `run.py` used every core even without asking MSBuild for parallel projects, and
   `build.bat` and `tools/release/release.py` asked for that as well. All three now build one

@@ -111,34 +111,102 @@ namespace okstudio::obsidian
     // with a getPopupMenuFont override rather than the other ten.
     //
     // So the name is now a fallback rather than the answer. setUiTypefaces() is what a product
-    // calls once, with the faces it has already embedded and licensed; the kit embeds nothing
-    // and takes on no font licence of its own.
+    // calls, with faces it has embedded and licensed. This header embeds nothing itself; the
+    // line's own faces are files in data/fonts, with their licence, and Fonts.h installs them.
     //
     // Two faces rather than a family with a weight, because that is what JUCE's embedded
     // typefaces are: createSystemTypefaceFor gives you one face per file, and the semibold in a
     // product's Assets is a different file from the regular.
     namespace detail
     {
-        inline juce::Typeface::Ptr& uiFace()
+        /** The installed faces.
+
+            Held by a DeletedAtShutdown object rather than by statics. A static Typeface::Ptr in
+            a plugin is destroyed by the module's static destructors, which run during DLL
+            unload, after JUCE itself has shut down, and that is the wrong moment to be
+            releasing DirectWrite objects. This holder is deleted when JUCE shuts down, with the
+            last plugin instance, and a later instance in the same process starts with nothing
+            installed and installs again. */
+        class UiFaces final : private juce::DeletedAtShutdown
         {
-            static juce::Typeface::Ptr face;
-            return face;
+        public:
+            static UiFaces& get()
+            {
+                auto*& slot = instance();
+
+                if (slot == nullptr)
+                    slot = new UiFaces();
+
+                return *slot;
+            }
+
+            /** Null when nothing has been installed, without creating the holder to find out. */
+            static UiFaces* getIfExists() { return instance(); }
+
+            juce::Typeface::Ptr regular, semiBold;
+
+        private:
+            UiFaces() = default;
+            ~UiFaces() override { instance() = nullptr; }
+
+            static UiFaces*& instance()
+            {
+                static UiFaces* slot = nullptr; // a raw pointer, so nothing to destroy at unload
+                return slot;
+            }
+        };
+
+        inline juce::Typeface::Ptr uiFace()
+        {
+            auto* faces = UiFaces::getIfExists();
+            return faces != nullptr ? faces->regular : nullptr;
         }
 
-        inline juce::Typeface::Ptr& uiSemiFace()
+        inline juce::Typeface::Ptr uiSemiFace()
         {
-            static juce::Typeface::Ptr face;
-            return face;
+            auto* faces = UiFaces::getIfExists();
+            return faces != nullptr ? faces->semiBold : nullptr;
         }
     } // namespace detail
 
-    /** Draw the chrome in these faces instead of the platform's. Call once, on the message
-        thread, before the first paint; passing nulls restores the fallback. Either argument may
-        be null on its own, in which case that weight falls back and the other does not. */
+    /** True once both weights are installed. */
+    inline bool hasUiTypefaces()
+    {
+        return detail::uiFace() != nullptr && detail::uiSemiFace() != nullptr;
+    }
+
+    /** Draw the chrome in these faces instead of the platform's; passing nulls restores the
+        fallback. Message thread only. A null semibold draws in the regular face if there is
+        one, so one face that loaded never leaves the window in two families.
+
+        Call it before the components are built. Some of the chrome keeps the font it was given
+        when it was made rather than asking again when it is painted (a slider's value box, a
+        combo box's text), so "before the first paint" is too late for those. Windows already on
+        the desktop are told to rebuild here. A tree still under construction is not on the
+        desktop yet, a plugin editor inside its own constructor for one, so if any of it was
+        built first, call sendLookAndFeelChange() on its root afterwards. */
     inline void setUiTypefaces(juce::Typeface::Ptr regular, juce::Typeface::Ptr semiBold)
     {
-        detail::uiFace() = std::move(regular);
-        detail::uiSemiFace() = std::move(semiBold);
+        if (regular == nullptr && semiBold == nullptr && detail::UiFaces::getIfExists() == nullptr)
+            return; // nothing installed and nothing asked for: do not create the holder
+
+        auto& faces = detail::UiFaces::get();
+
+        if (faces.regular == regular && faces.semiBold == semiBold)
+            return;
+
+        faces.regular = std::move(regular);
+        faces.semiBold = std::move(semiBold);
+
+        // Without a message manager there are no windows to tell (a console test, say).
+        if (juce::MessageManager::getInstanceWithoutCreating() != nullptr)
+        {
+            auto& desktop = juce::Desktop::getInstance();
+
+            for (int i = desktop.getNumComponents(); --i >= 0;)
+                if (auto* window = desktop.getComponent(i))
+                    window->sendLookAndFeelChange();
+        }
     }
 
     inline juce::Font ui(float height)
@@ -151,6 +219,10 @@ namespace okstudio::obsidian
     inline juce::Font uiSemi(float height)
     {
         if (auto face = detail::uiSemiFace())
+            return juce::Font(juce::FontOptions(face)).withHeight(height);
+
+        // Only the regular got in: stay in that family rather than fall back to another one.
+        if (auto face = detail::uiFace())
             return juce::Font(juce::FontOptions(face)).withHeight(height);
 
         return juce::Font(juce::FontOptions("Segoe UI Semibold", height, juce::Font::plain));

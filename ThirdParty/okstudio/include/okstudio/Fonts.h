@@ -49,18 +49,44 @@ inline constexpr const char* licenceFile = "OFL.txt";
  * One call rather than each product writing out createSystemTypefaceFor twice and remembering
  * to pass the result to obsidian::setUiTypefaces, because "each product does the same three
  * lines correctly" is exactly the assumption that left the line with no typeface in the first
- * place. Call once on the message thread before the first paint.
+ * place.
  *
- * A product still owns its own text. This sets what the kit draws -- menus, buttons, combo
- * boxes, tooltips -- and a product that wants the bold for a title loads it the same way.
+ * Call it on the message thread before the components are built, for the reason given at
+ * obsidian::setUiTypefaces: some chrome keeps the font it was made with. It is safe to call
+ * again. A plugin calls it from every editor it opens, and once the faces are in, it returns
+ * true without loading them a second time.
+ *
+ * Returns false, and installs nothing, if either face cannot be made from its bytes: a wrong
+ * BinaryData symbol or size would otherwise be a window quietly drawn in two typefaces.
+ *
+ * It does two things. Obsidian's chrome (menus, buttons, combo boxes, tooltips) draws in these
+ * faces, through obsidian::setUiTypefaces. And the regular becomes the default sans of the
+ * default LookAndFeel, because the rest of the kit asks for no face by name: RangeKnob's
+ * readout, theme::LookAndFeel, and every JUCE default the kit leaves alone (labels, alert
+ * windows, slider popups) draw in the default sans. A product that wants a different default
+ * for its own text sets it after this call; one that wants the bold for a title loads it the
+ * same way these are loaded.
  */
-inline void useEmbedded(const void* inRegularData,
+inline bool useEmbedded(const void* inRegularData,
                         int inRegularSize,
                         const void* inSemiBoldData,
                         int inSemiBoldSize)
 {
-    obsidian::setUiTypefaces(juce::Typeface::createSystemTypefaceFor(inRegularData, (size_t) inRegularSize),
-                             juce::Typeface::createSystemTypefaceFor(inSemiBoldData, (size_t) inSemiBoldSize));
+    if (obsidian::hasUiTypefaces())
+        return true;
+
+    if (inRegularData == nullptr || inRegularSize <= 0 || inSemiBoldData == nullptr || inSemiBoldSize <= 0)
+        return false;
+
+    auto regular = juce::Typeface::createSystemTypefaceFor(inRegularData, (size_t) inRegularSize);
+    auto semiBold = juce::Typeface::createSystemTypefaceFor(inSemiBoldData, (size_t) inSemiBoldSize);
+
+    if (regular == nullptr || semiBold == nullptr)
+        return false;
+
+    juce::LookAndFeel::getDefaultLookAndFeel().setDefaultSansSerifTypeface(regular);
+    obsidian::setUiTypefaces(regular, semiBold);
+    return true;
 }
 
 } // namespace okstudio::fonts
