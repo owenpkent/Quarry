@@ -25,9 +25,16 @@ import subprocess
 import sys
 import time
 
-from mir_eval_scoring import Counts, load_notes_from_midi, print_table, score_case, write_notes_midi
-
 SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
+
+# kong (through librosa 0.9.2) and transkun import pkg_resources, which setuptools no longer
+# ships. The stand-in lives with the sidecar; see tools/sidecar/pkg_resources_compat.py.
+sys.path.insert(1, str(SCRIPT_DIR.parent / "sidecar"))
+import pkg_resources_compat  # noqa: E402
+
+pkg_resources_compat.install()
+
+from mir_eval_scoring import Counts, load_notes_from_midi, print_table, score_case, write_notes_midi  # noqa: E402
 
 
 def find_cases(corpus_dir: pathlib.Path, only=None):
@@ -88,7 +95,9 @@ def make_transkun_transcriber():
 
 
 def run_transkun(_transcriber, wav_path, out_path):
-    subprocess.run([sys.executable, "-m", "transkun.transcribe", str(wav_path), str(out_path), "--device", "cpu"],
+    # Through the launcher rather than `-m`, so the subprocess gets the pkg_resources stand-in too.
+    subprocess.run([sys.executable, pkg_resources_compat.LAUNCHER, "transkun.transcribe", str(wav_path),
+                    str(out_path), "--device", "cpu"],
                    check=True)
 
 

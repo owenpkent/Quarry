@@ -31,8 +31,14 @@ import subprocess
 import sys
 import tempfile
 
-import pretty_midi
-import torch
+# Before any engine package: librosa 0.9.2 (under kong) imports pkg_resources, which setuptools
+# no longer ships. See pkg_resources_compat.py.
+import pkg_resources_compat
+
+pkg_resources_compat.install()
+
+import pretty_midi  # noqa: E402
+import torch  # noqa: E402
 
 
 class EngineError(RuntimeError):
@@ -309,8 +315,10 @@ def run_transkun(transcriber, wav_path, device: str, report=None):
 
         if report:
             report("infer", "running transkun in a subprocess (weights reload every request)")
+        # Through the launcher rather than `-m`: transkun's main() calls pkg_resources, and a
+        # fresh interpreter does not inherit the stand-in installed above.
         subprocess.run(
-            [sys.executable, "-m", "transkun.transcribe", str(wav_path), str(out_path),
+            [sys.executable, pkg_resources_compat.LAUNCHER, "transkun.transcribe", str(wav_path), str(out_path),
              "--device", device,
              *(["--weight", transcriber["weight"], "--conf", transcriber["conf"]] if transcriber else [])],
             check=True, stdout=sys.stderr, stderr=sys.stderr,

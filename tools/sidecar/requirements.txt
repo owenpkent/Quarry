@@ -16,9 +16,11 @@ mir_eval==0.8.2
 pretty_midi==0.2.11.post0
 audioread==3.1.0
 librosa==0.9.2
-# librosa 0.9.2 imports pkg_resources, which setuptools 82 removed. torch 2.11 capped setuptools
-# below 82 itself; torch 2.13 does not, so the cap lives here for as long as librosa stays put.
-setuptools==81.0.0
+# torch needs setuptools. Pinned to a release without open advisories, which means one without
+# pkg_resources (removed in 82). librosa 0.9.2 and transkun 2.0.1 still import it, so the sidecar
+# and the bake-off supply a stand-in: tools/sidecar/pkg_resources_compat.py. Outside those two
+# entry points, `import librosa` fails in this venv.
+setuptools==84.2.1
 resampy==0.4.3
 soundfile==0.14.0
 torchlibrosa==0.1.0

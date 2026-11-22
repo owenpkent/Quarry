@@ -17,10 +17,12 @@ tools/bakeoff/.venv/Scripts/python.exe tools/sidecar/test_sidecar.py
     a real URL); checks a wav lands on disk, stage events arrive, and the response schema.
 (d) the download options (audio/video/both, playlist on/off) against a mocked yt_dlp module: no
     network and no ffmpeg, always runs.
-(e) the environment, first: every engine package in requirements.txt must import, and the sidecar
-    must advertise every engine. An engine whose import fails is otherwise only "not installed"
-    and (a) and (b) skip it, so a broken rebuild would pass. `--env` runs this part alone: no
-    corpus, no weights, a few seconds. Run it after rebuilding the venv.
+Before all of those, the environment: pkg_resources (real, or the stand-in from
+pkg_resources_compat.py) finds the files librosa and transkun ask it for, transkun starts through
+the launcher, every engine package in requirements.txt imports, and the sidecar advertises every
+engine. An engine whose import fails is otherwise only "not installed" and (a) and (b) skip it,
+so a broken rebuild would pass. `--env` runs this part alone: no corpus, no weights, well under a
+minute. Run it after rebuilding the venv.
 """
 
 import importlib
@@ -576,11 +578,34 @@ def test_download_outputs():
 
 
 def test_environment():
-    print("\n=== (e) environment ===")
+    print("\n=== environment ===")
+
+    # Importing engines (above) installed the pkg_resources stand-in if this venv has no real one.
+    stand_in = engines.pkg_resources_compat.install()
+    print(f"  pkg_resources: {'stand-in (pkg_resources_compat.py)' if stand_in else 'the real module, from setuptools'}")
+
+    # The two files librosa 0.9.2 and transkun 2.0.1 ask pkg_resources for, by the names they use.
+    import pkg_resources
+    for module, resource in [("librosa.util.files", "example_data/registry.txt"),
+                             ("transkun.transcribe", "pretrained/2.0.pt")]:
+        try:
+            importlib.import_module(module.rsplit(".", 1)[0])
+            path = pathlib.Path(pkg_resources.resource_filename(module, resource))
+            check(path.is_file(), f"pkg_resources finds {module}'s {resource}")
+        except Exception as exc:
+            check(False, f"pkg_resources finds {module}'s {resource}: {type(exc).__name__}: {exc}")
+
+    # transkun runs as a subprocess and only reaches pkg_resources inside its main(), so neither
+    # the import below nor the lookup above proves it starts. --help gets past that line.
+    helped = subprocess.run([sys.executable, engines.pkg_resources_compat.LAUNCHER, "transkun.transcribe", "--help"],
+                            capture_output=True, text=True, timeout=300)
+    check(helped.returncode == 0 and "audioPath" in helped.stdout,
+          "transkun.transcribe starts through the launcher"
+          + ("" if helped.returncode == 0 else f": {helped.stderr.strip().splitlines()[-1:]}"))
 
     # engines.available_engines() swallows the ImportError, so import each package here too and
-    # show why it failed: "No module named 'pkg_resources'" under kong is a setuptools that is
-    # too new for the pinned librosa, not a missing engine.
+    # show why it failed: "No module named 'pkg_resources'" under kong means the stand-in was not
+    # installed before librosa was imported, not a missing engine.
     for engine, module in REQUIRED_ENGINE_MODULES:
         try:
             importlib.import_module(module)

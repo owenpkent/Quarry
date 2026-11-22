@@ -99,10 +99,24 @@ Traps met once so nobody meets them twice:
 - **librosa is pinned to 0.9.2**: `piano_transcription_inference` calls a pre-lazy-loader API
   that librosa 1.0 removed, and it also needs `audioread` installed even though it does not
   declare it.
-- **setuptools is pinned to 81.0.0** because of that librosa: 0.9.2 imports `pkg_resources`,
-  which setuptools 82 removed. torch 2.11 capped setuptools below 82 by itself and torch 2.13
-  does not. With a newer setuptools kong fails to import, and since a failed import only makes
-  an engine "not installed", kong and `sep+kong` vanish without an error.
+- **`pkg_resources` is a stand-in.** setuptools 82 removed it, and every setuptools below 82
+  carries advisories that are only fixed in 83 and 84, so the venv is on a current setuptools
+  and has no `pkg_resources`. Two pinned packages still import it, for `resource_filename`
+  only: librosa 0.9.2 at import (so kong does not import without it) and transkun 2.0.1 inside
+  its `main()`. `tools/sidecar/pkg_resources_compat.py` supplies that one function. `engines.py`
+  and `run_bakeoff.py` install it before any engine package, and both start transkun through it
+  as a launcher, because a subprocess does not inherit it. Anything else that imports librosa
+  in this venv (a REPL, a new script) must call `pkg_resources_compat.install()` first. Without
+  the stand-in a failed import only makes an engine "not installed", so kong and `sep+kong`
+  vanish without an error; `test_sidecar.py --env` is the check.
+- **The way off the stand-in** (not done, state of 2026-11-22). librosa stopped importing
+  `pkg_resources` in 0.10.2, but kong's `load_audio` calls `librosa.core.audio.resample(y,
+  sr_native, sr, ...)` positionally and those arguments have been keyword-only since 0.10.0, so
+  a newer librosa needs the sidecar to load audio itself instead of calling `load_audio`, plus a
+  check that kong's output does not move. `piano_transcription_inference` has no release after
+  0.0.6. transkun has an open report (Yujia-Yan/Transkun issue 39) and no fix; it only needs
+  `main()` to stop calling `resource_filename`, which the sidecar could bypass since it already
+  passes `--weight` and `--conf`.
 - **kong's checkpoint fetch shells out to `wget`**, which Windows does not have. Fetch it
   once by hand (Zenodo, ~165 MB) to the exact path the library expects:
   `~/piano_transcription_inference_data/note_F1=0.9677_pedal_F1=0.9186.pth`.
