@@ -144,6 +144,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- feat: a take drags out of the Sample page's library and onto a track in Ableton, or into any
+  other app that takes an audio file. Press a row and drag it past the edge of Quarry's window.
+  The file is offered as a copy and stays in the library.
 - feat: a link can be handed to the downloader without typing it. Ctrl+V (Cmd+V on macOS) with an
   http(s) URL on the clipboard, or dragging a link from a browser onto the waveform, puts the link
   in the Sample page's link box, or in the activity drawer's prompt on Transcribe, and starts

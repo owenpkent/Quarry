@@ -13,6 +13,7 @@
 #include "notes_test.h"
 #include "key_estimate_test.h"
 #include "sampler_test.h"
+#include "take_drag_test.h"
 #include "sidecar_integration_test.h"
 #include "activity_log_test.h"
 #include "focus_ring_test.h"
@@ -74,6 +75,9 @@ int main()
 
     std::cout << std::endl << "SAMPLER TEST" << std::endl;
     result |= !sampler_test();
+
+    std::cout << std::endl << "TAKE DRAG TEST" << std::endl;
+    result |= !take_drag_test();
 
     std::cout << std::endl << "SIDECAR INTEGRATION TEST" << std::endl;
     result |= !sidecar_integration_test();

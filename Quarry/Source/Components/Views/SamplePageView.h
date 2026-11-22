@@ -41,6 +41,7 @@ class SamplePageView
     : public Component
     , public Timer
     , public ListBoxModel
+    , public DragAndDropContainer
 {
 public:
     explicit SamplePageView(QuarryAudioProcessor& inProcessor);
@@ -61,6 +62,12 @@ public:
     void paintListBoxItem(int row, Graphics& g, int width, int height, bool isSelected) override;
 
     void listBoxItemClicked(int row, const MouseEvent& event) override;
+
+    /** A take dragged out of the library and past the edge of the window becomes a file drag, so
+        it can be dropped on a track in a DAW. See Sampler/TakeDrag.h. */
+    bool shouldDropFilesWhenDraggedExternally(const DragAndDropTarget::SourceDetails& details,
+                                              StringArray& files,
+                                              bool& canMoveFiles) override;
 
     /** Called once a capture has been loaded into the transcriber, so the window can follow it
         there. This page knows nothing about where the other page lives; the view that owns
@@ -103,6 +110,8 @@ private:
         int getNumRows() override;
         void paintListBoxItem(int row, Graphics& g, int width, int height, bool isSelected) override;
         void listBoxItemClicked(int row, const MouseEvent& event) override;
+        var getDragSourceDescription(const SparseSet<int>& rowsToDescribe) override;
+        String getTooltipForRow(int row) override;
 
         SamplePageView& owner;
     };
