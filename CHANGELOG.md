@@ -9,6 +9,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Security
 
+- ci: added OSV scanning of the Python requirements files (on pull requests, on pushes to
+  master and nightly), Dependabot for GitHub Actions, pip and the submodules (JUCE is
+  left out and bumped by hand), and a `socket.yml` that skips `ThirdParty/`. See `PACKAGING.md`.
 - fix: a file named `.mp3` with nothing decodable in it crashed the host. minimp3 reports such a
   file, and one that switches between mono and stereo part way through, as zero channels, and
   the loader divided by that. Any file dropped on the plugin could do it, and so could a saved
@@ -168,6 +171,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   writes the installer's `.sha256`, a CycloneDX SBOM and the release notes. `publish --yes`
   creates the GitHub release. The installer script no longer carries a version of its own. See
   `PACKAGING.md`.
+- feat: the space bar records on the Sample page. Space starts a take and stops the one running,
+  the same as a click on RECORD, and so does `r`. Both used to reach the Transcribe page's hidden
+  play and record buttons from there. A focused text box still gets its own space, and a key held
+  down is one click, not one per key repeat.
+- feat: a take drags out of the Sample page's library and onto a track in Ableton, or into any
+  other app that takes an audio file. Press a row and drag it past the edge of Quarry's window.
+  The file is offered as a copy and stays in the library.
 - feat: a link can be handed to the downloader without typing it. Ctrl+V (Cmd+V on macOS) with an
   http(s) URL on the clipboard, or dragging a link from a browser onto the waveform, puts the link
   in the Sample page's link box, or in the activity drawer's prompt on Transcribe, and starts
