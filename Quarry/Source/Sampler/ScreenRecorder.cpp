@@ -1204,6 +1204,16 @@ void ScreenRecorder::loopbackBlockAt(const float* const* channels, int numChanne
     if (! impl->accepting.load() || channels == nullptr || numChannels <= 0 || numSamples <= 0)
         return;
 
+    // Time before the picture is not part of the take. Until the first block is published, a
+    // block the stream dates as ending at or before the origin is left out: it is not a dropped
+    // block, so it is not counted. The origin is valid here because it is stored before
+    // `accepting` is set. A block with no time from the stream is taken to end on arrival, which
+    // is after the origin, so this never applies to it and behaviour is unchanged.
+    if (when.startQpc100ns > 0 && impl->firstBlockStartQpc.load(std::memory_order_relaxed) == 0
+        && sm::blockPredatesOrigin(impl->originQpc.load(), sm::qpcFrom100ns(when.startQpc100ns, qpcFrequency()),
+                                   qpcFrequency(), numSamples, impl->inRate))
+        return;
+
     const auto usable = std::min(numChannels, 8);
 
     // Silence the worker already wrote while this source was stalled is not written again.

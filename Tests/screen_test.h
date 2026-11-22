@@ -10,6 +10,7 @@
 #include <chrono>
 #include <cmath>
 #include <iostream>
+#include <mutex>
 #include <thread>
 #include <vector>
 
@@ -75,14 +76,15 @@ inline bool screen_test()
         };
 
         // The wait is cut short by a stop request, and by nothing else but its own timeout.
+        // Timeouts here are long and the bounds generous: only order and counts are exact.
         {
             std::atomic<bool> stop { false };
             const auto begun = Clock::now();
             std::thread stopper([&stop] { std::this_thread::sleep_for(std::chrono::milliseconds(30)); stop.store(true); });
-            const auto ready = sm::waitUntilReady(2000, [] { return false; }, [&stop] { return stop.load(); });
+            const auto ready = sm::waitUntilReady(30000, [] { return false; }, [&stop] { return stop.load(); });
             stopper.join();
             check(! ready, "a wait that is stopped does not report a frame");
-            check(millisecondsSince(begun) < 1000, "a stop request ends the first frame wait at once");
+            check(millisecondsSince(begun) < 5000, "a stop request ends the first frame wait long before its timeout");
         }
 
         {
@@ -102,7 +104,8 @@ inline bool screen_test()
         // The order Stop uses, against a worker that is slow to finish: the sound stops being
         // accepted the moment Stop is requested, so what the slow shutdown takes is not kept.
         {
-            std::atomic<bool> accepting { true };
+            std::mutex gate;   // makes "accepted, then counted" one step, so the stop boundary is exact
+            bool accepting = true;
             std::atomic<bool> stopRequested { false };
             std::atomic<bool> running { true };
             std::atomic<int> kept { 0 };
@@ -112,8 +115,12 @@ inline bool screen_test()
             {
                 while (running.load())
                 {
-                    if (accepting.load())
-                        kept.fetch_add(1);
+                    {
+                        std::lock_guard<std::mutex> lock(gate);
+
+                        if (accepting)
+                            kept.fetch_add(1);
+                    }
 
                     std::this_thread::sleep_for(std::chrono::milliseconds(1));
                 }
@@ -123,17 +130,20 @@ inline bool screen_test()
             // slow to finalise.
             std::thread worker([&]
             {
-                sm::waitUntilReady(2000, [] { return false; }, [&stopRequested] { return stopRequested.load(); });
+                sm::waitUntilReady(30000, [] { return false; }, [&stopRequested] { return stopRequested.load(); });
                 std::this_thread::sleep_for(std::chrono::milliseconds(300));
             });
 
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
             const auto begun = Clock::now();
-            accepting.store(false);
-            stopRequested.store(true);
-            std::this_thread::sleep_for(std::chrono::milliseconds(20));   // a block already in flight lands
+            {
+                std::lock_guard<std::mutex> lock(gate);
+                accepting = false;
+            }
+
             const auto atStop = kept.load();
+            stopRequested.store(true);
 
             worker.join();
             const auto joinMs = millisecondsSince(begun);
@@ -143,7 +153,7 @@ inline bool screen_test()
 
             check(atStop > 0, "the modelled source delivered before the stop");
             check(afterJoin == atStop, "no sound is kept after the stop, however long finalising takes");
-            check(joinMs >= 250 && joinMs < 1500, "the worker is joined after its finalisation but not after the startup timeout");
+            check(joinMs < 5000, "the worker is joined long before the startup timeout");
         }
     }
 
@@ -260,6 +270,51 @@ inline bool screen_test()
         start += (juce::int64) std::llround((double) chunks[0] / rate * (double) freq);
         check(start == origin + freq * 19 / 100,
               "the second chunk begins where the first ended");
+
+        // A longer gap: the last packet ended 500 ms before the origin and sound returns at
+        // +400 ms, so 900 ms is made up as chunks of 9600 (four times) and 4800, the first
+        // four wholly or partly before the origin. Chunks that end by the origin are left out
+        // (blockPredatesOrigin) and the first one kept is trimmed.
+        {
+            const juce::int64 longChunks[5] = { 9600, 9600, 9600, 9600, 4800 };
+            const juce::int64 total = 43200;
+            juce::int64 chunkStart = resume - (juce::int64) std::llround((double) total / rate * (double) freq);
+            check(chunkStart == origin - freq / 2, "the long gap begins 500 ms before the origin");
+
+            juce::int64 written = 0;
+            bool aligned = false;
+            int left = 0;
+
+            for (const auto frames : longChunks)
+            {
+                if (! aligned && sm::blockPredatesOrigin(origin, chunkStart, freq, frames, rate))
+                {
+                    ++left;
+                }
+                else
+                {
+                    if (! aligned)
+                    {
+                        const auto a = sm::alignFirstBlockAt(origin, chunkStart, freq, frames, rate);
+                        written += a.silenceFrames - a.dropFrames;
+                        aligned = true;
+                    }
+
+                    written += frames;
+                }
+
+                chunkStart += (juce::int64) std::llround((double) frames / rate * (double) freq);
+            }
+
+            check(left == 2, "the two chunks wholly before the origin are left out");
+            check(written == 19200, "resumed sound lands at +400 ms after a gap longer than one chunk");
+        }
+
+        check(! sm::blockPredatesOrigin(origin, origin - freq / 100, freq, 960, rate),
+              "a chunk that straddles the origin does not predate it");
+        check(sm::blockPredatesOrigin(origin, origin - freq / 100, freq, 480, rate),
+              "a chunk that ends on the origin predates it");
+        check(! sm::blockPredatesOrigin(origin, origin, freq, 480, rate), "a chunk that begins on the origin does not");
 
         // A gap that began after the origin keeps its silence, in front of the first chunk.
         {

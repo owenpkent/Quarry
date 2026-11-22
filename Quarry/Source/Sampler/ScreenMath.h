@@ -189,6 +189,24 @@ inline StartAlignment alignFirstBlockAt (juce::int64 originQpc, juce::int64 star
     return result;
 }
 
+/**
+ * True when a block ended at or before the origin, so it is time before the picture began.
+ *
+ * After a long idle gap the stream hands over the silence it missed as several chunks, and
+ * more than one of them can lie wholly before the origin. alignFirstBlockAt trims only the
+ * first block it is given, so the chunks that are wholly early are left out before it, and the
+ * first one kept is the one that straddles or follows the origin.
+ */
+inline bool blockPredatesOrigin (juce::int64 originQpc, juce::int64 startQpc, juce::int64 qpcFrequency,
+                                 juce::int64 blockFrames, double sampleRate) noexcept
+{
+    if (qpcFrequency <= 0 || blockFrames <= 0 || sampleRate <= 0.0)
+        return false;
+
+    const auto startOffset = (juce::int64) std::llround ((double) (startQpc - originQpc) / (double) qpcFrequency * sampleRate);
+    return startOffset + blockFrames <= 0;
+}
+
 /** When a block began, in counter ticks, for a source that cannot say: it is taken to have
     ended at `arrivalQpc`, which is how a capture thread that has just been woken sees it. */
 inline juce::int64 blockStartFromArrival (juce::int64 arrivalQpc, juce::int64 blockFrames, double sampleRate,
