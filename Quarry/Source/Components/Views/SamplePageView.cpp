@@ -24,6 +24,7 @@
 // name ambiguous, and wingdi.h defines TRANSPARENT as the integer 1, which turns
 // UIDefines' colour of that name into a number halfway through an argument list.
 #include "Sampler/SampleRecorder.h"
+#include "Sampler/TakeDrag.h"
 #include <okstudio/WasapiProcessLoopback.h>
 
 using okstudio::capture::WasapiProcessLoopback;
@@ -1710,6 +1711,45 @@ void SamplePageView::LibraryModel::listBoxItemClicked(int row, const MouseEvent&
     owner.repaint();
 }
 
+var SamplePageView::LibraryModel::getDragSourceDescription(const SparseSet<int>& rowsToDescribe)
+{
+    // One take at a time, and only a take: the way back up and the folders are somewhere to go.
+    // The rows asked about are the list's own selection, which the press has just made and which
+    // _rebuildBrowse clears, so a press that walked into a folder leaves nothing here to drag.
+    if (rowsToDescribe.size() != 1)
+        return {};
+
+    const auto index = quarry::sampler::takeIndexForRow(
+        rowsToDescribe[0], owner._upRowCount(), (int) owner.mBrowseFolders.size(), (int) owner.mShownEntries.size());
+
+    if (index < 0)
+        return {};
+
+    return quarry::sampler::takeDragDescription(owner.mShownEntries[(size_t) index].audioFile);
+}
+
+String SamplePageView::LibraryModel::getTooltipForRow(int row)
+{
+    const auto index = quarry::sampler::takeIndexForRow(
+        row, owner._upRowCount(), (int) owner.mBrowseFolders.size(), (int) owner.mShownEntries.size());
+
+    return index < 0 ? String() : String("Drag onto a track in Ableton, or into any other app");
+}
+
+bool SamplePageView::shouldDropFilesWhenDraggedExternally(const DragAndDropTarget::SourceDetails& details,
+                                                          StringArray& files,
+                                                          bool& canMoveFiles)
+{
+    // Offered as a copy. A move would take the take out of the library and leave its sidecar
+    // describing nothing.
+    canMoveFiles = false;
+
+    if (details.sourceComponent != mLibraryList.get())
+        return false;
+
+    return quarry::sampler::filesForTakeDrag(details.description, files);
+}
+
 const quarry::sampler::LibraryEntry* SamplePageView::_selectedEntry() const
 {
     if (! isPositiveAndBelow(mSelectedEntryRow, (int) mShownEntries.size()))
@@ -1934,6 +1974,11 @@ void SamplePageView::_rebuildBrowse()
 
     if (mLibraryList != nullptr)
     {
+        // The list keeps a selection of its own, by row number, and it is what a drag out of the
+        // list carries. The rows have just changed under it, so it goes the way of
+        // mSelectedEntryRow above: otherwise a press on a folder, which lands here, would leave
+        // whichever take now sits on that row number ready to be dragged.
+        mLibraryList->deselectAllRows();
         mLibraryList->updateContent();
         mLibraryList->repaint();
     }
