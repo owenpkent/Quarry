@@ -8,6 +8,10 @@ changes can be tried without a DAW in the picture at all.
 
     py run.py                # build + launch the standalone
     py run.py --no-build     # just relaunch what is already built
+    py run.py --tests        # build + run the unit tests, and launch nothing
+
+A build uses half this machine's logical cores, so the machine stays usable while it runs.
+QUARRY_BUILD_JOBS sets another count.
 
 If tools/bakeoff/.venv is present, the app uses it for the transcription sidecar.
 An explicit QUARRY_SIDECAR_CMD takes precedence, including an empty value to disable it.
@@ -241,12 +245,172 @@ def run_cmake(args) -> int:
     if exe is None:
         return 1
     try:
-        return subprocess.run([exe] + list(args)).returncode
+        return subprocess.run([exe] + list(args), env=build_environment()).returncode
     except OSError as exc:
         print(f"{YELLOW}Could not run cmake ({exe}):{RESET}")
         print(f"{YELLOW}  {exc}{RESET}")
         print(f"{YELLOW}  Set the CMAKE environment variable to a cmake.exe that runs.{RESET}")
         return 1
+
+
+# --------------------------------------------------------------------------------------
+# How much of the machine a build may take
+# --------------------------------------------------------------------------------------
+
+def build_jobs() -> int:
+    """How many compiler processes a build may run: half the logical cores, at least one.
+
+    A build that takes every core freezes the machine it runs on for as long as it lasts, the
+    on-screen keyboard included. QUARRY_BUILD_JOBS overrides the count on a machine that can
+    spare more; anything that is not a positive whole number is ignored.
+    """
+    wanted = os.environ.get("QUARRY_BUILD_JOBS", "").strip()
+    if wanted.isdigit() and int(wanted) > 0:
+        return int(wanted)
+    return max(1, (os.cpu_count() or 2) // 2)
+
+
+def cache_value(cache_path: str, name: str) -> str:
+    """The value of one entry in a CMakeCache.txt, whatever its type. Empty if it is not there."""
+    try:
+        with open(cache_path, "r", encoding="utf-8", errors="replace") as cache:
+            for line in cache:
+                if line.startswith(name + ":") and "=" in line:
+                    return line.split("=", 1)[1].strip()
+    except OSError:
+        pass
+    return ""
+
+
+def build_environment() -> dict:
+    """The environment cmake runs in: this one, with the compiler bounded.
+
+    MSBuild reads CL_MPCount from the environment as readily as from -p, and the environment
+    reaches a build the command line does not: JUCE builds juceaide from inside its configure
+    step, through a nested `cmake --build` that parallel_args never sees. A CL_MPCount that is
+    already set is left alone.
+    """
+    env = dict(os.environ)
+    # Asked of os.environ, which ignores case on Windows as the system does; the copy does not.
+    if "CL_MPCount" not in os.environ:
+        env["CL_MPCount"] = str(build_jobs())
+    return env
+
+
+def unit_tests_are_on(cache_path: str) -> bool:
+    """True if the build tree was asked for the unit tests. Not that it has them: see
+    needs_configure."""
+    return cache_value(cache_path, "BUILD_UNIT_TESTS").upper() in ("ON", "1", "TRUE", "YES", "Y")
+
+
+def is_multi_config(cache_path: str) -> bool:
+    """True if the tree's generator picks the configuration when it builds, not when it
+    configures: Visual Studio, Xcode and Ninja Multi-Config."""
+    generator = cache_value(cache_path, "CMAKE_GENERATOR")
+    return generator.startswith("Visual Studio") or generator == "Xcode" or "Multi-Config" in generator
+
+
+def built_config(cache_path: str, requested: str) -> str:
+    """The configuration a build of this tree actually produces.
+
+    --config chooses it only under a multi-config generator. A single-config tree (Ninja,
+    Makefiles) builds the CMAKE_BUILD_TYPE it was configured with whatever --config says, and
+    one configured with no build type has no configuration at all.
+    """
+    if is_multi_config(cache_path):
+        return requested
+    return cache_value(cache_path, "CMAKE_BUILD_TYPE")
+
+
+def unit_tests_exe(build_dir: str, cache_path: str, requested_config: str) -> str:
+    """Where the unit test binary is: JUCE writes it to Tests/UnitTests_artefacts/<config>/,
+    and straight into UnitTests_artefacts when the tree has no configuration."""
+    parts = [build_dir, "Tests", "UnitTests_artefacts"]
+    config = built_config(cache_path, requested_config)
+    if config:
+        parts.append(config)
+    return os.path.join(*parts, "UnitTests.exe")
+
+
+# Written into the build tree once a configure that asked for the unit tests has finished.
+UNIT_TESTS_STAMP = ".quarry-unit-tests-generated"
+
+
+def needs_configure(build_dir: str, cache_path: str, want_tests: bool) -> bool:
+    """True if the tree has to be configured before it can build what was asked for.
+
+    Always on a cold tree, and on one configured with LTO on, which cannot link against the
+    prebuilt onnxruntime here. For the unit tests the cache is not enough to go on:
+    BUILD_UNIT_TESTS=ON there records what was asked for, and CMake saves it even when the
+    configure then fails, with the solution from the earlier test-less configure still on
+    disk. Trusting the cache handed that tree to MSBuild on every retry, which failed on a
+    project that was never generated (MSB1009). The stamp is only there when a configure that
+    asked for the tests ran to the end.
+    """
+    if not build_system_exists(build_dir) or lto_is_on(cache_path):
+        return True
+    if not want_tests:
+        return False
+    stamped = os.path.exists(os.path.join(build_dir, UNIT_TESTS_STAMP))
+    return not (stamped and unit_tests_are_on(cache_path))
+
+
+def configure_build_tree(build_dir: str, want_tests: bool) -> bool:
+    """Configure the tree, with the unit tests in it if they were asked for. False on failure."""
+    stamp = os.path.join(build_dir, UNIT_TESTS_STAMP)
+    # Taken away first, so a configure that fails leaves nothing saying the tests are there.
+    try:
+        os.remove(stamp)
+    except OSError:
+        pass
+    configure = ["-S", ROOT, "-B", build_dir, "-DLTO=OFF"]
+    if want_tests:
+        configure.append("-DBUILD_UNIT_TESTS=ON")
+    if run_cmake(configure) != 0:
+        return False
+    if want_tests:
+        with open(stamp, "w", encoding="utf-8") as handle:
+            handle.write("The last configure of this tree that asked for the unit tests finished.\n")
+    return True
+
+
+def parallel_args(cache_path: str, jobs: int = 0) -> list:
+    """What to put at the end of a `cmake --build` so it stays inside build_jobs().
+
+    JUCE compiles with /MP, so under MSBuild every project's cl.exe starts one process per
+    logical core whatever -m says: -m only decides how many projects build at once. Holding the
+    total down therefore takes both halves, one project at a time and CL_MPCount to bound the
+    compiler inside it. Leaving -m off, as this script used to, still took every core.
+    Other generators take the count directly.
+    """
+    jobs = jobs or build_jobs()
+    if cache_value(cache_path, "CMAKE_GENERATOR").startswith("Visual Studio"):
+        return ["--", "-m:1", f"-p:CL_MPCount={jobs}"]
+    return ["--parallel", str(jobs)]
+
+
+def run_unit_tests(build_dir: str, cache_path: str, config: str) -> int:
+    """Run the unit test binary and return its exit code.
+
+    Tests.cpp is its own runner and ORs its cases into the exit code, so there is no ctest
+    step. This is the call CI makes.
+    """
+    exe = unit_tests_exe(build_dir, cache_path, config)
+    if not os.path.exists(exe):
+        print(f"{YELLOW}UnitTests.exe not found at {exe} - run py run.py --tests without "
+              f"--no-build first.{RESET}")
+        return 1
+    try:
+        code = subprocess.run([exe], cwd=ROOT).returncode
+    except OSError as exc:
+        print(f"{YELLOW}Could not run the unit tests ({exe}):{RESET}")
+        print(f"{YELLOW}  {exc}{RESET}")
+        return 1
+    if code == 0:
+        print(f"{GREEN}The unit tests passed.{RESET}")
+    else:
+        print(f"{YELLOW}The unit tests failed (exit code {code}).{RESET}")
+    return code
 
 
 # --------------------------------------------------------------------------------------
@@ -586,6 +750,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Build and launch the Quarry standalone.")
     parser.add_argument("--no-build", action="store_true",
                         help="skip the build and just relaunch what is already there")
+    parser.add_argument("--tests", action="store_true",
+                        help="build and run the unit tests, and launch nothing")
     parser.add_argument("--config", default="Release")
     args = parser.parse_args()
 
@@ -595,7 +761,9 @@ def main() -> int:
     product = "Quarry"
     exe = os.path.join(ROOT, "build", "Quarry_artefacts", args.config, "Standalone", exe_name)
 
-    close_running(exe_name, product)
+    # The tests are their own executable, so a running Quarry is not in the linker's way.
+    if not args.tests:
+        close_running(exe_name, product)
 
     if not args.no_build:
         if not ensure_submodules():
@@ -603,10 +771,9 @@ def main() -> int:
         if not ensure_onnxruntime():
             return 1
 
-        # Only configure on a cold build tree, or on one configured with LTO on, which
-        # cannot link against the prebuilt onnxruntime here. The VS generator re-runs
-        # CMake by itself when CMakeLists.txt changes, so configuring every launch is
-        # dead time.
+        # Only configure when needs_configure says the tree cannot build what was asked for.
+        # The VS generator re-runs CMake by itself when CMakeLists.txt changes, so
+        # configuring every launch is dead time.
         build_dir = os.path.join(ROOT, "build")
         cache = os.path.join(build_dir, "CMakeCache.txt")
 
@@ -623,18 +790,24 @@ def main() -> int:
                 print(f"{YELLOW}  Close it, delete that folder, and run this again.{RESET}")
                 return 1
 
-        if not build_system_exists(build_dir) or lto_is_on(cache):
-            if run_cmake(["-S", ".", "-B", "build", "-DLTO=OFF"]) != 0:
+        if needs_configure(build_dir, cache, args.tests):
+            if not configure_build_tree(build_dir, args.tests):
                 print(f"{YELLOW}Configuring the build tree failed, so nothing was built.{RESET}")
                 print(f"{YELLOW}  Fix the cause above and run this again; it will retry the "
                       f"configure. If it keeps failing, delete {build_dir} first.{RESET}")
                 return 1
 
+        target = "UnitTests" if args.tests else "Quarry_Standalone"
         started = time.monotonic()
         if run_cmake(["--build", "build", "--config", args.config,
-                      "--target", "Quarry_Standalone"]) != 0:
+                      "--target", target] + parallel_args(cache)) != 0:
             return 1
-        print(f"{GREEN}Built the standalone in {time.monotonic() - started:.1f}s{RESET}")
+        built = "the unit tests" if args.tests else "the standalone"
+        print(f"{GREEN}Built {built} in {time.monotonic() - started:.1f}s{RESET}")
+
+    if args.tests:
+        tree = os.path.join(ROOT, "build")
+        return run_unit_tests(tree, os.path.join(tree, "CMakeCache.txt"), args.config)
 
     if not os.path.exists(exe):
         print(f"{YELLOW}{exe_name} not found at {exe} - run without --no-build first.{RESET}")
