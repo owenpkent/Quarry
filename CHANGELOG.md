@@ -9,6 +9,24 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Security
 
+- feat: the updater checks who signed the installer before running it. After the hash and
+  version checks, `UpdateInstaller` verifies the embedded Authenticode signature with
+  `WinVerifyTrust` (revocation checked, failing closed when it cannot be) through the pinned
+  file handle, and accepts it only if the signer's SHA-1 thumbprint is in a pinned list and its
+  common name is `OK Studio Inc.`. A compromised release that swaps the installer and its
+  `.sha256` no longer gets run. The list takes two releases to change on a certificate renewal;
+  see `docs/AUTO_UPDATE.md`.
+- feat: the Windows installer is now uninstallable and its uninstaller is signed. Quarry appears in
+  Add/Remove Programs (the `AppId` is unchanged, so existing installs upgrade in place). Uninstall
+  removes the app folder and the VST3 bundle and leaves settings, samples and models alone, and it
+  stops with a message if Quarry or a DAW has a file open. `release.py` passes ISCC the
+  `SignUninstaller` define and a `/S` sign command, because signing the finished installer does
+  not sign the uninstaller Inno embeds in it. Contract tests pin the script. See `PACKAGING.md`.
+- feat: the Windows release is code signed. `tools/release/release.py` signs `Quarry.exe`, the
+  VST3 binary and the installer with the OK Studio Inc. EV certificate (hardware token, SHA-256,
+  RFC 3161 timestamp) and writes the `.sha256` only after the installer is signed. `--no-sign`
+  skips it for a local dry run, and `publish` refuses an installer that is not validly signed by
+  the pinned certificate unless `--allow-unsigned` is passed. See `docs/AUTO_UPDATE.md`.
 - ci: added OSV scanning of the Python requirements files (on pull requests, on pushes to
   master and nightly), Dependabot for GitHub Actions, pip and the submodules (JUCE is
   left out and bumped by hand), and a `socket.yml` that skips `ThirdParty/`. See `PACKAGING.md`.
@@ -60,6 +78,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- build: local builds take half the machine's logical cores, not all of them. JUCE compiles with
+  `/MP`, so `run.py` used every core even without asking MSBuild for parallel projects, and
+  `build.bat` and `tools/release/release.py` asked for that as well. All three now build one
+  project at a time with the compiler bounded by `CL_MPCount`; `QUARRY_BUILD_JOBS` sets another
+  count. CI is unchanged.
+- build: `py run.py --tests` builds the unit tests and runs them, the same binary CI runs.
 - fix: eight findings from the review of the link download. The "both" mode cleanup deleted any
   file in the folder that shared a title's stem (`One.final.wav` went with `One.f137.mp4`); it
   now removes only the intermediates yt-dlp reported downloading for that request. A playlist

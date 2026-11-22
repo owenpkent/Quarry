@@ -314,7 +314,9 @@ so uniqueness is load-bearing rather than cosmetic.
   first, and with a second reason this section did not have: an exclusive-mode driver serves one
   client at a time, so a device the plugin took would be a device the host could lose. A hosted
   Quarry never constructs an `AudioDeviceManager` at all, hides the driver, input and channel
-  pickers, and records the audio the host sends it.)*
+  pickers, and records the audio the host sends it.)* The Sample page is a later exception by
+  another route: in a host it records the machine minus the host's process tree, so it does
+  not hear Live. See [SAMPLER.md](SAMPLER.md).
 - **Three threads, and the third one is new to the line.** Audio thread plays back and
   makes no decisions. Message thread does UI and the ~1 ms `retranscribe()` fast path.
   **Analysis thread** is a `juce::ThreadPoolJob` on a one-thread pool running the staged
@@ -688,7 +690,9 @@ window size; detach exists and is never required.
 
 **Capture inside the VST3.** It would hear Live's master bus, including Quarry's own audition
 voice, and a device the plugin opened for itself is a device the host can lose. Loopback
-is hard-disabled in the plugin build. *(Already true in the fork.)*
+is hard-disabled in the plugin build. *(Already true in the fork.)* This is the System Audio
+source on Transcribe. The Sample page records inside a host without either problem: process
+loopback opens no device and leaves the host's process tree out.
 
 **An extended chord vocabulary, a single confident key label, asserted section names.**
 Chord estimation's ceiling is ~84 % on root/majmin and trained human annotators disagree by

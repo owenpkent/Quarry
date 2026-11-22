@@ -156,7 +156,13 @@ Where keyboard operation does apply:
 - Spacebar and Enter both activate a focused button. Arrow keys adjust a focused knob or
   slider; Shift-arrow makes a fine adjustment; Home and End go to the extremes.
 - A shortcut that is a single unmodified character must not fire while a text field has
-  focus.
+  focus. The Sample page's `Space` and `r` (record / stop) are the example: a focused text
+  box keeps its own space, and a held key is one click, not one per key repeat.
+
+The Sample page's record shortcut is not limited to the standalone. It answers whenever
+Quarry's window has the keyboard focus, in a host too, and the same is true of the Transcribe
+shortcuts beside it. Whether a hosted Quarry should take the space bar at all is the plugin
+question above and is still open.
 
 Anything that can be focused at all must be visibly focused. See section 3. That holds
 regardless of how section 2.2 is resolved, because a ring costs nothing on a control that

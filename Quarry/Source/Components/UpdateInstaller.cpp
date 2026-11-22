@@ -9,6 +9,9 @@
 #include <shellapi.h>
 #include <shlobj.h>
 #include <knownfolders.h>
+#include <wincrypt.h>
+#include <wintrust.h>
+#include <softpub.h>
 
 #include <mutex>
 
@@ -303,6 +306,64 @@ bool UpdateInstaller::fetchSmallText(const juce::String& inUrl,
     return readSmall(inUrl, inMaxBytes, outText, outError);
 }
 
+bool UpdateInstaller::readSigner(const juce::File& inFile, void* inFileHandle, SignerInfo& outInfo)
+{
+    outInfo = {};
+
+    const auto path = inFile.getFullPathName();
+
+    WINTRUST_FILE_INFO file_info {};
+    file_info.cbStruct = sizeof(file_info);
+    file_info.pcwszFilePath = path.toWideCharPointer();
+    file_info.hFile = static_cast<HANDLE>(inFileHandle);
+
+    WINTRUST_DATA data {};
+    data.cbStruct = sizeof(data);
+    data.dwUIChoice = WTD_UI_NONE;
+    // The whole chain except the root is checked for revocation. With the servers unreachable
+    // this fails, which is the point: the check fails closed.
+    data.fdwRevocationChecks = WTD_REVOKE_WHOLECHAIN;
+    data.dwUnionChoice = WTD_CHOICE_FILE;
+    data.pFile = &file_info;
+    data.dwStateAction = WTD_STATEACTION_VERIFY;
+    data.dwProvFlags = WTD_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT;
+
+    GUID action = WINTRUST_ACTION_GENERIC_VERIFY_V2;
+    const LONG result = WinVerifyTrust(static_cast<HWND>(INVALID_HANDLE_VALUE), &action, &data);
+    outInfo.trustResult = static_cast<long>(result);
+
+    bool read = false;
+    if (result == ERROR_SUCCESS) {
+        // The state data stays valid until the CLOSE call below; everything is copied out before it.
+        if (auto* provider = WTHelperProvDataFromStateData(data.hWVTStateData)) {
+            if (auto* signer = WTHelperGetProvSignerFromChain(provider, 0, FALSE, 0)) {
+                if (signer->csCertChain > 0 && signer->pasCertChain != nullptr && signer->pasCertChain[0].pCert != nullptr) {
+                    const CERT_CONTEXT* cert = signer->pasCertChain[0].pCert;
+
+                    BYTE sha1[20] {};
+                    DWORD sha1_size = sizeof(sha1);
+                    if (CertGetCertificateContextProperty(cert, CERT_HASH_PROP_ID, sha1, &sha1_size) && sha1_size == sizeof(sha1))
+                        outInfo.thumbprint = juce::String::toHexString(sha1, static_cast<int>(sha1_size), 0).toLowerCase();
+
+                    wchar_t name[256] {};
+                    const DWORD name_chars = CertGetNameStringW(
+                        cert, CERT_NAME_ATTR_TYPE, 0, const_cast<char*>(szOID_COMMON_NAME), name, 256);
+                    if (name_chars > 1)
+                        outInfo.commonName = juce::String(name);
+
+                    read = outInfo.thumbprint.isNotEmpty() && outInfo.commonName.isNotEmpty();
+                }
+            }
+        }
+    }
+
+    // Release the state on every path, a failed verify included.
+    data.dwStateAction = WTD_STATEACTION_CLOSE;
+    WinVerifyTrust(static_cast<HWND>(INVALID_HANDLE_VALUE), &action, &data);
+
+    return result == ERROR_SUCCESS && read;
+}
+
 InstallerResult UpdateInstaller::prepare(const ReleaseInfo& inRelease,
                                          const ProgressCallback& inProgress,
                                          const std::atomic<bool>& inCancel)
@@ -377,6 +438,20 @@ InstallerResult UpdateInstaller::prepare(const ReleaseInfo& inRelease,
         held.release();
         installer.deleteFile();
         return {false, "Installer version did not match"};
+    }
+
+    // Last, because it reaches the network for revocation. The hash and version above say the file
+    // is the one the release published; this says who signed it, which someone who can edit the
+    // release cannot fake. It goes through the pinned handle, so the bytes checked are the bytes pinned.
+    SignerInfo signer;
+    const bool signature_read = readSigner(installer, handle, signer);
+    log("signature check: WinVerifyTrust 0x" + juce::String::toHexString(static_cast<int>(signer.trustResult))
+        + ", signer \"" + signer.commonName + "\", thumbprint " + signer.thumbprint);
+    if (!signature_read || !isAcceptedSigner(signer.thumbprint, signer.commonName)) {
+        log("installer is not signed by an accepted certificate");
+        held.release();
+        installer.deleteFile();
+        return {false, "Could not verify the installer"};
     }
 
     held.version = inRelease.version;
