@@ -35,12 +35,16 @@ One virtualenv serves the sidecar and the bake-off tooling: `tools/bakeoff/.venv
 
 ```
 py -m venv tools/bakeoff/.venv
-tools/bakeoff/.venv/Scripts/python -m pip install --no-deps "torch==2.11.0+cu128" --index-url https://download.pytorch.org/whl/cu128
+tools/bakeoff/.venv/Scripts/python -m pip install --no-deps "torch==2.13.0+cu130" --index-url https://download.pytorch.org/whl/cu130
 tools/bakeoff/.venv/Scripts/python -m pip install -r tools/sidecar/requirements.txt
+tools/bakeoff/.venv/Scripts/python tools/sidecar/test_sidecar.py --env
 ```
 
 `tools/sidecar/requirements.txt` holds the exact versions of every package the sidecar needs
-(torch is listed there too but must come from the CUDA index first, hence the two steps).
+(torch is listed there too but must come from the CUDA index first, hence the two steps). The
+last line checks the result: every engine package imports and the sidecar advertises every
+engine. Without it a package that fails to import only makes its engine "not installed", and
+Quarry quietly falls back to BasicPitch.
 
 **Weights are pinned.** The sidecar does not let any engine library fetch or load weights on
 its own. Before an engine is constructed, `engines.py` resolves its weight files, checks each
@@ -82,14 +86,36 @@ the newest, so TRANSCRIBE is one click away. The settings apply to the drawer, p
 
 Traps met once so nobody meets them twice:
 
-- **The CUDA build must be forced.** The cu128 index tops out at torch 2.11, and pip does not
-  consider `2.13.0+cpu` older than `2.11.0+cu128`, so an already-installed CPU torch silently
-  survives a plain install. Use `--force-reinstall --no-deps "torch==2.11.0+cu128"` if a CPU
-  build got there first. On Blackwell (sm_120) the CPU build is not a slow path, it is the
-  only path, and a 30 s take costs 48 s instead of 6.
-- **librosa is pinned to 0.9.2**: `piano_transcription_inference` calls a pre-lazy-loader API
-  that librosa 1.0 removed, and it also needs `audioread` installed even though it does not
-  declare it.
+- **The CUDA build must be forced.** pip does not consider `2.15.0+cpu` older than
+  `2.13.0+cu130`, so an already-installed CPU torch silently survives a plain install. Use
+  `--force-reinstall --no-deps "torch==2.13.0+cu130"` if a CPU build got there first. On
+  Blackwell (sm_120) the CPU build is not a slow path, it is the only path, and a 30 s take
+  costs 48 s instead of 6.
+- **The pin is on the cu130 index, not cu128.** The cu128 index tops out at torch 2.11, and
+  every torch before 2.13.0 carries CVE-2025-3000 (memory corruption in `torch.jit.script`).
+  The CUDA 13.0 wheels may want a newer NVIDIA driver than cu128 did, so check
+  `torch.cuda.is_available()` after a rebuild. torchaudio stays on the 2.11 line because
+  it has no later release; 2.11.1 is the one built to load against any torch from 2.11 up.
+- **kong's audio is loaded by `tools/sidecar/kong_audio.py`, not by the library.**
+  `piano_transcription_inference.load_audio` reaches into `librosa.core.audio` and calls its
+  `resample(y, sr_native, sr, ...)` positionally. librosa made those arguments keyword-only in
+  0.10.0, and on the pinned 1.0.1 the library's loader fails outright (`AttributeError: No
+  librosa.core attribute audio`). `kong_audio.load_audio` is the same loader through librosa's
+  public names and keyword arguments: ffmpeg decode through `audioread`, channel average,
+  resampy's `kaiser_best`. On four corpus files (mono and stereo, 44.1 kHz and 16 kHz) kong's
+  notes and pedal events came out identical to librosa 0.9.2 with the library's loader.
+  `audioread` and `resampy` are pinned for it, since librosa no longer brings them. The library
+  has no release after 0.0.6; go back to its `load_audio` when one runs on a current librosa.
+- **`pkg_resources` is gone, and transkun still wants it.** setuptools 82 removed it, and every
+  setuptools below 82 carries advisories that are only fixed in 83 and 84, so the venv is on a
+  current setuptools. librosa stopped importing it in 0.10.2. transkun 2.0.1 still calls
+  `pkg_resources.resource_filename` inside its `main()` (Yujia-Yan/Transkun issue 39, no fix
+  released), so `engines.py` and `run_bakeoff.py` start it through
+  `tools/sidecar/pkg_resources_compat.py`, a launcher that supplies that one function, instead
+  of `python -m transkun.transcribe`. Delete the launcher when transkun stops importing it.
+- **A failed import hides an engine.** An engine package that does not import is only "not
+  installed", so the engine and its `sep+` twin vanish without an error and Quarry falls back
+  to BasicPitch. `test_sidecar.py --env` is the check after any change to the pins.
 - **kong's checkpoint fetch shells out to `wget`**, which Windows does not have. Fetch it
   once by hand (Zenodo, ~165 MB) to the exact path the library expects:
   `~/piano_transcription_inference_data/note_F1=0.9677_pedal_F1=0.9186.pth`.

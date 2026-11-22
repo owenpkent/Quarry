@@ -17,8 +17,15 @@ tools/bakeoff/.venv/Scripts/python.exe tools/sidecar/test_sidecar.py
     a real URL); checks a wav lands on disk, stage events arrive, and the response schema.
 (d) the download options (audio/video/both, playlist on/off) against a mocked yt_dlp module: no
     network and no ffmpeg, always runs.
+Before all of those, the environment: transkun starts through the pkg_resources_compat.py
+launcher, kong_audio.py loads and resamples a wav, every engine package in requirements.txt
+imports, and the sidecar advertises every engine. An engine whose import fails is otherwise only "not installed" and (a) and (b) skip it,
+so a broken rebuild would pass. `--env` runs this part alone: no corpus, no weights, well under a
+minute. Run it after rebuilding the venv.
 """
 
+import importlib
+import importlib.util
 import json
 import os
 import pathlib
@@ -38,6 +45,14 @@ sys.path.insert(0, str(SCRIPT_DIR))
 import engines  # noqa: E402
 
 FAILURES = []
+
+# The package each engine is imported from, as engines.available_engines() probes them.
+REQUIRED_ENGINE_MODULES = [
+    ("kong", "piano_transcription_inference"),
+    ("transkun", "transkun"),
+    ("muscriptor", "muscriptor"),
+    ("sep+", "demucs.api"),
+]
 
 
 def check(condition, message):
@@ -562,12 +577,70 @@ def test_download_outputs():
             sys.modules["yt_dlp"] = original
 
 
+def test_environment():
+    print("\n=== environment ===")
+
+    real = importlib.util.find_spec("pkg_resources") is not None
+    print(f"  pkg_resources: {'the real module, from setuptools' if real else 'absent; transkun gets the stand-in'}")
+
+    # The stand-in's one function, asked for the file transkun 2.0.1 asks for, by the same names.
+    try:
+        weight = pathlib.Path(engines.pkg_resources_compat.resource_filename("transkun.transcribe", "pretrained/2.0.pt"))
+        check(weight.is_file(), "the pkg_resources stand-in finds transkun's pretrained/2.0.pt")
+    except Exception as exc:
+        check(False, f"the pkg_resources stand-in finds transkun's pretrained/2.0.pt: {type(exc).__name__}: {exc}")
+
+    # transkun runs as a subprocess and only reaches pkg_resources inside its main(), so neither
+    # the import below nor the lookup above proves it starts. --help gets past that line.
+    helped = subprocess.run([sys.executable, engines.pkg_resources_compat.LAUNCHER, "transkun.transcribe", "--help"],
+                            capture_output=True, text=True, timeout=300)
+    check(helped.returncode == 0 and "audioPath" in helped.stdout,
+          "transkun.transcribe starts through the launcher"
+          + ("" if helped.returncode == 0 else f": {helped.stderr.strip().splitlines()[-1:]}"))
+
+    # kong's audio goes through kong_audio.load_audio, which calls librosa. One second of stereo
+    # at 44.1 kHz must come back as 16000 mono float32 samples: a librosa that has changed one of
+    # those calls fails here rather than in the middle of a transcription.
+    try:
+        import kong_audio
+        import numpy as np
+        import soundfile
+
+        with tempfile.TemporaryDirectory(prefix="quarry_sidecar_env_") as tmp:
+            tone = 0.25 * np.sin(2 * np.pi * 440.0 * np.arange(44100) / 44100.0)
+            soundfile.write(str(pathlib.Path(tmp) / "tone.wav"), np.stack([tone, tone], axis=1), 44100, subtype="PCM_16")
+            samples, rate = kong_audio.load_audio(str(pathlib.Path(tmp) / "tone.wav"), sr=16000, mono=True)
+
+        check(rate == 16000 and samples.shape == (16000,) and samples.dtype == np.float32
+              and 0.2 < float(np.abs(samples).max()) < 0.3,
+              f"kong_audio loads and resamples a wav ({samples.shape}, {samples.dtype}, {rate} Hz)")
+    except Exception as exc:
+        check(False, f"kong_audio loads and resamples a wav: {type(exc).__name__}: {exc}")
+
+    # engines.available_engines() swallows the ImportError, so import each package here too and
+    # show why it failed.
+    for engine, module in REQUIRED_ENGINE_MODULES:
+        try:
+            importlib.import_module(module)
+            error = None
+        except Exception as exc:  # any failure to import is a broken environment
+            error = f"{type(exc).__name__}: {exc}"
+        check(error is None, f"{module} imports ({engine})" + (f": {error}" if error else ""))
+
+    bases = {"kong", "transkun", "muscriptor"}
+    expected = bases | {f"{engines.SEP_PREFIX}{base}" for base in bases}
+    missing = sorted(expected - engines.available_engines())
+    check(not missing, "the sidecar advertises every engine" + (f" (missing: {missing})" if missing else ""))
+
+
 def main():
-    test_one_shot()
-    test_serve()
-    test_download()
-    test_download_options()
-    test_download_outputs()
+    test_environment()
+    if "--env" not in sys.argv[1:]:
+        test_one_shot()
+        test_serve()
+        test_download()
+        test_download_options()
+        test_download_outputs()
 
     print("\n=== summary ===")
     if FAILURES:

@@ -34,6 +34,8 @@ import tempfile
 import pretty_midi
 import torch
 
+import pkg_resources_compat
+
 
 class EngineError(RuntimeError):
     """An engine-specific failure; the caller turns this into an ok:false response."""
@@ -241,10 +243,12 @@ def run_kong(transcriber, wav_path, _device: str, report=None):
     intervals; kong's own write_events_to_midi turns each one into exactly the CC64 on/off pair
     reproduced below, so the sidecar's pedal list matches what a kong-written MIDI file would
     contain."""
-    from piano_transcription_inference import load_audio
     from piano_transcription_inference import sample_rate as kong_sample_rate
 
-    audio, _ = load_audio(str(wav_path), sr=kong_sample_rate, mono=True)
+    # Not the library's own load_audio: it does not run on a current librosa. See kong_audio.py.
+    import kong_audio
+
+    audio, _ = kong_audio.load_audio(str(wav_path), sr=kong_sample_rate, mono=True)
 
     if report:
         report("infer", "running kong inference")
@@ -309,8 +313,10 @@ def run_transkun(transcriber, wav_path, device: str, report=None):
 
         if report:
             report("infer", "running transkun in a subprocess (weights reload every request)")
+        # Through the launcher rather than `-m`: transkun's main() imports pkg_resources, which
+        # setuptools no longer ships. See pkg_resources_compat.py.
         subprocess.run(
-            [sys.executable, "-m", "transkun.transcribe", str(wav_path), str(out_path),
+            [sys.executable, pkg_resources_compat.LAUNCHER, "transkun.transcribe", str(wav_path), str(out_path),
              "--device", device,
              *(["--weight", transcriber["weight"], "--conf", transcriber["conf"]] if transcriber else [])],
             check=True, stdout=sys.stderr, stderr=sys.stderr,
