@@ -1,18 +1,19 @@
 """Audio loading for kong, in place of piano_transcription_inference.load_audio.
 
 The library's own loader (utilities.py, "copied from librosa.core.load() except that ffmpeg
-backend is always used") calls `librosa.core.audio.resample(y, sr_native, sr, res_type=...)`
-with positional sample rates. librosa made those keyword-only in 0.10.0, so that call raises a
-TypeError on every librosa new enough to have stopped importing pkg_resources (0.10.2 and up).
-piano_transcription_inference 0.0.6 is the latest release and still has the positional call.
+backend is always used") reaches into `librosa.core.audio` and calls its `resample(y, sr_native,
+sr, res_type=...)` with positional sample rates. librosa made those keyword-only in 0.10.0, and
+on the pinned 1.0.1 the loader fails before it gets that far (`AttributeError: No librosa.core
+attribute audio`). So it does not run on any librosa new enough to have stopped importing
+pkg_resources (0.10.2 and up). piano_transcription_inference 0.0.6 is the latest release.
 
 This is the same loader with the same steps in the same order, so kong hears the same samples:
 decode through ffmpeg to 16-bit PCM, scale to float32, average the channels, resample with
 resampy's kaiser_best filter. Only the offset/duration cropping, which nothing here used, is
 left out. Shared by the sidecar (engines.py) and the bake-off (run_bakeoff.py).
 
-Go back to the library's load_audio, and delete this file, once a release of it passes the
-sample rates by keyword.
+Go back to the library's load_audio, and delete this file, once a release of it runs on a
+current librosa.
 """
 
 import os

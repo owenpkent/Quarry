@@ -97,14 +97,15 @@ Traps met once so nobody meets them twice:
   `torch.cuda.is_available()` after a rebuild. torchaudio stays on the 2.11 line because
   it has no later release; 2.11.1 is the one built to load against any torch from 2.11 up.
 - **kong's audio is loaded by `tools/sidecar/kong_audio.py`, not by the library.**
-  `piano_transcription_inference.load_audio` calls `librosa.core.audio.resample(y, sr_native,
-  sr, ...)` positionally, and librosa made those arguments keyword-only in 0.10.0, so on the
-  pinned librosa 1.0.1 the library's loader raises a TypeError. `kong_audio.load_audio` is the
-  same loader with keyword arguments: ffmpeg decode through `audioread`, channel average,
+  `piano_transcription_inference.load_audio` reaches into `librosa.core.audio` and calls its
+  `resample(y, sr_native, sr, ...)` positionally. librosa made those arguments keyword-only in
+  0.10.0, and on the pinned 1.0.1 the library's loader fails outright (`AttributeError: No
+  librosa.core attribute audio`). `kong_audio.load_audio` is the same loader through librosa's
+  public names and keyword arguments: ffmpeg decode through `audioread`, channel average,
   resampy's `kaiser_best`. On four corpus files (mono and stereo, 44.1 kHz and 16 kHz) kong's
   notes and pedal events came out identical to librosa 0.9.2 with the library's loader.
   `audioread` and `resampy` are pinned for it, since librosa no longer brings them. The library
-  has no release after 0.0.6; go back to its `load_audio` when one passes the rates by keyword.
+  has no release after 0.0.6; go back to its `load_audio` when one runs on a current librosa.
 - **`pkg_resources` is gone, and transkun still wants it.** setuptools 82 removed it, and every
   setuptools below 82 carries advisories that are only fixed in 83 and 84, so the venv is on a
   current setuptools. librosa stopped importing it in 0.10.2. transkun 2.0.1 still calls
