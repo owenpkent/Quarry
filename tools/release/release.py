@@ -395,8 +395,11 @@ def build_binaries(lto: bool) -> None:
     # --lto is for a machine that has that compiler.
     run_cmd(["cmake", "-S", ".", "-B", BUILD_DIR, f"-DLTO={'ON' if lto else 'OFF'}",
              "-DBUILD_UNIT_TESTS=ON"])
+    # Half the cores, the same cap run.py builds under: a release is cut on a machine somebody
+    # is using, and -m on top of JUCE's /MP took all of it.
     run_cmd(["cmake", "--build", BUILD_DIR, "--config", "Release", "--target", "UnitTests",
-             "Quarry_Standalone", "Quarry_VST3", "--", "-m"])
+             "Quarry_Standalone", "Quarry_VST3"]
+            + run.parallel_args(os.path.join(BUILD_DIR, "CMakeCache.txt")))
     run_cmd([UNIT_TESTS_EXE])
 
 
