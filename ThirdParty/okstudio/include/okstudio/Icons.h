@@ -28,8 +28,9 @@
     Adding one: take it from the Lucide release pinned below, compact the whitespace, swap
     currentColor for #000000, and give it a name saying what it means here rather than what it
     draws -- "close" rather than "x", because the next surface that needs dismissing should not
-    have to know that Lucide calls it a letter. Add it to the table in KitTests too, which is
-    what checks it survived the paste.
+    have to know that Lucide calls it a letter. Add it to the table in KitTests too. That checks
+    the text of the paste (tags, viewBox, stroke, some geometry, no duplicate); it does not parse
+    the SVG, so look at the new icon on screen as well.
 
     ------------------------------------------------------------------------------------------
     Artwork: Lucide (https://lucide.dev), pinned at commit
