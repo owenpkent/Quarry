@@ -218,6 +218,12 @@ the submodules and the prebuilt onnxruntime on a fresh clone. `py run.py --no-bu
 relaunches what is already built. Most work can be tried there: the standalone records from this
 computer's own audio hardware, so no DAW is needed.
 
+`py run.py --tests` builds the unit tests and runs them, and launches nothing.
+
+A build uses half the machine's logical cores, so the machine stays usable while it runs. That
+goes for `run.py`, `build.bat` and the release script. Set `QUARRY_BUILD_JOBS` to a number to
+use another count from `run.py` and the release script.
+
 If the sidecar environment at `tools/bakeoff/.venv` is installed, the launcher configures it
 automatically. An explicit `QUARRY_SIDECAR_CMD` takes precedence, including an empty value to
 disable the sidecar. Without that environment, Quarry uses the built-in engine; see
