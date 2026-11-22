@@ -48,6 +48,7 @@ source is the metadata, and transcription is something you may never run.
 | Quarry analysis | Nothing automatic. Key, tempo and MIDI are one click, never a default |
 | Semantic tagging | Deferred, with a schema slot reserved. See *Open: classification* |
 | Library | Folder browser over the sidecars, with search, no index file. Can be turned off. A take drags out of the list onto a DAW track |
+| Picture | Optional "with picture" switch: the take also films its window (or the main screen) to an mp4 with the same sound. Computer sound only, no microphone |
 
 ---
 
@@ -198,12 +199,13 @@ hosts, DWM-cloaked suspended UWP shells, and Quarry itself.
 
 ## Files
 
-Three files per sample, sharing one stem:
+Three files per sample, sharing one stem, and a fourth when the take was filmed:
 
 ```
 Samples/2026-08/2026-08-16/143052-chrome-never-gonna-give-you-up.wav
                           /143052-chrome-never-gonna-give-you-up.json
                           /143052-chrome-never-gonna-give-you-up.png
+                          /143052-chrome-never-gonna-give-you-up.mp4   (only with picture)
 ```
 
 Stem is `HHMMSS-<source-slug>-<title-slug>`, slugified to `[a-z0-9-]`, title capped at 48
@@ -316,13 +318,19 @@ analysis ever becomes automatic, worth nothing for Ableton.
     "lufs": -14.3
   },
   "trim": { "startSec": 0.31, "endSec": 12.75, "originalDurationSec": 13.02 },
+  "video": {                          // only when the take was filmed, see "The picture"
+    "file": "143052-chrome-never-gonna-give-you-up.mp4",
+    "width": 1920, "height": 1080, "fps": 60, "durationSec": 13.05
+  },
   "analysis": null,                   // key / tempo / MIDI, filled only on request
   "classification": null,             // reserved, see below
   "tags": []                          // user tags from the browser
 }
 ```
 
-`schema` is versioned from day one because the two null blocks are going to be filled.
+`schema` is versioned from day one because the two null blocks are going to be filled. The
+`video` block is additive, absent rather than null when there is no picture, and does not bump
+it: a reader that has never heard of it ignores it, and `SampleLibrary` reads it tolerantly.
 
 ---
 
@@ -413,6 +421,78 @@ happen without the mouse, and the page is largely closed to a screen reader:
 
 The dropdown in the narrow window is the exception and is the most accessible control on the
 page, because JUCE's `ComboBox` carries its own name, value and expanded state.
+
+---
+
+## The picture
+
+The page has a **WITH PICTURE** switch (remembered, changeable between takes only). With it
+on, a take also records the picked window's picture to `<stem>.mp4` beside the wav, with the
+same computer sound as its soundtrack. For "Everything" it records the main screen. No
+microphone is involved. A source with no window (the tooltip says so) records sound only, and
+the status line says so too.
+
+How it works (the method was proven in `tools/screen_spike`; the code is
+`Sampler/ScreenRecorder.cpp`, Windows APIs only):
+
+- Windows.Graphics.Capture delivers frames only when the window changes. A pacing thread on
+  `QueryPerformanceCounter` ticks at exactly 60 fps and submits the newest frame each tick,
+  repeating it when nothing changed, so the file is constant frame rate.
+- H.264 and AAC through a Media Foundation sink writer, hardware encoder first, then software,
+  then a CPU read-back path if the GPU sample path cannot start. Size is fixed from the first
+  frame (even sides, at least 16 px); a window resized mid-take is clipped or padded black. The
+  copy into the encoder is bounded by the size of the captured surface as well as the content
+  size, because a surface keeps the size of the capture pool until the pool is recreated, which
+  happens only after the first frame at a new size; that frame copies what fits.
+  Bitrate is about 0.05 bit per pixel per frame, held between 4 and 30 Mbps.
+- The mp4 is written to a hidden `.quarry-picture-*.mp4.part` file in the capture folder and
+  renamed beside the wav when the take is filed, so the library scan never sees a half file.
+
+**The sound is the wav's own samples, and it is never edited.** `SampleRecorder` forwards each
+block to the picture recorder, which counts samples and nothing else:
+
+- Timestamps come from the running sample count. Samples are never dropped or reordered once
+  the stream has started.
+- The first block after the picture's start is aligned once: leading silence if it began after
+  the start, or its head dropped if it began before. "Began" is when it was captured, which the
+  loopback streams report with each block (`LoopbackBlockTime`, from GetBuffer's counter
+  position), and not when it was handed over. The distinction matters for the silence a stream
+  makes up after an idle gap: it arrives in a burst, dated by counting back from the sound that
+  follows it. The part before the picture's start is trimmed off on the capture thread, as the
+  block arrives and before anything else is decided about it, so it is gone whether or not the
+  worker has already begun filling a stall; the sound resumes where it did on the clock.
+- After that silence is inserted only when the source has delivered nothing for half a second,
+  which means it stalled (endpoint loopback does whenever nothing is playing). A sound card
+  whose clock merely runs slow keeps delivering, so it is never filled. Sound that runs ahead
+  is never trimmed. At the end the sound is padded with silence to where the picture ends.
+- A stalled source closes its own gap when it wakes, by handing over the missed silence before
+  the sound. That silence is already in the track, so the same amount is left out of what
+  arrives. Only blocks of pure zeros are ever shortened, and the first block with sound in it
+  ends the accounting.
+- The encoder takes 44.1 or 48 kHz. Any other mix rate is resampled to 48 kHz on the worker
+  thread with a windowed-sinc interpolator.
+
+**Stopping.** The sound stops first. Pressing Stop (or closing the editor) tells the picture to
+stop accepting audio and ends the audio take (`ScreenRecorder::requestStop`,
+`SampleRecorder::endCapture`), and only then is the picture finished and the take filed
+(`ScreenRecorder::finish`, `SampleRecorder::stop`). Finishing can be slow, because the encoder
+drains and the worker may still be waiting for a first frame, and the wav must not keep sound
+that arrived while it did. The wait for the first frame ends at once on a stop request, not
+after its two seconds. The wav and the mp4 are still filed together.
+
+The picture runs on its own worker thread and never touches the audio take: if it cannot start
+or dies (the window closed, the encoder failed), the status line says "picture stopped" and the
+wav carries on.
+
+Known limits:
+
+- The mp4 is lost if the app dies mid-take. The wav rules are unchanged: still held in memory
+  and written on stop.
+- The wav is trimmed to where the sound is, the mp4 is not, so the two do not start together.
+- HDR screens are untested. Protected video (DRM) records black.
+- "Everything" records the main screen. The monitor is not yet choosable.
+- A minimized window cannot be recorded; the take is refused for the picture and records sound
+  only.
 
 ---
 

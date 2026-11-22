@@ -24,6 +24,7 @@
 // name ambiguous, and wingdi.h defines TRANSPARENT as the integer 1, which turns
 // UIDefines' colour of that name into a number halfway through an argument list.
 #include "Sampler/SampleRecorder.h"
+#include "Sampler/ScreenRecorder.h"
 #include "Sampler/TakeDrag.h"
 #include <okstudio/WasapiProcessLoopback.h>
 
@@ -33,6 +34,10 @@ namespace
 {
 constexpr int rowHeight = 34; // The line's minimum hit target. Nothing here is smaller.
 constexpr int buttonHeight = 36;
+
+/** The "with picture" switch, in the rail above the meter and in the narrow window under the
+    chooser. The line's minimum hit target, like every other row. */
+constexpr int pictureButtonHeight = 34;
 
 /** The record button, which is the one thing this page is for and is sized to say so. */
 constexpr int primaryButtonHeight = 46;
@@ -58,6 +63,9 @@ constexpr int narrowWidth = 300;
     stay in the sidecar. */
 constexpr int whenWidth = 52;
 constexpr int lengthWidth = 56;
+
+/** The "VIDEO" tag on a row whose take has a picture. */
+constexpr int videoTagWidth = 44;
 
 /** The gutter an application's name sits in, to the left of its windows' titles.
 
@@ -167,6 +175,7 @@ SamplePageView::SamplePageView(QuarryAudioProcessor& inProcessor)
     : mProcessor(inProcessor)
 {
     mRecorder = std::make_unique<quarry::sampler::SampleRecorder>();
+    mScreen = std::make_unique<quarry::sampler::ScreenRecorder>();
 
     // Asked once: the label that uses it is painted on every tick.
     mHostName = File::getSpecialLocation(File::hostApplicationPath).getFileNameWithoutExtension();
@@ -224,6 +233,21 @@ SamplePageView::SamplePageView(QuarryAudioProcessor& inProcessor)
     mFixVolumeButton->setColour(TextButton::textColourOffId, TEXT_MAIN);
     mFixVolumeButton->onClick = [this]() { _fixSelectedVolume(); };
     addAndMakeVisible(*mFixVolumeButton);
+
+    // A switch, built like the audio / video / both buttons beside the library: toggle state,
+    // token colours, and a title that stays put because the text does. Remembered between
+    // launches, and only changeable between takes (see _updateEnablements).
+    mPictureButton = std::make_unique<TextButton>("WITH PICTURE");
+    mPictureButton->setClickingTogglesState(true);
+    mPictureButton->setColour(TextButton::buttonColourId, CONTROL_BG);
+    mPictureButton->setColour(TextButton::textColourOffId, TEXT_MAIN);
+    mPictureButton->setTitle("Record the picture too");
+    mPictureButton->setTooltip("Also record the window's picture to an mp4 next to the wav");
+    mPictureButton->setToggleState(TakeNaming::samplePicture(mProcessor.getValueTree()), dontSendNotification);
+    mPictureButton->onClick = [this]() {
+        mProcessor.getValueTree().setProperty(NnId::SamplePictureId, mPictureButton->getToggleState(), nullptr);
+    };
+    addAndMakeVisible(*mPictureButton);
 
     // Text, not a filled button: where captures are kept is a setting, and it was sitting at
     // the same visual weight as the list it describes. The path is on the tooltip, which is
@@ -380,8 +404,17 @@ SamplePageView::~SamplePageView()
     // selected, the device is folded) and nothing about that says "throw the take away"; it
     // lands in the library like any other and is there when the window comes back. The same
     // as a source that vanishes mid-take: a sample that ends early is still a sample.
+    //
+    // Its picture is kept with it, by the same path a press of the record button takes.
     if (mRecorder != nullptr && mRecorder->isRecording())
-        mRecorder->stop();
+    {
+        auto written = false;
+        _finishTake(written);
+    }
+
+    // Whatever is left: the tap is cleared before the screen recorder goes, and by now the
+    // capture thread that called it has been joined.
+    _discardPicture();
 }
 
 bool SamplePageView::_inHost() const
@@ -394,6 +427,73 @@ String SamplePageView::_everythingLabel() const
     // In a host "everything" leaves the host out, and the row has to say so: what is on the
     // label is what lands in the file.
     return _inHost() ? "Everything except " + mHostName : String("Everything this computer plays");
+}
+
+String SamplePageView::_finishTake(bool& outWritten)
+{
+    // The sound stops first, at once: the picture is told to stop and the audio take ends,
+    // and only then is the picture finished. Finishing can take a while (the encoder drains,
+    // or the first frame was still awaited), and sound arriving meanwhile must not be kept
+    // after the person pressed Stop.
+    quarry::sampler::ScreenRecorder::Finished picture;
+    const auto hadPicture = mTakeHasPicture;
+
+    if (hadPicture)
+        mScreen->requestStop();
+
+    mRecorder->endCapture();
+
+    // Its file is finished and closed before the recorder is asked to move it, and its
+    // soundtrack ends where the picture does.
+    if (hadPicture)
+        picture = mScreen->finish();
+
+    quarry::sampler::SampleRecorder::CompanionVideo companion;
+
+    if (picture.ok)
+    {
+        companion.tempFile = picture.file;
+        companion.width = picture.width;
+        companion.height = picture.height;
+        companion.fps = picture.fps;
+        companion.durationSec = picture.durationSec;
+    }
+
+    const auto written = mRecorder->stop(picture.ok ? &companion : nullptr);
+
+    // Only now: the capture thread has been joined, so nothing is calling the tap.
+    mRecorder->setTap(nullptr);
+
+    // A picture that was not filed is not left behind in the capture folder.
+    if (hadPicture && (! picture.ok || ! written.ok))
+        mPictureTempFile.deleteFile();
+
+    mTakeHasPicture = false;
+    mPictureTempFile = File();
+    mPictureStoppedNote = {};
+
+    auto status = written.ok ? written.message + "  ->  " + written.audioFile.getFileName()
+                             : written.message;
+
+    if (hadPicture && written.ok && ! picture.ok)
+        status += " (no picture: " + picture.message + ")";
+
+    outWritten = written.ok;
+    return status;
+}
+
+void SamplePageView::_discardPicture()
+{
+    if (mRecorder != nullptr && ! mRecorder->isRecording())
+        mRecorder->setTap(nullptr);
+
+    if (mScreen != nullptr)
+        mScreen->discard();
+
+    if (mPictureTempFile != File())
+        mPictureTempFile.deleteFile();
+
+    mTakeHasPicture = false;
 }
 
 //==============================================================================
@@ -418,6 +518,9 @@ void SamplePageView::resized()
         mSelectionBounds = {};
 
         mSourceChooser->setBounds(column.removeFromTop(chooserHeight));
+        column.removeFromTop(8);
+
+        mPictureButton->setBounds(column.removeFromTop(pictureButtonHeight));
         column.removeFromTop(12);
 
         mCapturesButton->setBounds(column.removeFromBottom(capturesButtonHeight)
@@ -458,6 +561,11 @@ void SamplePageView::resized()
     // keeps them apart.
     mMeterBounds = rail.removeFromBottom(14).reduced(6, 0);
     rail.removeFromBottom(12);
+
+    // The picture switch, between the meter and the volume fix. Always laid out and always on
+    // screen, so it keeps one place however the rows above it change.
+    mPictureButton->setBounds(rail.removeFromBottom(pictureButtonHeight));
+    rail.removeFromBottom(10);
 
     // Only ever on screen when the selected application is playing below full volume, which
     // is the only time it means anything. Laid out either way so its arrival never moves the
@@ -992,7 +1100,21 @@ void SamplePageView::timerCallback()
             return;
         }
 
-        mStatusText = "Recording " + String(mRecorder->recordedSeconds(), 1) + " s";
+        // The picture is separate from the take: if it dies the sound goes on, and the line
+        // says so rather than ending the take. Asked every tick so the note appears the moment
+        // it is raised and then stays.
+        if (mTakeHasPicture && mPictureStoppedNote.isEmpty())
+        {
+            const auto pictureFailure = mScreen->failure();
+
+            if (pictureFailure.isNotEmpty())
+                mPictureStoppedNote = " (picture stopped: " + pictureFailure + ")";
+        }
+
+        mStatusText = "Recording " + String(mRecorder->recordedSeconds(), 1) + " s"
+                    + (! mTakeHasPicture              ? String()
+                       : mPictureStoppedNote.isEmpty() ? String(", with picture")
+                                                       : mPictureStoppedNote);
     }
     else
     {
@@ -1515,6 +1637,14 @@ void SamplePageView::_updateEnablements()
 
     mFolderButton->setEnabled(! recording);
 
+    // Changeable between takes only: a take is either filmed or not from its first second.
+    // A source with no window stays clickable, since the choice is remembered and the next
+    // source may have one; the tooltip says why a take of this one would be sound only.
+    const auto noWindow = ! everything && source != nullptr && source->windowHandle == 0;
+    mPictureButton->setEnabled(! recording);
+    mPictureButton->setTooltip(noWindow ? "This source has no window to record"
+                                        : "Also record the window's picture to an mp4 next to the wav");
+
     mFolderButton->setTooltip("Captures are kept in " + _libraryRoot().getFullPathName());
 
     const auto haveEntry = _selectedEntry() != nullptr;
@@ -1536,16 +1666,14 @@ void SamplePageView::_toggleRecording()
 
     if (mRecorder->isRecording())
     {
-        const auto written = mRecorder->stop();
-
-        mStatusText = written.ok ? written.message + "  ->  " + written.audioFile.getFileName()
-                                 : written.message;
+        auto written = false;
+        mStatusText = _finishTake(written);
 
         mRecordLevel[0] = 0.0f;
         mRecordLevel[1] = 0.0f;
 
         // A take that just landed should be in the list without being asked for.
-        if (written.ok)
+        if (written)
             _rescanLibrary();
 
         _updateEnablements();
@@ -1553,7 +1681,49 @@ void SamplePageView::_toggleRecording()
         return;
     }
 
-    if (mSelectedPid == everythingPid)
+    const auto everything = mSelectedPid == everythingPid;
+    const auto* source = _selectedSource();
+
+    if (! everything && source == nullptr)
+    {
+        mStatusText = "Pick an application first.";
+        repaint();
+        return;
+    }
+
+    // Whether this take is filmed is settled before the sound starts, because the screen
+    // recorder has to be the audio recorder's tap before the first block is delivered.
+    quarry::sampler::ScreenRecorder::Target pictureTarget;
+    auto wantPicture = false;
+    auto pictureSkippedNote = String();
+
+    if (mPictureButton->getToggleState())
+    {
+        if (everything)
+        {
+            pictureTarget.primaryMonitor = true;
+            wantPicture = true;
+        }
+        else if (source->windowHandle != 0)
+        {
+            pictureTarget.windowHandle = source->windowHandle;
+            wantPicture = true;
+        }
+        else
+        {
+            pictureSkippedNote = " (sound only: this source has no window)";
+        }
+    }
+
+    mPictureStoppedNote = {};
+
+    if (wantPicture)
+        mRecorder->setTap(mScreen.get());
+
+    Result started = Result::ok();
+    String what;
+
+    if (everything)
     {
         // In a host the endpoint is the wrong thing to record: it carries the host's own
         // output, this plugin's audition voice with it, so the take would be the session
@@ -1562,57 +1732,87 @@ void SamplePageView::_toggleRecording()
         //
         // That needs process loopback. Without it the choice is refused rather than quietly
         // served from the endpoint, because a take with the host in it is not what was asked for.
-        auto begun = Result::ok();
-
         if (! _inHost())
-            begun = mRecorder->startEndpoint(_libraryRoot());
+            started = mRecorder->startEndpoint(_libraryRoot());
         else if (WasapiProcessLoopback::isSupported())
-            begun = mRecorder->startEverythingExcept((uint32) GetCurrentProcessId(), _libraryRoot());
+            started = mRecorder->startEverythingExcept((uint32) GetCurrentProcessId(), _libraryRoot());
         else
-            begun = Result::fail("This version of Windows cannot leave " + mHostName
-                                 + " out of the recording. Use the standalone Quarry for this.");
+            started = Result::fail("This version of Windows cannot leave " + mHostName
+                                   + " out of the recording. Use the standalone Quarry for this.");
 
-        mStatusText = begun.wasOk() ? "Recording everything ..." : begun.getErrorMessage();
+        what = "everything";
+    }
+    else
+    {
+        okstudio::capture::AudioSession session;
+        session.processId   = source->processId;
+        session.processName = source->name;
+        session.volume      = source->volume;
+        session.peak        = source->peak;
+        session.isPlaying   = source->isPlaying;
 
+        // The executable path is not carried on the row, and the sidecar wants it, so it is
+        // fetched fresh here from the one session that matches. A window that holds no session
+        // matches nothing, so the process is asked directly instead.
+        for (const auto& live : WasapiProcessLoopback::sessions())
+            if (live.processId == source->processId)
+                session.executablePath = live.executablePath;
+
+        if (session.executablePath.isEmpty())
+            session.executablePath = quarry::sampler::executablePathOf(source->processId);
+
+        // The window that was picked, so the sidecar records the one chosen rather than
+        // whichever of the application's windows a guess would have landed on.
+        started = mRecorder->start(session, _libraryRoot(), source->windowHandle);
+
+        what = source->oneOfSeveral && source->windowTitle.isNotEmpty() ? source->windowTitle
+                                                                        : source->name;
+    }
+
+    if (started.failed())
+    {
+        mRecorder->setTap(nullptr);
+        mStatusText = started.getErrorMessage();
         _updateEnablements();
         repaint();
         return;
     }
 
-    const auto* source = _selectedSource();
+    mStatusText = "Recording " + what + " ..." + pictureSkippedNote;
 
-    if (source == nullptr)
+    if (wantPicture)
     {
-        mStatusText = "Pick an application first.";
-        repaint();
-        return;
+        // The audio is running, so its rate is known, which the picture's soundtrack needs. The
+        // temp file lives in the capture folder so that filing it beside the wav is a rename
+        // on one volume. A dot and a .part ending keep the library scan and Explorer's
+        // thumbnails away from a file that is not finished.
+        const auto root = _libraryRoot();
+        auto pictureStarted = Result::ok();
+
+        if (! root.createDirectory())
+        {
+            pictureStarted = Result::fail("could not make the capture folder");
+        }
+        else
+        {
+            mPictureTempFile = root.getChildFile(".quarry-picture-"
+                                                 + String::toHexString(Random::getSystemRandom().nextInt64())
+                                                 + ".mp4.part");
+            pictureStarted = mScreen->start(pictureTarget, mPictureTempFile, mRecorder->sampleRate());
+        }
+
+        if (pictureStarted.wasOk())
+        {
+            mTakeHasPicture = true;
+            mStatusText = "Recording " + what + ", with picture";
+        }
+        else
+        {
+            // The sound is already running and stays running; only the picture is given up.
+            mPictureTempFile = File();
+            mStatusText = "Recording " + what + " (sound only: " + pictureStarted.getErrorMessage() + ")";
+        }
     }
-
-    okstudio::capture::AudioSession session;
-    session.processId   = source->processId;
-    session.processName = source->name;
-    session.volume      = source->volume;
-    session.peak        = source->peak;
-    session.isPlaying   = source->isPlaying;
-
-    // The executable path is not carried on the row, and the sidecar wants it, so it is
-    // fetched fresh here from the one session that matches. A window that holds no session
-    // matches nothing, so the process is asked directly instead.
-    for (const auto& live : WasapiProcessLoopback::sessions())
-        if (live.processId == source->processId)
-            session.executablePath = live.executablePath;
-
-    if (session.executablePath.isEmpty())
-        session.executablePath = quarry::sampler::executablePathOf(source->processId);
-
-    // The window that was picked, so the sidecar records the one chosen rather than whichever
-    // of the application's windows a guess would have landed on.
-    const auto started = mRecorder->start(session, _libraryRoot(), source->windowHandle);
-
-    const auto what = source->oneOfSeveral && source->windowTitle.isNotEmpty() ? source->windowTitle
-                                                                              : source->name;
-
-    mStatusText = started.wasOk() ? "Recording " + what + " ..." : started.getErrorMessage();
 
     _updateEnablements();
     repaint();
@@ -1713,6 +1913,14 @@ void SamplePageView::LibraryModel::paintListBoxItem(int row, Graphics& g, int wi
     g.drawText(String(entry.durationSec, 1) + " s", text.removeFromRight(lengthWidth),
                Justification::centredRight, false);
     text.removeFromRight(10);
+
+    // A take that was filmed says so, to the left of the length. Dim like the numbers: it is
+    // a fact about the take, not something to read before the name.
+    if (entry.videoFile != File())
+    {
+        g.drawText("VIDEO", text.removeFromRight(videoTagWidth), Justification::centredRight, false);
+        text.removeFromRight(10);
+    }
 
     // The time it was taken, rather than the digits the file name starts with. Same fact,
     // read without decoding it.
@@ -1858,7 +2066,7 @@ int SamplePageView::narrowContentHeight() const
 {
     // Everything the narrow page lays out, plus the page's own inset. Spelled out rather than
     // measured so the window is sized before the layout runs rather than after it.
-    return 4 + chooserHeight + 12 + meterHeight + 4 + statusHeight + 10 + primaryButtonHeight
+    return 4 + chooserHeight + 8 + pictureButtonHeight + 12 + meterHeight + 4 + statusHeight + 10 + primaryButtonHeight
          + 8 + capturesButtonHeight;
 }
 

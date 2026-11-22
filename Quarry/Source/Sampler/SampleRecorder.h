@@ -44,7 +44,19 @@ public:
         juce::String message;
         juce::File audioFile;
         juce::File sidecarFile;
+        juce::File videoFile;   // invalid unless a picture was recorded and kept
         SampleMetadata metadata;
+    };
+
+    /** A finished picture for stop() to file beside the wav. The recorder only moves it and
+        writes down what it is; ScreenRecorder is what made it. */
+    struct CompanionVideo
+    {
+        juce::File tempFile;
+        int width = 0;
+        int height = 0;
+        double fps = 0.0;
+        double durationSec = 0.0;
     };
 
     SampleRecorder();
@@ -83,9 +95,33 @@ public:
      */
     juce::Result startEverythingExcept(juce::uint32 excludedProcessId, const juce::File& libraryRoot);
 
+    /** Stops accepting audio and joins the capture thread, and nothing else: no trimming and
+        no files. This is the point where the take's sound ends, so it is called the moment
+        Stop is pressed, before anything slow such as finishing a picture. stop() then writes
+        what was captured. Safe to call when not recording, and when already called. After it
+        isRecording() is false but stop() still files the take. */
+    void endCapture();
+
     /** Stops, trims, measures, and writes. Safe to call when not recording: it reports that
-        rather than throwing. */
-    Written stop();
+        rather than throwing. Calls endCapture() first if that has not been done.
+
+        With a `video`, the picture is moved to `<stem>.mp4` beside the wav and named in the
+        sidecar. If the take is not written, the video's temp file is deleted, so a caller
+        that hands one over never has to clean up after a failure. */
+    Written stop(const CompanionVideo* video = nullptr);
+
+    /** Sends a copy of every block to `tap` as well, for the picture's soundtrack. Only legal
+        while not recording.
+
+        No atomic is needed: the tap is set before the stream opens and cleared after stop()
+        or discard() has joined the capture thread, so the capture thread only ever sees it
+        unchanged, and starting and joining that thread is what orders the write against its
+        reads. The tap's loopbackBlock runs on the capture thread and must not block. */
+    void setTap(okstudio::capture::LoopbackSink* newTap);
+
+    /** The rate of the stream that is open, in Hz. Valid once start() or startEndpoint()
+        has returned ok. */
+    double sampleRate() const noexcept { return capturedRate; }
 
     /** Stops and keeps nothing. */
     void discard();
@@ -120,7 +156,14 @@ public:
 private:
     //==========================================================================
     void loopbackBlock(const float* const* channels, int numChannels, int numSamples) override;
+    void loopbackBlockAt(const float* const* channels, int numChannels, int numSamples,
+                         const okstudio::capture::LoopbackBlockTime& when) override;
     void loopbackFailed() override;
+
+    /** Everything loopbackBlock did before there was a tap. */
+    void recordBlock(const float* const* channels, int numChannels, int numSamples);
+
+    okstudio::capture::LoopbackSink* tap = nullptr;
 
     /** Frames per block of captured audio. Appending never reallocates what is already
         held, so a long take costs an occasional small allocation rather than a copy of
@@ -157,6 +200,11 @@ private:
 
     std::atomic<bool> limitHit { false };
     std::atomic<bool> recording { false };
+
+    /** Set by endCapture() and cleared by reset(): the stream is stopped but the take has not
+        been filed yet. Message thread only. */
+    bool captureEnded = false;
+
     std::atomic<juce::int64> totalFrames { 0 };
     std::atomic<float> peakSinceRead[2] { { 0.0f }, { 0.0f } };
 

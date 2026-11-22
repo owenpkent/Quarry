@@ -214,6 +214,12 @@ target_link_libraries(${BaseTargetName}
 # resource, and the shell's known folders and ShellExecute.
 if (WIN32)
     target_link_libraries(${BaseTargetName} PRIVATE Rstrtmgr Version Shell32 Ole32 Wintrust Crypt32)
+
+    # The picture recorded with a Sample take (Sampler/ScreenRecorder.cpp): Direct3D 11 and DXGI
+    # for the capture textures, Media Foundation for the H.264 and AAC mp4, windowsapp for the
+    # C++/WinRT activation entry points Windows.Graphics.Capture needs, and winmm for the 1 ms
+    # timer the frame pacing sleeps on.
+    target_link_libraries(${BaseTargetName} PRIVATE d3d11 dxgi mfplat mfreadwrite mfuuid windowsapp winmm)
 endif ()
 
 if (${LTO})

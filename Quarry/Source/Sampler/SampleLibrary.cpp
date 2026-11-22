@@ -73,6 +73,18 @@ LibraryEntry SampleLibrary::parse(const juce::File& sidecar)
         entry.imageFile = siblingNamed(sidecar, textOf(source, "screenshot"));
     }
 
+    // Absent on every take made before the picture existed, and on any take without one. Kept
+    // only if the file is there, because the row draws a tag from it and a tag for a video
+    // someone deleted in Explorer would be a lie; scan() runs off the message thread, so the
+    // disk check costs the page nothing.
+    if (const auto video = parsed.getProperty("video", juce::var()); video.isObject())
+    {
+        entry.videoFile = siblingNamed(sidecar, textOf(video, "file"));
+
+        if (! entry.videoFile.existsAsFile())
+            entry.videoFile = juce::File();
+    }
+
     if (audio.isObject())
     {
         entry.durationSec = numberOf(audio, "durationSec", 0.0);
@@ -167,6 +179,9 @@ bool SampleLibrary::remove(const LibraryEntry& entry)
 
     if (entry.imageFile.existsAsFile())
         entry.imageFile.moveToTrash();
+
+    if (entry.videoFile.existsAsFile())
+        entry.videoFile.moveToTrash();
 
     return removed;
 }

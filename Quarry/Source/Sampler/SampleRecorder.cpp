@@ -30,6 +30,7 @@ SampleRecorder::~SampleRecorder()
 void SampleRecorder::reset()
 {
     chunks.clear();
+    captureEnded = false;
     framesInLastChunk = 0;
     capturedChannels = 0;
     capturedRate = 0.0;
@@ -203,6 +204,29 @@ void SampleRecorder::discard()
 //==============================================================================
 void SampleRecorder::loopbackBlock(const float* const* channels, int numChannels, int numSamples)
 {
+    loopbackBlockAt(channels, numChannels, numSamples, okstudio::capture::LoopbackBlockTime());
+}
+
+void SampleRecorder::loopbackBlockAt(const float* const* channels, int numChannels, int numSamples,
+                                     const okstudio::capture::LoopbackBlockTime& when)
+{
+    recordBlock(channels, numChannels, numSamples);
+
+    // After this recorder's own work, so a slow tap can never delay what the wav keeps. The
+    // tap sees every block while the take is open, including the ones past the length cap,
+    // and with the time each was captured, which is what it lines the picture up by.
+    if (tap != nullptr && recording.load())
+        tap->loopbackBlockAt(channels, numChannels, numSamples, when);
+}
+
+void SampleRecorder::setTap(okstudio::capture::LoopbackSink* newTap)
+{
+    jassert(! recording.load());
+    tap = newTap;
+}
+
+void SampleRecorder::recordBlock(const float* const* channels, int numChannels, int numSamples)
+{
     if (! recording.load() || channels == nullptr || numChannels <= 0 || numSamples <= 0)
         return;
 
@@ -352,20 +376,44 @@ juce::AudioBuffer<float> SampleRecorder::flatten() const
 }
 
 //==============================================================================
-SampleRecorder::Written SampleRecorder::stop()
+void SampleRecorder::endCapture()
+{
+    if (! recording.load())
+        return;
+
+    // The flag first: from here the capture thread keeps nothing and forwards nothing to the
+    // tap, so the sound ends at this call however long the join below takes.
+    recording.store(false);
+    _stopStream();
+    captureEnded = true;
+}
+
+SampleRecorder::Written SampleRecorder::stop(const CompanionVideo* video)
 {
     Written result;
 
-    if (! recording.load())
+    // The picture's temp file belongs to this call from here on. Whatever way it returns, a
+    // file still sitting at the temp path was not filed, and is deleted rather than left in
+    // the library folder for someone to find. A successful move leaves nothing to delete.
+    struct TempVideoGuard
+    {
+        const CompanionVideo* video;
+        ~TempVideoGuard()
+        {
+            if (video != nullptr)
+                video->tempFile.deleteFile();
+        }
+    } tempVideoGuard { video };
+
+    if (! recording.load() && ! captureEnded)
     {
         result.message = "Not recording";
         return result;
     }
 
-    recording.store(false);
-
-    // Joins the capture thread, so everything below runs with the chunk list to itself.
-    _stopStream();
+    // A no-op when endCapture() already did it. Either way the capture thread is joined, so
+    // everything below runs with the chunk list to itself.
+    endCapture();
 
     const auto rate = capturedRate > 0.0
                         ? capturedRate
@@ -494,6 +542,25 @@ SampleRecorder::Written SampleRecorder::stop()
         // read back, which is what this scope is for.
         stream.release();
         writer->writeFromAudioSampleBuffer(trimmed, 0, trimmed.getNumSamples());
+    }
+
+    //==========================================================================
+    // The picture, beside the wav and named for it. Moved rather than copied because it can
+    // be large; a copy and delete is the fallback for a temp file on another volume.
+    if (video != nullptr && video->tempFile.existsAsFile())
+    {
+        const auto videoFile = folder.getChildFile(stem + ".mp4");
+
+        if (video->tempFile.moveFileTo(videoFile)
+            || (video->tempFile.copyFileTo(videoFile) && video->tempFile.deleteFile()))
+        {
+            pending.video.file = videoFile.getFileName();
+            pending.video.width = video->width;
+            pending.video.height = video->height;
+            pending.video.fps = video->fps;
+            pending.video.durationSec = video->durationSec;
+            result.videoFile = videoFile;
+        }
     }
 
     //==========================================================================

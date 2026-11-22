@@ -58,6 +58,10 @@ inline static Identifier CaptureFolderId = "CAPTURE_FOLDER";
 // recording and nothing else, and the source rail takes the whole window.
 inline static Identifier CaptureBrowserVisibleId = "CAPTURE_BROWSER_VISIBLE";
 
+// Whether a Sample page take also records the picture of the window (or the main screen, for
+// Everything) to an mp4 beside the wav. Off by default: it costs a GPU encoder and disk.
+inline static Identifier SamplePictureId = "SAMPLE_PICTURE";
+
 // Where link downloads are saved, and which of audio / video / both they fetch. Empty folder means
 // the capture folder (TakeNaming::downloadFolder). Whether to take a whole playlist is deliberately
 // not stored: it is off at every launch.
@@ -97,6 +101,7 @@ const std::vector<std::pair<Identifier, var>> OrderedStatePropertiesWithDefault 
     {SampleWriteMidiId, true},
     {CaptureFolderId, String()},
     {CaptureBrowserVisibleId, true},
+    {SamplePictureId, false},
     {DownloadFolderId, String()},
     {DownloadMediaId, String("audio")}};
 

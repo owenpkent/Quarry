@@ -22,6 +22,7 @@
 namespace quarry::sampler
 {
 class SampleRecorder;
+class ScreenRecorder;
 }
 
 /**
@@ -203,6 +204,25 @@ private:
     /** The host's name, for that label. Only meaningful when _inHost(). */
     String mHostName;
 
+    /** The picture that goes with a take, when "with picture" is on. Created with the page and
+        idle until a take asks for it; it is also the audio recorder's tap while one runs. */
+    std::unique_ptr<quarry::sampler::ScreenRecorder> mScreen;
+
+    /** True while the current take has a picture running, and the temp file it writes to. */
+    bool mTakeHasPicture = false;
+    File mPictureTempFile;
+
+    /** What to add to the status line once the picture has stopped mid-take. Empty until then. */
+    String mPictureStoppedNote;
+
+    /** Ends a take's picture without keeping it. Safe when there is none. */
+    void _discardPicture();
+
+    /** Ends the running take and keeps it, picture included: the picture is finished first,
+        then the recorder files both. Returns the line for the status text, and whether the
+        take was written. The record button and the page's destructor both end a take here. */
+    String _finishTake(bool& outWritten);
+
     /** Rebuilds the dropdown from mSources. Only when the list changes shape: doing it every
         refresh would shut a menu under the pointer four times a second. */
     void _rebuildChooser();
@@ -218,6 +238,9 @@ private:
     std::unique_ptr<ComboBox> mSourceChooser;
     std::unique_ptr<TextButton> mRecordButton;
     std::unique_ptr<TextButton> mFixVolumeButton;
+
+    /** "With picture": also film the window to an mp4 beside the wav. Persisted. */
+    std::unique_ptr<TextButton> mPictureButton;
     std::unique_ptr<TextButton> mFolderButton;
 
     std::unique_ptr<LibraryModel> mLibraryModel;
