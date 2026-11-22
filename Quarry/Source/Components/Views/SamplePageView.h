@@ -42,6 +42,7 @@ class SamplePageView
     : public Component
     , public Timer
     , public ListBoxModel
+    , public DragAndDropContainer
 {
 public:
     explicit SamplePageView(QuarryAudioProcessor& inProcessor);
@@ -63,6 +64,12 @@ public:
 
     void listBoxItemClicked(int row, const MouseEvent& event) override;
 
+    /** A take dragged out of the library and past the edge of the window becomes a file drag, so
+        it can be dropped on a track in a DAW. See Sampler/TakeDrag.h. */
+    bool shouldDropFilesWhenDraggedExternally(const DragAndDropTarget::SourceDetails& details,
+                                              StringArray& files,
+                                              bool& canMoveFiles) override;
+
     /** Called once a capture has been loaded into the transcriber, so the window can follow it
         there. This page knows nothing about where the other page lives; the view that owns
         both of them decides what following means. */
@@ -70,6 +77,10 @@ public:
 
     /** Puts a link in the box and focuses it, without starting anything. */
     void prefillLink(const String& inUrl);
+
+    /** The same as a click on RECORD: starts a take, or stops the one running, and does nothing
+        while the button is disabled. For the space bar, which the view that owns this page hears. */
+    void triggerRecord() { mRecordButton->triggerClick(); }
 
     /** Called with a cleaned URL when the "paste a link" field submits one. The page does not
         know how a download starts; the view that owns the processor and both pages does, and
@@ -104,6 +115,8 @@ private:
         int getNumRows() override;
         void paintListBoxItem(int row, Graphics& g, int width, int height, bool isSelected) override;
         void listBoxItemClicked(int row, const MouseEvent& event) override;
+        var getDragSourceDescription(const SparseSet<int>& rowsToDescribe) override;
+        String getTooltipForRow(int row) override;
 
         SamplePageView& owner;
     };

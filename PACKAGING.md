@@ -21,7 +21,7 @@
 
 # Package Quarry for Windows
 
-On Windows, Quarry is not code signed for now. To create the installer, the following steps are required:
+On Windows, `tools/release/release.py` signs the binaries and the installer (see "Code signing" in `docs/AUTO_UPDATE.md`; the hardware token must be plugged in, or pass `--no-sign` for a dry run). To create the installer, the following steps are required:
 
 - Build the app and VST3 in Release mode, configured with `-DLTO=OFF`. The prebuilt
   `onnxruntime.lib` is compiled with `/GL` by one specific MSVC version, so with link-time
@@ -45,7 +45,48 @@ folders: the standalone app goes to `{commonpf}\Quarry` and the VST3 to `{common
 constants that resolve to the real Program Files and Common Files folders, so the installer no longer
 assumes Windows lives on `C:`.
 
+The installer is uninstallable. It has a fixed `AppId=Quarry` (never change it: it is what ties an
+upgrade and the Add/Remove Programs entry to the existing install). Uninstalling removes the app folder
+and, if it was installed, the VST3 bundle in `{commoncf}\VST3`. It does not touch settings, samples or
+models under AppData or Documents. If Quarry or a DAW has a file open, the uninstaller says so and stops (a file only counts if this installation put it down).
+`release.py` signs the uninstaller by passing ISCC `/DSignUninstaller` and a `/Squarrysign=...` command
+(omitted with `--no-sign`); see "Code signing" in `docs/AUTO_UPDATE.md`.
+
 The installer will be located in `Installers/Windows/Output`.
+
+## Dependency scans
+
+Three things watch the dependencies. None of them is part of the release script.
+
+- **OSV scan** (`ci.yml` jobs `osv-scan` and `osv-scan-main`, and `.github/workflows/osv-nightly.yml`)
+  reads `tools/sidecar/requirements.txt` and `prototypes/synthesia_detector/requirements.txt` and
+  fails on any known advisory (`fail-on-vuln: true`). On a pull request it fails only on
+  advisories the PR introduces; master is scanned in full on every push and nightly. The git
+  submodules and the pinned onnxruntime are not scanned, because the release SBOM is only written
+  by a full build.
+- **Dependabot** (`.github/dependabot.yml`) opens weekly PRs for GitHub Actions, both Python
+  requirements directories and the RTNeural submodule. JUCE is ignored and bumped by hand: it is
+  pinned to a security tag and JUCE 9 is a separate migration.
+- **Socket** (`socket.yml`) checks dependency changes on PRs for supply-chain alerts and ignores
+  `ThirdParty/`.
+
+To quarantine an advisory that has no fix yet, add an `osv-scanner.toml` beside the requirements
+file it applies to (the scanner reads it only from that file's directory), with a reason and a
+short expiry:
+
+```toml
+[[IgnoredVulns]]
+id = "GHSA-xxxx-xxxx-xxxx"
+ignoreUntil = 2026-12-31
+reason = "No fixed release yet; not reachable from the sidecar."
+```
+
+Use weeks, not months. When the date passes the scan fails again, which is the reminder to check
+for a fix. Never set `fail-on-vuln` to false.
+
+A failing scan on master blocks a release: fix or pin the dependency, or add a time-boxed ignore
+with a reason, before running `release.py build`. A release should not ship with an open,
+unexplained advisory.
 
 ## Windows release checklist
 
@@ -95,6 +136,6 @@ file names, the tag and the installer flags are a contract with the in-app updat
    `owenpkent/Quarry`, never a draft or prerelease, with the installer, the `.sha256` and the SBOM
    attached.
 
-Windows builds are not code signed yet, so SmartScreen will warn on first run. Until signing is
-added, the published `.sha256` file is the only integrity check (`sha256sum -c
-QuarrySetup-X.Y.Z.exe.sha256`). Code signing is the follow-up.
+Windows builds are signed with the OK Studio Inc. EV certificate, and `publish` refuses an
+installer that is not (override with `--allow-unsigned`). The published `.sha256` file is the hash
+of the signed installer (`sha256sum -c QuarrySetup-X.Y.Z.exe.sha256`).

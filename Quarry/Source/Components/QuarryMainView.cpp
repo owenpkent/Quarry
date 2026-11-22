@@ -707,12 +707,64 @@ void QuarryMainView::repaintPianoRoll()
     mVisualizationPanel.repaintPianoRoll();
 }
 
+bool QuarryMainView::keyStateChanged(bool isKeyDown)
+{
+#if JUCE_WINDOWS
+    // The record key came up: its next press is a click again. Asked of the keyboard, not
+    // inferred from the event, because this is called for every key that changes.
+    if (!isKeyDown && !KeyPress::isKeyCurrentlyDown(KeyPress::spaceKey) && !KeyPress::isKeyCurrentlyDown('r')) {
+        mSampleRecordKey.release();
+    }
+#else
+    ignoreUnused(isKeyDown);
+#endif
+
+    return false;
+}
+
+void QuarryMainView::focusLost(FocusChangeType)
+{
+#if JUCE_WINDOWS
+    // A key released while another window has the focus never reports its release here.
+    if (!hasKeyboardFocus(true)) {
+        mSampleRecordKey.release();
+    }
+#endif
+}
+
+void QuarryMainView::focusOfChildComponentChanged(FocusChangeType)
+{
+#if JUCE_WINDOWS
+    if (!hasKeyboardFocus(true)) {
+        mSampleRecordKey.release();
+    }
+#endif
+}
+
 bool QuarryMainView::keyPressed(const KeyPress& key)
 {
     if (key == KeyPress(KeyPress::spaceKey, ModifierKeys::shiftModifier, 0)) {
         mBackButton->triggerClick();
         return true;
     }
+
+#if JUCE_WINDOWS
+    // On the Sample page the space bar is RECORD: it starts a take and stops the one running. So
+    // is r, which records on the other page. Both used to reach that page's hidden transport and
+    // record button from here. A focused text box takes its own space before this is asked.
+    //
+    // A held key arrives as a stream of key presses. Only the first is a click: without the latch
+    // a held space bar stopped the take on the first repeat and started another on the next. The
+    // repeats are still consumed, so they do not fall through to the other page's shortcuts.
+    if (mSamplePage != nullptr && mSamplePage->isVisible()
+        && (key == KeyPress::spaceKey || key == KeyPress('r', juce::ModifierKeys::noModifiers, 0))) {
+        if (mSampleRecordKey.press()) {
+            mSamplePage->triggerRecord();
+        }
+
+        return true;
+    }
+#endif
 
     if (key == KeyPress::spaceKey) {
         mPlayPauseButton->triggerClick();

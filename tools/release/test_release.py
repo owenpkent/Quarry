@@ -2,11 +2,16 @@
 
 import json
 import os
+import subprocess
 import sys
+import tempfile
+import types
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import release  # noqa: E402
+import sign  # noqa: E402
 
 CHANGELOG = """# Changelog
 
@@ -125,6 +130,176 @@ class PublishTests(unittest.TestCase):
         self.assertEqual(command[command.index("--repo") + 1], "owenpkent/Quarry")
         self.assertNotIn("--draft", command)
         self.assertNotIn("--prerelease", command)
+
+
+def _done(code=0, out=""):
+    return subprocess.CompletedProcess([], code, stdout=out, stderr="")
+
+
+class SignCommandTests(unittest.TestCase):
+    def test_sign_command(self):
+        cmd = sign.sign_command("signtool.exe", "Quarry.exe")
+        self.assertEqual(cmd[:2], ["signtool.exe", "sign"])
+        self.assertEqual(cmd[cmd.index("/sha1") + 1], "fc22b5221318f3f3f6b3eb2d969d7f99091557bf")
+        self.assertEqual(cmd[cmd.index("/fd") + 1], "sha256")
+        self.assertEqual(cmd[cmd.index("/tr") + 1], "http://timestamp.digicert.com")
+        self.assertEqual(cmd[cmd.index("/td") + 1], "sha256")
+        self.assertEqual(cmd[-1], "Quarry.exe")
+
+    def test_verify_command(self):
+        self.assertEqual(sign.verify_command("s", "f")[1:3], ["verify", "/pa"])
+
+    def test_retries_then_succeeds(self):
+        with mock.patch.object(sign.subprocess, "run", side_effect=[_done(1), _done(1), _done(0)]) as run, \
+                mock.patch.object(sign.time, "sleep") as sleep:
+            sign.sign_file("Quarry.exe", "signtool.exe")
+        self.assertEqual(run.call_count, 3)
+        self.assertEqual([c.args[0] for c in sleep.call_args_list], [2.0, 4.0])
+
+    def test_timeout_is_retried(self):
+        timeout = subprocess.TimeoutExpired("signtool", 60)
+        with mock.patch.object(sign.subprocess, "run", side_effect=[timeout, _done(0)]) as run, \
+                mock.patch.object(sign.time, "sleep"):
+            sign.sign_file("Quarry.exe", "signtool.exe")
+        self.assertEqual(run.call_count, 2)
+
+    def test_gives_up_after_max_retries(self):
+        with mock.patch.object(sign.subprocess, "run", return_value=_done(1)) as run, \
+                mock.patch.object(sign.time, "sleep"):
+            with self.assertRaises(sign.SigningError):
+                sign.sign_file("Quarry.exe", "signtool.exe")
+        self.assertEqual(run.call_count, sign.MAX_RETRIES)
+
+    def test_signature_problem_wrong_signer(self):
+        with mock.patch.object(sign.os.path, "isfile", return_value=True), \
+                mock.patch.object(sign.subprocess, "run", return_value=_done(0, "Valid|" + "A" * 40)):
+            self.assertIn("pinned", sign.signature_problem("x.exe", "signtool.exe"))
+
+    def test_signature_problem_not_signed(self):
+        with mock.patch.object(sign.os.path, "isfile", return_value=True), \
+                mock.patch.object(sign.subprocess, "run", return_value=_done(0, "NotSigned|")):
+            self.assertIn("NotSigned", sign.signature_problem("x.exe", "signtool.exe"))
+
+    def test_signature_problem_passes_the_path_as_data(self):
+        with mock.patch.object(sign.os.path, "isfile", return_value=True), \
+                mock.patch.object(sign.subprocess, "run", return_value=_done(0, "NotSigned|")) as run:
+            sign.signature_problem("x.exe", "signtool.exe")
+        command = run.call_args.args[0]
+        self.assertEqual(command[-2], "-Command")  # the script is the last argument: no path after it
+        self.assertEqual(run.call_args.kwargs["env"]["QUARRY_SIGNATURE_PATH"], os.path.abspath("x.exe"))
+
+    def test_signature_problem_ok(self):
+        out = "Valid|" + sign.CERTIFICATE_SHA1.upper()
+        with mock.patch.object(sign.os.path, "isfile", return_value=True), \
+                mock.patch.object(sign.subprocess, "run", side_effect=[_done(0, out), _done(0)]):
+            self.assertIsNone(sign.signature_problem("x.exe", "signtool.exe"))
+
+
+
+@unittest.skipUnless(sys.platform == "win32", "asks the real Windows PowerShell")
+class RealSignatureCheckTests(unittest.TestCase):
+    """Not mocked: the mocked tests above cannot tell whether the path reaches PowerShell."""
+
+    def test_a_microsoft_binary_is_valid_but_the_wrong_signer(self):
+        powershell = os.path.join(os.environ["SystemRoot"], "System32", "WindowsPowerShell", "v1.0",
+                                  "powershell.exe")
+        problem = sign.signature_problem(powershell, "signtool.exe")
+        # Read and judged Valid, then refused for its signer. "status is unknown" here would mean
+        # the path never arrived.
+        self.assertIsNotNone(problem)
+        self.assertIn("not the pinned", problem)
+
+    def test_an_unsigned_script_is_not_signed(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "with space", "unsigned.ps1")
+            os.makedirs(os.path.dirname(path))
+            with open(path, "w", encoding="ascii") as handle:
+                handle.write("Write-Output 1\n")
+            self.assertIn("NotSigned", sign.signature_problem(path, "signtool.exe"))
+
+
+class BuildOrderTests(unittest.TestCase):
+    def _run_build(self, problems=(None,), **flags):
+        calls = []
+
+        def rec(name, result=None):
+            return mock.Mock(side_effect=lambda *a, **k: calls.append(name) or result)
+
+        args = types.SimpleNamespace(verify_only=False, allow_dirty=True, skip_build=False,
+                                     no_installer=False, no_sign=False, lto=False)
+        for key, value in flags.items():
+            setattr(args, key, value)
+        with mock.patch.object(release, "read_version", return_value="1.2.3"), \
+                mock.patch.object(release, "check_tree_clean"), \
+                mock.patch.object(release, "check_changelog", return_value="notes"), \
+                mock.patch.object(release, "check_tag_is_free"), \
+                mock.patch.object(release, "build_binaries", rec("build")), \
+                mock.patch.object(release, "check_binary_versions"), \
+                mock.patch.object(release, "compile_installer", rec("installer")), \
+                mock.patch.object(release, "write_artifacts", rec("hash", [])), \
+                mock.patch.object(release, "run_gates"), \
+                mock.patch.object(release.sign, "find_signtool", return_value="signtool.exe"), \
+                mock.patch.object(release.sign, "sign_file",
+                                  side_effect=lambda p, t=None: calls.append("sign:" + os.path.basename(p))), \
+                mock.patch.object(release.sign, "verify_file", return_value=True), \
+                mock.patch.object(release.sign, "signature_problem", side_effect=problems):
+            release.cmd_build(args)
+        return calls
+
+    def test_sign_before_hash(self):
+        # Inno did not sign the installer (say an older script): release.py signs it, then hashes.
+        calls = self._run_build(problems=["not signed", None])
+        self.assertEqual(calls, ["build", "sign:Quarry.exe", "sign:Quarry.vst3", "installer",
+                                 "sign:QuarrySetup-1.2.3.exe", "hash"])
+
+    def test_installer_signed_by_inno_is_not_signed_again(self):
+        calls = self._run_build(problems=[None])
+        self.assertEqual(calls, ["build", "sign:Quarry.exe", "sign:Quarry.vst3", "installer", "hash"])
+
+    def test_installer_that_stays_unsigned_stops_the_build(self):
+        with self.assertRaises(release.ReleaseError):
+            self._run_build(problems=["not signed", "still not signed"])
+
+    def test_no_sign(self):
+        calls = self._run_build(no_sign=True)
+        self.assertEqual(calls, ["build", "installer", "hash"])
+
+    def test_parser_flags(self):
+        parser = release.make_parser()
+        self.assertFalse(parser.parse_args(["build"]).no_sign)
+        self.assertTrue(parser.parse_args(["build", "--no-sign"]).no_sign)
+        self.assertFalse(parser.parse_args(["publish"]).allow_unsigned)
+        self.assertTrue(parser.parse_args(["publish", "--allow-unsigned"]).allow_unsigned)
+
+
+class PublishSigningTests(unittest.TestCase):
+    def _publish(self, problem, allow_unsigned):
+        args = types.SimpleNamespace(allow_dirty=True, yes=False, allow_unsigned=allow_unsigned)
+        check = mock.Mock(return_value=problem)
+        with mock.patch.object(release, "read_version", return_value="1.2.3"), \
+                mock.patch.object(release, "check_changelog"), \
+                mock.patch.object(release, "run_gates"), \
+                mock.patch.object(release.os.path, "isfile", return_value=True), \
+                mock.patch.object(release, "tag_on_origin", return_value="a" * 40), \
+                mock.patch.object(release, "tag_exists_locally", return_value=False), \
+                mock.patch.object(release.sign, "signature_problem", check):
+            result = release.cmd_publish(args)
+        return result, check
+
+    def test_refuses_unsigned(self):
+        with self.assertRaises(release.ReleaseError) as caught:
+            self._publish("Authenticode status is NotSigned, not Valid", False)
+        self.assertIn("--allow-unsigned", str(caught.exception))
+
+    def test_allow_unsigned_skips_check(self):
+        result, check = self._publish("anything", True)
+        self.assertEqual(result, 0)
+        check.assert_not_called()
+
+    def test_signed_passes(self):
+        result, check = self._publish(None, False)
+        self.assertEqual(result, 0)
+        check.assert_called_once()
 
 
 if __name__ == "__main__":

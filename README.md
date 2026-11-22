@@ -16,15 +16,19 @@ your favorite Digital Audio Workstation.
 
 ## Install Quarry
 
-Download the latest release for your platform [here](https://github.com/owenpkent/Quarry/releases) (Windows,
-macOS (Universal) and Linux supported)!
+Windows releases are published on the [releases page](https://github.com/owenpkent/Quarry/releases)
+as `QuarrySetup-X.Y.Z.exe` (none has been published yet), which installs the Standalone, the VST3
+or both. The installer is code signed
+by OK Studio Inc., and the in-app updater checks that signature. Each release also carries the
+installer's SHA-256 (`QuarrySetup-X.Y.Z.exe.sha256`) and a CycloneDX SBOM.
 
-Installers are available for both Windows and Mac, including Standalone, VST3, and AU (Mac only) versions. The
-installers allow users to select which format(s) they want to install. On macOS, the code is signed, while on Windows,
-it is not. This means you may need to take a few additional steps to use Quarry on Windows.
+Once installed, the Windows Standalone checks for a newer release at startup and can install it
+itself; the plugin and other platforms only say that one exists. The check can be turned off with
+"Check for updates at startup" in the settings menu. How it works, and what the published hash
+does and does not protect against, is in [docs/AUTO_UPDATE.md](docs/AUTO_UPDATE.md).
 
-For Linux, raw binaries are provided for VST3 and Standalone. You can install them by copying the files to the
-appropriate locations.
+No macOS or Linux release is published; see [Build from source](#build-from-source), and
+[PACKAGING.md](PACKAGING.md) for the macOS packaging steps.
 
 ## Usage
 
@@ -144,13 +148,18 @@ that process rather than the output, focus does not matter. Arm the tab, hit rec
 the browser, play it, switch back, stop. Nothing you did in between is in the file, and the
 silence at the end is trimmed off anyway.
 
+**Space starts a take and stops it**, the same as a click on RECORD, and so does `r`. Holding
+the key down is still one click. Close the window in the middle of a take and the take is
+stopped and kept, not thrown away.
+
 **Two browser windows are two rows**, told apart by what each is showing. They are one process
 underneath, so this is about naming the capture correctly rather than separating the sound:
 picking the window is the only way anything can know which of them you meant.
 
 This is Windows 10 build 20348 and later; the page hides itself elsewhere. **Everything this
 computer plays** sits at the top of the list as the fallback, and says plainly that its source
-can only be guessed at.
+can only be guessed at. Loaded as a plugin, that row reads **Everything except** the host: the
+machine minus the DAW Quarry is sitting in, so a take does not contain the host's own output.
 
 ### What a capture knows about itself
 
@@ -196,6 +205,10 @@ than the one you are standing in. **TRANSCRIBE** hands a capture to the other pa
 also how you listen to one, and deleting moves a file to the recycle bin rather than destroying
 it.
 
+**Drag a take into Ableton.** Press a take in the list, drag it past the edge of Quarry's
+window and drop it on a track, or into any other app that takes an audio file. It lands as a
+copy; the take stays in the library.
+
 **Turn it off** and the window shrinks to the source picker, which becomes a dropdown: Quarry
 folds down to a small capture tool that records and gets out of the way. It reopens the way you
 left it.
@@ -208,6 +221,12 @@ Double-click `run.py` (or `py run.py`). It builds the standalone app and launche
 the submodules and the prebuilt onnxruntime on a fresh clone. `py run.py --no-build` just
 relaunches what is already built. Most work can be tried there: the standalone records from this
 computer's own audio hardware, so no DAW is needed.
+
+`py run.py --tests` builds the unit tests and runs them, and launches nothing.
+
+A build uses half the machine's logical cores, so the machine stays usable while it runs. That
+goes for `run.py`, `build.bat` and the release script. Set `QUARRY_BUILD_JOBS` to a number to
+use another count from `run.py` and the release script.
 
 If the sidecar environment at `tools/bakeoff/.venv` is installed, the launcher configures it
 automatically. An explicit `QUARRY_SIDECAR_CMD` takes precedence, including an empty value to

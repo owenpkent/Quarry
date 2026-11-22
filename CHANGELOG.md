@@ -9,6 +9,27 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Security
 
+- feat: the updater checks who signed the installer before running it. After the hash and
+  version checks, `UpdateInstaller` verifies the embedded Authenticode signature with
+  `WinVerifyTrust` (revocation checked, failing closed when it cannot be) through the pinned
+  file handle, and accepts it only if the signer's SHA-1 thumbprint is in a pinned list and its
+  common name is `OK Studio Inc.`. A compromised release that swaps the installer and its
+  `.sha256` no longer gets run. The list takes two releases to change on a certificate renewal;
+  see `docs/AUTO_UPDATE.md`.
+- feat: the Windows installer is now uninstallable and its uninstaller is signed. Quarry appears in
+  Add/Remove Programs (the `AppId` is unchanged, so existing installs upgrade in place). Uninstall
+  removes the app folder and the VST3 bundle and leaves settings, samples and models alone, and it
+  stops with a message if Quarry or a DAW has a file open. `release.py` passes ISCC the
+  `SignUninstaller` define and a `/S` sign command, because signing the finished installer does
+  not sign the uninstaller Inno embeds in it. Contract tests pin the script. See `PACKAGING.md`.
+- feat: the Windows release is code signed. `tools/release/release.py` signs `Quarry.exe`, the
+  VST3 binary and the installer with the OK Studio Inc. EV certificate (hardware token, SHA-256,
+  RFC 3161 timestamp) and writes the `.sha256` only after the installer is signed. `--no-sign`
+  skips it for a local dry run, and `publish` refuses an installer that is not validly signed by
+  the pinned certificate unless `--allow-unsigned` is passed. See `docs/AUTO_UPDATE.md`.
+- ci: added OSV scanning of the Python requirements files (on pull requests, on pushes to
+  master and nightly), Dependabot for GitHub Actions, pip and the submodules (JUCE is
+  left out and bumped by hand), and a `socket.yml` that skips `ThirdParty/`. See `PACKAGING.md`.
 - fix: a file named `.mp3` with nothing decodable in it crashed the host. minimp3 reports such a
   file, and one that switches between mono and stereo part way through, as zero channels, and
   the loader divided by that. Any file dropped on the plugin could do it, and so could a saved
@@ -25,7 +46,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and playhead values are clamped to their legal ranges (a zero tempo spun the piano roll
   forever), a source path is only reopened when it is absolute, local and present (a `\server`
   path would have made the plugin authenticate to it on load), and sample, capture and download
-  folders fall back to the default unless they are absolute.
+  folders fall back to the default unless they are absolute. A restored source that fails those
+  checks clears the take that was loaded, rather than leaving it playing under a state that names
+  no source.
 - fix: the sidecar's engines no longer let their libraries fetch weights on their own. Each
   checkpoint is verified against a SHA-256 pinned in `engines.py` before it is handed over, the
   HuggingFace files are fetched at a pinned commit, and the unverified paths (Zenodo via `wget`,
@@ -50,10 +73,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - build: `/guard:cf` on MSVC release builds, `-fstack-protector-strong` elsewhere and
   `_FORTIFY_SOURCE` on Linux; CI actions pinned to commit SHAs with `persist-credentials` off;
   macOS signing gets `--timestamp` and refuses to guess between several identities; the Windows
-  installer declares admin and uses the `{commonpf}`/`{commoncf}` constants instead of `C:`.
+  installer declares admin and uses the `{commonpf}`/`{commoncf}` constants instead of `C:`, and
+  installs in 64-bit mode, without which `{commoncf}` is the (x86) folder 64-bit hosts do not scan.
 
 ### Changed
 
+- build: local builds take half the machine's logical cores, not all of them. JUCE compiles with
+  `/MP`, so `run.py` used every core even without asking MSBuild for parallel projects, and
+  `build.bat` and `tools/release/release.py` asked for that as well. All three now build one
+  project at a time with the compiler bounded by `CL_MPCount`; `QUARRY_BUILD_JOBS` sets another
+  count. CI is unchanged.
+- build: `py run.py --tests` builds the unit tests and runs them, the same binary CI runs.
 - fix: eight findings from the review of the link download. The "both" mode cleanup deleted any
   file in the folder that shared a title's stem (`One.final.wav` went with `One.f137.mp4`); it
   now removes only the intermediates yt-dlp reported downloading for that request. A playlist
@@ -66,6 +96,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   request runs, since the strip that carries the usual CANCEL is hidden here. "Downloaded 1
   file(s), 1 failed." survives the automatic selection that used to overwrite it. The
   Sample-page branch of the link offer is guarded for non-Windows builds.
+- fix: two more from the same review. In "both" mode a source offering only a muxed webm came
+  down as a webm, the collector looked for an mp4 beside the wav, and the intermediate cleanup
+  deleted the real video; the file each wav was extracted from is now recorded and kept. A
+  download started from the activity drawer into the captures folder never appeared in the
+  capture list; the Sample page now rescans once after any successful download that saved under
+  its folder, not only its own.
 - feat: the Transcribe page leads with which model listens. The choice that moves onset F1 from
   0.775 to 0.98 was an environment variable read once at startup and mentioned nowhere, while
   three rotaries belonging to the engine you could not choose held permanent space above it. The
@@ -156,7 +192,28 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the picture is placed by when it was captured, not by when the stream caught up, so it no
   longer lands hundreds of milliseconds late. The vendored loopback streams pass each block's
   capture time to the sink (`loopbackBlockAt`).
-
+- feat: the Windows Standalone installs its own updates. The check offers only a release strictly
+  newer than the running one (it used to offer any tag that differed, older ones included) and
+  can be turned off with "Check for updates at startup". Install downloads the installer and its
+  `.sha256` from GitHub's own hosts, checking every redirect and capping sizes, holds the file
+  open read-only, checks the hash and the installer's version resource, refuses while a DAW has
+  the plugin loaded or asks first while a take is recording, then quits; the installer updates
+  silently and relaunches Quarry. Plugins and other platforms still only say a release exists.
+  The hash catches corruption and a swapped download, not someone who controls the release; see
+  `docs/AUTO_UPDATE.md`.
+- build: `tools/release/release.py` builds a release from the version in `CMakeLists.txt`. It
+  refuses a dirty tree, an existing tag or a CHANGELOG with no section for the version, runs the
+  unit tests, checks that `Quarry.exe`, the VST3 and the installer all carry that version, and
+  writes the installer's `.sha256`, a CycloneDX SBOM and the release notes. `publish --yes`
+  creates the GitHub release. The installer script no longer carries a version of its own. See
+  `PACKAGING.md`.
+- feat: the space bar records on the Sample page. Space starts a take and stops the one running,
+  the same as a click on RECORD, and so does `r`. Both used to reach the Transcribe page's hidden
+  play and record buttons from there. A focused text box still gets its own space, and a key held
+  down is one click, not one per key repeat.
+- feat: a take drags out of the Sample page's library and onto a track in Ableton, or into any
+  other app that takes an audio file. Press a row and drag it past the edge of Quarry's window.
+  The file is offered as a copy and stays in the library.
 - feat: a link can be handed to the downloader without typing it. Ctrl+V (Cmd+V on macOS) with an
   http(s) URL on the clipboard, or dragging a link from a browser onto the waveform, puts the link
   in the Sample page's link box, or in the activity drawer's prompt on Transcribe, and starts

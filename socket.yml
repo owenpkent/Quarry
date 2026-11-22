@@ -1,0 +1,17 @@
+# Socket Security's GitHub app (https://docs.socket.dev/docs/socket-yml).
+#
+# The dependency overview comment, a table of five scores the app posts on
+# any pull request that adds a direct dependency, is off: the scores are
+# informational. The alert check run, which is the part that can block a
+# merge, stays on, as does the project report on commits.
+#
+# ThirdParty/ holds vendored trees and git submodules (JUCE, RTNeural,
+# minimp3 and others) whose manifests are not Quarry's own dependencies, so
+# they are not scanned.
+version: 2
+
+projectIgnorePaths:
+  - "ThirdParty/**"
+
+githubApp:
+  dependencyOverviewEnabled: false

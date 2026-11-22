@@ -8,6 +8,7 @@ tag and the notes all follow from it.
     py tools/release/release.py                      # build + test + installer + artifacts
     py tools/release/release.py build --skip-build   # reuse build-release/, redo installer + artifacts
     py tools/release/release.py build --verify-only  # only run the gates on what is already built
+    py tools/release/release.py build --no-sign      # local dry run, nothing signed (needs no token)
     py tools/release/release.py publish              # print the gh command
     py tools/release/release.py publish --yes        # run it
 
@@ -23,7 +24,11 @@ There is no lockfile: the installer ships Quarry.exe and the VST3 and nothing wr
 The names and the flags the installer takes are a contract with the in-app updater
 (docs/AUTO_UPDATE.md); do not rename either without changing both.
 
-Windows is not code signed yet, so the .sha256 file is the integrity story and SmartScreen will warn.
+Signing is on by default (tools/release/sign.py, the OK Studio Inc. EV certificate on a hardware
+token, which must be plugged in and will ask for its PIN). The order is: build, sign Quarry.exe and
+the VST3 binary, compile the installer, sign the installer, and only then write the .sha256, so the
+hash is of the signed installer. `publish` refuses an installer that is not validly signed by the
+pinned certificate unless --allow-unsigned is passed. See docs/AUTO_UPDATE.md, "Code signing".
 
 Windows only. Standard library only, so it runs on a bare Python.
 """
@@ -40,6 +45,8 @@ import subprocess
 import sys
 import uuid
 from ctypes import wintypes
+
+import sign
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 BUILD_DIR = os.path.join(ROOT, "build-release")
@@ -393,14 +400,32 @@ def build_binaries(lto: bool) -> None:
     # LTO is off by default for the reason run.py and ci.yml give: the prebuilt onnxruntime.lib is
     # compiled with /GL by one MSVC version and fails to link with C1047 under any other.
     # --lto is for a machine that has that compiler.
+    # Bounds the compiler for everything cmake starts from here on, the juceaide build inside
+    # JUCE's configure step included. See build_environment in run.py.
+    os.environ.setdefault("CL_MPCount", str(run.build_jobs()))
     run_cmd(["cmake", "-S", ".", "-B", BUILD_DIR, f"-DLTO={'ON' if lto else 'OFF'}",
              "-DBUILD_UNIT_TESTS=ON"])
+    # Half the cores, the same cap run.py builds under: a release is cut on a machine somebody
+    # is using, and -m on top of JUCE's /MP took all of it.
     run_cmd(["cmake", "--build", BUILD_DIR, "--config", "Release", "--target", "UnitTests",
-             "Quarry_Standalone", "Quarry_VST3", "--", "-m"])
+             "Quarry_Standalone", "Quarry_VST3"]
+            + run.parallel_args(os.path.join(BUILD_DIR, "CMakeCache.txt")))
     run_cmd([UNIT_TESTS_EXE])
 
 
-def compile_installer(version: str) -> None:
+def sign_tool_argument(signtool: str) -> str:
+    """The ISCC /S argument that defines "quarrysign", the command Inno runs on the uninstaller.
+
+    Built from sign.sign_command so the thumbprint, digest and timestamp live in one place. Inno
+    replaces $f with the (quoted) file it is signing and $q with a quote, which is how its own
+    documentation says to quote a path here: a literal quote would not survive the command line.
+    """
+    command = sign.sign_command(signtool, "$f")
+    return "/Squarrysign=" + " ".join(f"$q{part}$q" if i == 0 or " " in part else part
+                                      for i, part in enumerate(command))
+
+
+def compile_installer(version: str, sign_uninstaller: bool = False) -> None:
     iscc = find_iscc()
     if not iscc:
         raise ReleaseError("ISCC.exe not found. Install Inno Setup 6 or set QUARRY_ISCC.")
@@ -410,8 +435,47 @@ def compile_installer(version: str) -> None:
         os.remove(stale)
     # quarry.iss prefixes ReleaseDir with ..\..\ (it lives two levels down), so pass it relative.
     release_dir_rel = os.path.relpath(ARTEFACTS, ROOT).replace("\\", "/")
-    run_cmd([iscc, ISS, f"/DAppVersion={version}", f"/DReleaseDir={release_dir_rel}",
-             f"/O{RELEASE_DIR}", "/Qp"])
+    command = [iscc, ISS, f"/DAppVersion={version}", f"/DReleaseDir={release_dir_rel}",
+               f"/O{RELEASE_DIR}", "/Qp"]
+    if sign_uninstaller:
+        # Inno signs the uninstaller it embeds; signing the finished installer does not reach it.
+        try:
+            command += ["/DSignUninstaller", sign_tool_argument(sign.find_signtool())]
+        except sign.SigningError as error:
+            raise ReleaseError(str(error))
+    run_cmd(command)
+
+
+def sign_binaries() -> None:
+    """Sign the two binaries the installer packages, before ISCC copies them in."""
+    try:
+        signtool = sign.find_signtool()
+        for path in (STANDALONE_EXE, VST3_BINARY):
+            sign.sign_file(path, signtool)
+            if not sign.verify_file(path, signtool):
+                raise ReleaseError(f"{path} does not verify after signing.")
+    except sign.SigningError as error:
+        raise ReleaseError(str(error))
+
+
+def sign_installer(version: str) -> None:
+    """Make sure the finished installer is signed. Must run before the .sha256 is written.
+
+    When Inno signed the uninstaller it signed the installer too (the SignTool directive covers
+    both), so the installer is only signed here if it is not already validly signed. Signing it
+    twice would only cost another PIN prompt.
+    """
+    path = os.path.join(RELEASE_DIR, installer_name(version))
+    try:
+        signtool = sign.find_signtool()
+        problem = sign.signature_problem(path, signtool)
+        if problem:
+            sign.sign_file(path, signtool)
+            problem = sign.signature_problem(path, signtool)
+    except sign.SigningError as error:
+        raise ReleaseError(str(error))
+    if problem:
+        raise ReleaseError(f"{installer_name(version)} is not validly signed: {problem}.")
 
 
 def git_submodules() -> list:
@@ -481,15 +545,21 @@ def cmd_build(args) -> int:
         build_binaries(args.lto)
     check_binary_versions(version)
 
+    if not args.no_sign:
+        sign_binaries()
     if not args.no_installer:
-        compile_installer(version)
+        compile_installer(version, sign_uninstaller=not args.no_sign)
+        if not args.no_sign:
+            sign_installer(version)
+    # The hash is of the signed installer, so it is written after every signing step.
     written = write_artifacts(version, section, with_installer=not args.no_installer)
     run_gates(version, args.allow_dirty, with_installer=not args.no_installer)
 
     print(f"{GREEN}Release {version} is in {RELEASE_DIR}:{RESET}")
     for path in written:
         print(f"  {os.path.basename(path)}")
-    print(f"{GREY}Not code signed: the .sha256 is the integrity check, and SmartScreen will warn.{RESET}")
+    if args.no_sign:
+        print(f"{YELLOW}Built with --no-sign: these files are NOT signed and `publish` will refuse them.{RESET}")
     return 0
 
 
@@ -505,6 +575,16 @@ def cmd_publish(args) -> int:
     for path in files + [os.path.join(RELEASE_DIR, notes_name(version))]:
         if not os.path.isfile(path):
             raise ReleaseError(f"{path} is missing; run `release.py build`.")
+
+    if args.allow_unsigned:
+        print(f"{YELLOW}Signature check skipped (--allow-unsigned).{RESET}")
+    else:
+        # Ask Windows, not the build: the installer on disk is what gets uploaded.
+        problem = sign.signature_problem(files[0])
+        if problem:
+            raise ReleaseError(f"Refusing to publish {installer_name(version)}: {problem}. Rebuild "
+                               "without --no-sign, or pass --allow-unsigned to override.")
+        print(f"{GREEN}{installer_name(version)} is signed by the pinned certificate.{RESET}")
 
     remote = tag_on_origin(tag)
     if remote is None:
@@ -534,12 +614,16 @@ def make_parser() -> argparse.ArgumentParser:
     build.add_argument("--no-installer", action="store_true", help="skip ISCC and the installer gates")
     build.add_argument("--verify-only", action="store_true", help="only run the gates on what exists")
     build.add_argument("--allow-dirty", action="store_true", help="allow uncommitted changes")
+    build.add_argument("--no-sign", action="store_true",
+                       help="skip code signing (local dry run; the result cannot be published)")
     build.add_argument("--lto", action="store_true",
                        help="configure with LTO on (needs the MSVC the prebuilt onnxruntime was built with)")
 
     publish = sub.add_parser("publish", help="print, or with --yes run, the gh release create command")
     publish.add_argument("--yes", action="store_true", help="actually create the release")
     publish.add_argument("--allow-dirty", action="store_true", help="allow uncommitted changes")
+    publish.add_argument("--allow-unsigned", action="store_true",
+                         help="publish an installer that is not validly signed by the pinned certificate")
     return parser
 
 

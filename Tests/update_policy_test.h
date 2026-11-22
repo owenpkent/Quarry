@@ -221,6 +221,28 @@ inline bool update_policy_test()
                == "Ableton Live has the Quarry plugin loaded. Close it, then choose Install again.",
            "host blocked message");
 
+    // Who may have signed the installer.
+    {
+        const juce::String thumb = "fc22b5221318f3f3f6b3eb2d969d7f99091557bf";
+        expect(isAcceptedSigner(thumb, "OK Studio Inc."), "pinned thumbprint and name accepted");
+        expect(isAcceptedSigner(thumb.toUpperCase(), "OK Studio Inc."), "upper case hex accepted");
+        expect(isAcceptedSigner("Fc22B5221318f3F3f6b3eb2d969d7f99091557bf", "OK Studio Inc."), "mixed case hex accepted");
+        expect(!isAcceptedSigner("0123456789abcdef0123456789abcdef01234567", "OK Studio Inc."), "wrong thumbprint");
+        expect(!isAcceptedSigner(thumb, "Someone Else Ltd"), "right thumbprint, wrong name");
+        expect(!isAcceptedSigner(thumb, "ok studio inc."), "name compared exactly, case included");
+        expect(!isAcceptedSigner(thumb, "OK Studio Inc. "), "name compared exactly, no trailing space");
+        expect(!isAcceptedSigner("", "OK Studio Inc."), "empty thumbprint");
+        expect(!isAcceptedSigner(thumb, ""), "empty name");
+        expect(!isAcceptedSigner("", ""), "both empty");
+        expect(!isAcceptedSigner("fc22b522 1318f3f3 f6b3eb2d 969d7f99 091557bf", "OK Studio Inc."), "spaced hex rejected, not normalised");
+        expect(!isAcceptedSigner("fc:22:b5:22:13:18:f3:f3:f6:b3:eb:2d:96:9d:7f:99:09:15:57:bf", "OK Studio Inc."), "colon hex rejected");
+        expect(!isAcceptedSigner(" " + thumb, "OK Studio Inc."), "leading space rejected");
+        expect(!isAcceptedSigner(thumb.dropLastCharacters(1), "OK Studio Inc."), "short thumbprint");
+        expect(acceptedSignerThumbprints().size() >= 1, "at least one accepted thumbprint");
+        for (const auto& t: acceptedSignerThumbprints())
+            expect(t.length() == 40 && t == t.toLowerCase(), "accepted thumbprints are 40 lowercase hex digits");
+    }
+
     std::cout << (failures == 0 ? "  all passed" : "  FAILURES") << std::endl;
     return failures == 0;
 }
