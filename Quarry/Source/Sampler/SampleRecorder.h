@@ -70,6 +70,19 @@ public:
      */
     juce::Result startEndpoint(const juce::File& libraryRoot);
 
+    /**
+     * Records everything the machine plays except `excludedProcessId` and its children.
+     *
+     * What "everything" has to mean inside a plugin host. The endpoint there carries the
+     * host's own output, this plugin's audition voice included, so startEndpoint() would
+     * record the session back into itself. Pass the host's pid and the take is the rest of
+     * the machine. The source is a guess exactly as it is for startEndpoint(), and is
+     * written down the same way.
+     *
+     * Needs process loopback; fails with the reason on a Windows that has none.
+     */
+    juce::Result startEverythingExcept(juce::uint32 excludedProcessId, const juce::File& libraryRoot);
+
     /** Stops, trims, measures, and writes. Safe to call when not recording: it reports that
         rather than throwing. */
     Written stop();
@@ -124,6 +137,11 @@ private:
 
     /** Stops whichever of the two streams is running. */
     void _stopStream();
+
+    /** Fills `pending` for a take that is not one application: the loudest session at this
+        moment, written down as a guess. `excludedProcessId` is never the guess; 0 excludes
+        nothing. */
+    void _describeGuessedSource(juce::uint32 excludedProcessId);
 
     okstudio::capture::WasapiProcessLoopback loopback;
     okstudio::capture::WasapiLoopback endpointLoopback;
