@@ -401,8 +401,9 @@ happen without the mouse, and the page is largely closed to a screen reader:
   "Row 2". JUCE's default is exactly that string. All of the content above, including the
   window titles that are the entire point of the per-window rows, is invisible to assistive
   technology.
-- `< SAMPLES` is `setWantsKeyboardFocus(false)` and has no shortcut, while the TRANSCRIBE
-  button that sends you there is focusable. That is a one-way door for a keyboard user.
+- ~~`< SAMPLES` is `setWantsKeyboardFocus(false)` and has no shortcut, while the TRANSCRIBE
+  button that sends you there is focusable. That is a one-way door for a keyboard user.~~
+  Fixed since: `Esc` on Transcribe goes back while the button is showing.
 - `m`, `c`, `Shift+Space` and `Shift+Backspace` in `QuarryMainView::keyPressed` trigger
   Transcribe's buttons unguarded, and `triggerClick()` works on a hidden one. From the Sample
   page they reach into Transcribe. Space and `r` used to as well; on this page they are now
@@ -505,7 +506,8 @@ them into RAM at startup, which is how search works without ever adding a databa
    which is also how a capture gets auditioned: the Transcribe page already owns a player,
    so the browser never needed an audio device of its own.
 8. Classification, decided as above.
-9. **Accessibility**, listed under *The page*. The row names and the `< SAMPLES` focus are
-   small and worth doing first; making painted state reachable is a design question.
+9. **Accessibility**, listed under *The page*. The way back from Transcribe is done (`Esc`).
+   The row names are small and worth doing first; making painted state reachable is a design
+   question.
 10. ~~Decide whether this page belongs in the plugin.~~ **Decided: it stays**, with the fixes
     listed in the note at the top. What is left is trying it in a host.
