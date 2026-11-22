@@ -219,7 +219,7 @@ class RealSignatureCheckTests(unittest.TestCase):
 
 
 class BuildOrderTests(unittest.TestCase):
-    def _run_build(self, **flags):
+    def _run_build(self, problems=(None,), **flags):
         calls = []
 
         def rec(name, result=None):
@@ -242,14 +242,23 @@ class BuildOrderTests(unittest.TestCase):
                 mock.patch.object(release.sign, "sign_file",
                                   side_effect=lambda p, t=None: calls.append("sign:" + os.path.basename(p))), \
                 mock.patch.object(release.sign, "verify_file", return_value=True), \
-                mock.patch.object(release.sign, "signature_problem", return_value=None):
+                mock.patch.object(release.sign, "signature_problem", side_effect=problems):
             release.cmd_build(args)
         return calls
 
     def test_sign_before_hash(self):
-        calls = self._run_build()
+        # Inno did not sign the installer (say an older script): release.py signs it, then hashes.
+        calls = self._run_build(problems=["not signed", None])
         self.assertEqual(calls, ["build", "sign:Quarry.exe", "sign:Quarry.vst3", "installer",
                                  "sign:QuarrySetup-1.2.3.exe", "hash"])
+
+    def test_installer_signed_by_inno_is_not_signed_again(self):
+        calls = self._run_build(problems=[None])
+        self.assertEqual(calls, ["build", "sign:Quarry.exe", "sign:Quarry.vst3", "installer", "hash"])
+
+    def test_installer_that_stays_unsigned_stops_the_build(self):
+        with self.assertRaises(release.ReleaseError):
+            self._run_build(problems=["not signed", "still not signed"])
 
     def test_no_sign(self):
         calls = self._run_build(no_sign=True)
