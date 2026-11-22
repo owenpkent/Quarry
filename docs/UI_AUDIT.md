@@ -100,7 +100,7 @@ record, play/pause, center, settings and back-to-samples buttons, while the pare
 `setWantsKeyboardFocus(true)`.
 
 That looks alarming and mostly is not. The architecture is deliberate and coherent: the
-parent holds focus and `QuarryMainView::keyPressed` (line 504) drives the children with
+parent holds focus and `QuarryMainView::keyPressed` (line 744) drives the children with
 `triggerClick()`.
 
 | Key | Control |
@@ -111,6 +111,7 @@ parent holds focus and `QuarryMainView::keyPressed` (line 504) drives the childr
 | `r` | record |
 | `m` | mute |
 | `c` | center playhead |
+| `,` | settings |
 | `Space` or `r`, on the Sample page | record / stop |
 
 **SC 2.1.1 asks for keyboard operability, not for Tab focus specifically**, so the whole
@@ -124,8 +125,9 @@ focus takes the spacebar from the host and stops the DAW transport.
 
 **What actually fails** is the two controls with neither focus nor a shortcut:
 
-- **Settings** (`mSettingsButton`) - focus removed at line 324, no key in `keyPressed`.
-- **`< SAMPLES`** (`mBackToSamplesButton`) - focus removed at line 300, no key. This is
+- ~~**Settings** (`mSettingsButton`) - focus removed at line 361, no key in `keyPressed`.~~
+  Fixed since: `,` opens it.
+- **`< SAMPLES`** (`mBackToSamplesButton`) - focus removed at line 332, no key. This is
   the only way back to the sample page, so a keyboard user who reaches the transcriber is
   stuck there.
 

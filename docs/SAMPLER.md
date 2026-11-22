@@ -6,12 +6,24 @@ Status: built and in use as of 2026-08-16, bar the items still marked open under
 order*. This is the page Quarry opens on, with Transcribe reached from a capture rather than
 from a tab beside it.
 
-**It was designed as standalone-only and is not actually gated to the standalone.** Nothing
-checks the wrapper type; the only guard is `#if JUCE_WINDOWS`, so the page is in the VST3 too
-on Windows. That was harmless while it was a second tab. It is less harmless now that it is
-the page the editor opens on and resizes its own window to fit, which in a host is a
-negotiation rather than a decision. Either gate it or accept it on purpose; it should not stay
-this way by omission.
+**It was designed as standalone-only and is in the VST3 too, now on purpose.** Nothing checks
+the wrapper type; the only guard is `#if JUCE_WINDOWS`. That began as an omission. It was
+settled in 2026-11 by keeping the page in the plugin and fixing the parts that were wrong in a
+host:
+
+- "Everything" recorded the default endpoint, which in a host carries the host's own output and
+  Quarry's audition voice. In a plugin it now records the machine minus the host's process
+  tree, through process loopback's `EXCLUDE` mode, and the row says "Everything except
+  <host>". On a Windows without process loopback it is refused with a reason. The standalone
+  still records the endpoint.
+- Destroying the page discarded a running take. A host closes a plugin window whenever it
+  likes, so the take is now stopped and written to the library. The standalone does the same
+  on quit.
+- The session and window enumeration ran four times a second whether or not the list could be
+  seen. It runs only while the page is showing.
+- The editor sets its default size before the view asks for its own, not after.
+
+None of this has been tried in a host yet.
 
 Quarry's existing capture exists to feed a transcriber: it holds a take, converts it to
 MIDI, and the audio is a by-product. The Sampler inverts that. The audio is the point, the
@@ -55,8 +67,9 @@ children, so the earlier worry about browsers rendering from a child process is 
 tree is the only unit of inclusion there is.
 
 `EXCLUDE` is not the opposite of `INCLUDE` on the same target. It captures everything the
-machine plays *except* that tree, which is a separate feature worth remembering later
-(record the machine but not Discord, or not Quarry itself). It is not a fallback.
+machine plays *except* that tree, which is a separate feature (record the machine but not
+Discord, or not Quarry itself). It is not a fallback. The plugin build uses it for its
+"everything" row, with the host's process tree as the one left out.
 
 In practice the pid to target is the one the session enumerator reports, which is the
 process that owns the render session. Measured: that pid captures Chrome correctly with no
@@ -77,7 +90,9 @@ the 48 kHz the first draft of this document guessed.
 Whole-endpoint loopback, which Quarry already has through the System Audio driver. Used
 when the target predates process loopback, when a source cannot be resolved to a PID, or
 when you deliberately want everything the machine is mixing. Attribution in that mode is
-inferred and the sidecar says so (`isolation: "endpoint"`).
+inferred and the sidecar says so (`isolation: "endpoint"`). This is the standalone's
+"everything" row. In a plugin that row is the `EXCLUDE` capture described above, because the
+endpoint there carries the host.
 
 ### The volume trap
 
@@ -318,7 +333,8 @@ somewhere a capture takes you rather than a peer: loading one hands it to the tr
 follows it there, and `< SAMPLES` in the toolbar is the way back. Sample is:
 
 - **Source picker**: apps currently making sound, each with a live meter and a volume
-  warning. An "everything" row selects the endpoint fallback.
+  warning. An "everything" row selects the endpoint fallback in the standalone. In a plugin it
+  reads "Everything except <host>" and records the machine minus the host's process tree.
 
   **One row per window, not per application.** Two browser windows are one process, and
   nothing about a pid says which of them made the sound. Asking the process and guessing
@@ -330,7 +346,10 @@ follows it there, and `< SAMPLES` in the toolbar is the way back. Sample is:
 
   The application's name is printed once against the first of its windows rather than down
   every row, where it was a column of identical cells.
-- **Record / stop**, plus a stereo level and elapsed time. The meter runs on its own 60 Hz
+- **Record / stop**, plus a stereo level and elapsed time. Space and `r` are the same click
+  as the button, caught in `QuarryMainView::keyPressed` while this page is showing; a held key
+  is one click and not one per key repeat (`KeyRepeatLatch`), and a focused text box keeps its
+  own space. The meter runs on its own 60 Hz
   tick rather than the source enumeration's 250 ms, because a level that updates four times a
   second reads as a run of jumps; it rises at once and falls on a 320 ms time constant, in
   real elapsed time so a late frame does not make it lurch. Two lanes, because one bar cannot
@@ -343,6 +362,14 @@ follows it there, and `< SAMPLES` in the toolbar is the way back. Sample is:
   alternative is asking someone to know which field their memory of a sample lives in.
   Multiple words narrow. Reveal, delete to the recycle bin, and TRANSCRIBE, which hands the
   file to the other page and is the entire reason for living inside Quarry.
+
+  **A take drags out of the list.** Press a take row and drag it past the edge of the window,
+  and it becomes a file drag of the take's audio, to drop on a track in Ableton or into any
+  app that takes a file. It is offered as a copy, never a move, so the take and its sidecar
+  stay where they are. The way back up and the folder rows do not drag. The list starts an
+  ordinary JUCE drag carrying the path and the page, a `DragAndDropContainer`, turns it into a
+  file drag once the pointer is outside every Quarry window; the decisions are in
+  `Sampler/TakeDrag.h`. Not tried in Ableton by hand yet, from the standalone or the VST3.
 
   **It browses the folders rather than flattening them.** Captures are written into dated
   folders, so the browser walks them: a month, then a day, then the takes, with a `..` row
@@ -376,8 +403,10 @@ happen without the mouse, and the page is largely closed to a screen reader:
   technology.
 - `< SAMPLES` is `setWantsKeyboardFocus(false)` and has no shortcut, while the TRANSCRIBE
   button that sends you there is focusable. That is a one-way door for a keyboard user.
-- `r`, `m` and `c` in `QuarryMainView::keyPressed` trigger transport buttons unguarded, and
-  `triggerClick()` works on a hidden one. From the Sample page they reach into Transcribe.
+- `m`, `c`, `Shift+Space` and `Shift+Backspace` in `QuarryMainView::keyPressed` trigger
+  Transcribe's buttons unguarded, and `triggerClick()` works on a hidden one. From the Sample
+  page they reach into Transcribe. Space and `r` used to as well; on this page they are now
+  RECORD.
 - The selection block, the status line, the column headings and the meter are `drawText`
   calls rather than components, so none of the state they carry reaches a screen reader.
 
@@ -470,12 +499,13 @@ them into RAM at startup, which is how search works without ever adding a databa
    and the right-hand half of the Sample page. Scanned off the message thread, filtered on one
    box against every field at once, and deletes go to the recycle bin. It browses the dated
    folders rather than flattening them, and can be turned off, which shrinks the window to the
-   source picker. Tagging and renaming are the parts not built.
+   source picker. A take drags out of the list as a file, onto a DAW track
+   (`Sampler/TakeDrag.h`). Tagging and renaming are the parts not built.
 7. ~~Hand-off to the Transcribe page.~~ **Done**, through `SourceAudioManager::onFileDrop`,
    which is also how a capture gets auditioned: the Transcribe page already owns a player,
    so the browser never needed an audio device of its own.
 8. Classification, decided as above.
 9. **Accessibility**, listed under *The page*. The row names and the `< SAMPLES` focus are
    small and worth doing first; making painted state reachable is a design question.
-10. **Decide whether this page belongs in the plugin**, per the note at the top. It is in the
-    VST3 today because nothing stops it, which is not the same as intending it.
+10. ~~Decide whether this page belongs in the plugin.~~ **Decided: it stays**, with the fixes
+    listed in the note at the top. What is left is trying it in a host.
