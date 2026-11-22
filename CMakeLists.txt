@@ -213,7 +213,7 @@ target_link_libraries(${BaseTargetName}
 # UpdateInstaller (Windows Standalone self-update): the Restart Manager, the file version
 # resource, and the shell's known folders and ShellExecute.
 if (WIN32)
-    target_link_libraries(${BaseTargetName} PRIVATE Rstrtmgr Version Shell32 Ole32)
+    target_link_libraries(${BaseTargetName} PRIVATE Rstrtmgr Version Shell32 Ole32 Wintrust Crypt32)
 endif ()
 
 if (${LTO})

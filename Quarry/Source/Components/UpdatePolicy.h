@@ -12,6 +12,7 @@
 #include <JuceHeader.h>
 
 #include <optional>
+#include <vector>
 
 namespace quarry::update
 {
@@ -98,6 +99,18 @@ juce::String shortenNotes(const juce::String& inSanitized, int inMaxChars);
 
 /** The installer's command line. inPluginInstalled adds the VST3 component to the update. */
 juce::String installerParameters(int inProcessId, bool inPluginInstalled);
+
+/** SHA-1 thumbprints (40 hex digits, lowercase) of the certificates a release installer may be
+ *  signed with. A list so a release can carry the next certificate before a renewal. */
+const std::vector<juce::String>& acceptedSignerThumbprints();
+
+/** The subject common name the signer certificate must carry, compared exactly. */
+juce::String expectedSignerName();
+
+/** True only when the thumbprint is one of the accepted ones (hex compared without regard to
+ *  case, nothing else tolerated: spaces and colons make it unequal) and the common name is
+ *  exactly the expected one. Empty values are never accepted. */
+bool isAcceptedSigner(const juce::String& inThumbprintHex, const juce::String& inCommonName);
 
 /** The banner text for a host that has the plugin open, built from the name the OS gave. */
 juce::String hostBlockedMessage(const juce::String& inHostName);

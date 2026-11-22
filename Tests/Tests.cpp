@@ -31,6 +31,7 @@
 #include "update_policy_test.h"
 #include "key_repeat_latch_test.h"
 #include "update_network_test.h"
+#include "update_signature_test.h"
 // Deliberately last: SidecarClient.h (pulled in by sidecar_client_test.h) drags in <windows.h>,
 // whose wingdi.h pollutes the global namespace (TRANSPARENT as a macro, a global Rectangle
 // function that collides with juce::Rectangle) badly enough to break UIDefines.h and
@@ -129,6 +130,9 @@ int main()
 
     std::cout << std::endl << "UPDATE NETWORK TEST" << std::endl;
     result |= !update_network_test();
+
+    std::cout << std::endl << "UPDATE SIGNATURE TEST" << std::endl;
+    result |= !update_signature_test();
 
     std::cout << std::endl << "DOWNLOAD LEDGER TEST" << std::endl;
     result |= !download_ledger_test();

@@ -56,7 +56,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
         juce_recommended_config_flags)
 #juce_recommended_warning_flags
 if (WIN32)
-    target_link_libraries(${PROJECT_NAME} PRIVATE Rstrtmgr Version Shell32 Ole32)
+    target_link_libraries(${PROJECT_NAME} PRIVATE Rstrtmgr Version Shell32 Ole32 Wintrust Crypt32)
 endif ()
 
 # Honour the top level LTO option, as the plugin target does. The prebuilt onnxruntime.lib is
