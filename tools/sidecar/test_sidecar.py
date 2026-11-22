@@ -17,8 +17,13 @@ tools/bakeoff/.venv/Scripts/python.exe tools/sidecar/test_sidecar.py
     a real URL); checks a wav lands on disk, stage events arrive, and the response schema.
 (d) the download options (audio/video/both, playlist on/off) against a mocked yt_dlp module: no
     network and no ffmpeg, always runs.
+(e) the environment, first: every engine package in requirements.txt must import, and the sidecar
+    must advertise every engine. An engine whose import fails is otherwise only "not installed"
+    and (a) and (b) skip it, so a broken rebuild would pass. `--env` runs this part alone: no
+    corpus, no weights, a few seconds. Run it after rebuilding the venv.
 """
 
+import importlib
 import json
 import os
 import pathlib
@@ -38,6 +43,14 @@ sys.path.insert(0, str(SCRIPT_DIR))
 import engines  # noqa: E402
 
 FAILURES = []
+
+# The package each engine is imported from, as engines.available_engines() probes them.
+REQUIRED_ENGINE_MODULES = [
+    ("kong", "piano_transcription_inference"),
+    ("transkun", "transkun"),
+    ("muscriptor", "muscriptor"),
+    ("sep+", "demucs.api"),
+]
 
 
 def check(condition, message):
@@ -562,12 +575,34 @@ def test_download_outputs():
             sys.modules["yt_dlp"] = original
 
 
+def test_environment():
+    print("\n=== (e) environment ===")
+
+    # engines.available_engines() swallows the ImportError, so import each package here too and
+    # show why it failed: "No module named 'pkg_resources'" under kong is a setuptools that is
+    # too new for the pinned librosa, not a missing engine.
+    for engine, module in REQUIRED_ENGINE_MODULES:
+        try:
+            importlib.import_module(module)
+            error = None
+        except Exception as exc:  # any failure to import is a broken environment
+            error = f"{type(exc).__name__}: {exc}"
+        check(error is None, f"{module} imports ({engine})" + (f": {error}" if error else ""))
+
+    bases = {"kong", "transkun", "muscriptor"}
+    expected = bases | {f"{engines.SEP_PREFIX}{base}" for base in bases}
+    missing = sorted(expected - engines.available_engines())
+    check(not missing, "the sidecar advertises every engine" + (f" (missing: {missing})" if missing else ""))
+
+
 def main():
-    test_one_shot()
-    test_serve()
-    test_download()
-    test_download_options()
-    test_download_outputs()
+    test_environment()
+    if "--env" not in sys.argv[1:]:
+        test_one_shot()
+        test_serve()
+        test_download()
+        test_download_options()
+        test_download_outputs()
 
     print("\n=== summary ===")
     if FAILURES:

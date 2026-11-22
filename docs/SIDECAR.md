@@ -37,10 +37,14 @@ One virtualenv serves the sidecar and the bake-off tooling: `tools/bakeoff/.venv
 py -m venv tools/bakeoff/.venv
 tools/bakeoff/.venv/Scripts/python -m pip install --no-deps "torch==2.13.0+cu130" --index-url https://download.pytorch.org/whl/cu130
 tools/bakeoff/.venv/Scripts/python -m pip install -r tools/sidecar/requirements.txt
+tools/bakeoff/.venv/Scripts/python tools/sidecar/test_sidecar.py --env
 ```
 
 `tools/sidecar/requirements.txt` holds the exact versions of every package the sidecar needs
-(torch is listed there too but must come from the CUDA index first, hence the two steps).
+(torch is listed there too but must come from the CUDA index first, hence the two steps). The
+last line checks the result: every engine package imports and the sidecar advertises every
+engine. Without it a package that fails to import only makes its engine "not installed", and
+Quarry quietly falls back to BasicPitch.
 
 **Weights are pinned.** The sidecar does not let any engine library fetch or load weights on
 its own. Before an engine is constructed, `engines.py` resolves its weight files, checks each
@@ -95,6 +99,10 @@ Traps met once so nobody meets them twice:
 - **librosa is pinned to 0.9.2**: `piano_transcription_inference` calls a pre-lazy-loader API
   that librosa 1.0 removed, and it also needs `audioread` installed even though it does not
   declare it.
+- **setuptools is pinned to 81.0.0** because of that librosa: 0.9.2 imports `pkg_resources`,
+  which setuptools 82 removed. torch 2.11 capped setuptools below 82 by itself and torch 2.13
+  does not. With a newer setuptools kong fails to import, and since a failed import only makes
+  an engine "not installed", kong and `sep+kong` vanish without an error.
 - **kong's checkpoint fetch shells out to `wget`**, which Windows does not have. Fetch it
   once by hand (Zenodo, ~165 MB) to the exact path the library expects:
   `~/piano_transcription_inference_data/note_F1=0.9677_pedal_F1=0.9186.pth`.
