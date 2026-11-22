@@ -93,14 +93,14 @@ everywhere (magenta, the dimmest, is 3.59:1 on a control) but **fails 4.5:1 as t
 four of the eight**, which is why anything read in the accent takes `hot` rather than
 `base`. See docs/UI.md.
 
-## 5. Two controls have no keyboard route (not six)
+## 5. Two controls had no keyboard route (not six), both since fixed
 
 `QuarryMainView.cpp:300, 320-324` calls `setWantsKeyboardFocus(false)` on the back,
 record, play/pause, center, settings and back-to-samples buttons, while the parent takes
 `setWantsKeyboardFocus(true)`.
 
 That looks alarming and mostly is not. The architecture is deliberate and coherent: the
-parent holds focus and `QuarryMainView::keyPressed` (line 504) drives the children with
+parent holds focus and `QuarryMainView::keyPressed` (line 744) drives the children with
 `triggerClick()`.
 
 | Key | Control |
@@ -111,6 +111,8 @@ parent holds focus and `QuarryMainView::keyPressed` (line 504) drives the childr
 | `r` | record |
 | `m` | mute |
 | `c` | center playhead |
+| `,` | settings |
+| `Esc`, on Transcribe when `< SAMPLES` is showing | back to the Sample page |
 | `Space` or `r`, on the Sample page | record / stop |
 
 **SC 2.1.1 asks for keyboard operability, not for Tab focus specifically**, so the whole
@@ -122,14 +124,17 @@ transport passes. This is also what `MouseOnly.h` prescribes for the line:
 `makeMouseOnly()`'s reasoning is sound and worth keeping: a plugin that grabs keyboard
 focus takes the spacebar from the host and stops the DAW transport.
 
-**What actually fails** is the two controls with neither focus nor a shortcut:
+**What actually failed** was the two controls with neither focus nor a shortcut. Both have a
+key now:
 
-- **Settings** (`mSettingsButton`) - focus removed at line 324, no key in `keyPressed`.
-- **`< SAMPLES`** (`mBackToSamplesButton`) - focus removed at line 300, no key. This is
+- ~~**Settings** (`mSettingsButton`) - focus removed at line 361, no key in `keyPressed`.~~
+  Fixed since: `,` opens it.
+- ~~**`< SAMPLES`** (`mBackToSamplesButton`) - focus removed at line 332, no key. This is
   the only way back to the sample page, so a keyboard user who reaches the transcriber is
-  stuck there.
+  stuck there.~~ Fixed since: `Esc` goes back while the button is showing, and its tooltip
+  says so.
 
-Both are one line each in `keyPressed`, and neither requires giving focus back or
+Both were one line each in `keyPressed`, and neither required giving focus back or
 touching the mouse-only contract.
 
 A smaller, separate point: the shortcuts are advertised only in tooltips, which need a
@@ -197,7 +202,7 @@ controls live, is compressed into six values spanning #0e0f12 to #2a2e35.
 | P0 | Control vs ground at 1.00-1.33:1 | 1.4.11 | Medium, add a border token |
 | P0 | No accessible names | 4.1.2 | Medium, mechanical |
 | P0 | No focus indicator | 2.4.7, 2.4.11 | Small, Quarry-local look and feel |
-| P1 | Settings and `< SAMPLES` have no keyboard route | 2.1.1 | Two lines in `keyPressed` |
+| ~~P1~~ | ~~Settings and `< SAMPLES` have no keyboard route~~ Done: `,` and `Esc` | 2.1.1 | Two lines in `keyPressed` |
 | P1 | Hover/pressed below perception | 1.4.11 | Small |
 | P1 | No primary/destructive hierarchy | — | Medium |
 | P2 | Confidence bars use hue only | 1.4.1 | Small |

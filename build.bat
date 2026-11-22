@@ -28,13 +28,17 @@ if "%extract%" == "true" (
 	del %archive%
 )
 
-wmic cpu get NumberOfLogicalProcessors | findstr /V NumberOfLogicalProcessors > ncpus
-set /p ncpus=<ncpus
-del ncpus
+:: Half the logical cores, so the machine stays usable while this runs. JUCE compiles with /MP,
+:: so it is the compiler's own fan-out that has to be bounded (CL_MPCount); -m:1 builds one
+:: project at a time so the two do not multiply. Keep in step with parallel_args in run.py.
+set /a jobs=%NUMBER_OF_PROCESSORS% / 2
+if %jobs% LSS 1 set jobs=1
+:: In the environment as well, for the juceaide build JUCE runs inside the configure step.
+set CL_MPCount=%jobs%
 
 set config=Release
 cmake -S . -B build -DBUILD_UNIT_TESTS=ON || exit /b
-cmake --build build -j %ncpus% --config %config% --target Quarry_Standalone --target UnitTests --target Quarry_VST3 --target Quarry_AU
+cmake --build build --config %config% --target Quarry_Standalone --target UnitTests --target Quarry_VST3 --target Quarry_AU -- -m:1 -p:CL_MPCount=%jobs%
 
 .\build\Tests\UnitTests_artefacts\Release\UnitTests.exe || exit /b
 
