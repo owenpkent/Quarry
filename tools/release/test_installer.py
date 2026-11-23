@@ -87,6 +87,10 @@ class ScriptContractTests(unittest.TestCase):
         for phrase in ('"as is"', "No warranty", "No liability", "at your own risk",
                        "What you record is your responsibility"):
             self.assertIn(phrase, notice, phrase)
+        # The privacy point must not promise "GitHub only": verifying an update's signature has
+        # Windows check revocation, which can reach the certificate authority.
+        self.assertIn("certificate authority", notice)
+        self.assertNotIn("only network requests", notice)
         # And the licence itself is still there in full, with the two sections the notice cites.
         for phrase in ("7. Disclaimer of Warranty", "8. Limitation of Liability"):
             self.assertIn(phrase, rest, phrase)

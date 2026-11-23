@@ -2,7 +2,7 @@ You're about to install Quarry on your computer.
 
 Quarry is an audio-to-MIDI plugin that uses Spotify's BasicPitch neural network for transcription.
 
-Transcription in Quarry runs locally on your computer. No audio data is sent to any server, and Quarry does not collect any data from you. The only thing Quarry sends anywhere is a request to GitHub for the latest release number, so it can tell you when an update is out.
+Transcription in Quarry runs locally on your computer. No audio data is sent to any server, and Quarry does not collect any data from you. Quarry uses the network only for updates: it asks GitHub for the latest release number, so it can tell you when an update is out, and if you choose to install one it downloads it from GitHub and has Windows verify the installer's signing certificate, which can contact the certificate authority's servers.
 
 On Windows, the standalone app can record whatever this computer is playing, so you can transcribe a video or a browser tab without a "Stereo Mix" input or a virtual audio cable.
 

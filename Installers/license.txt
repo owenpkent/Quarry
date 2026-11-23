@@ -19,11 +19,14 @@ Quarry is free, open-source software. It is provided "as is".
     record.
 
   - Privacy. Transcription runs on this computer. Quarry sends no audio and
-    collects no data about you. The only network requests the installed app
-    makes are to GitHub: a check for a newer release, which you can turn
-    off, and the download of a release you have chosen to install. (The
-    optional developer tools in the source repository are not installed
-    here; if you set them up yourself, they make requests of their own.)
+    collects no data about you. The installed app uses the network for one
+    thing, updates. It asks GitHub whether a newer release exists, which
+    you can turn off, and downloads from GitHub a release you have chosen
+    to install. Before installing one it has Windows verify the installer's
+    signing certificate, and Windows can contact the certificate authority's
+    servers to do that. (The optional developer tools in the source
+    repository are not installed here; if you set them up yourself, they
+    make requests of their own.)
 
   - Updates. On Windows the standalone app can download and install a newer
     release when you ask it to. An update installs without showing this page
