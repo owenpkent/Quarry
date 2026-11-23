@@ -74,6 +74,39 @@ class ScriptContractTests(unittest.TestCase):
         for value in ("InstalledVst3", "InstalledStandalone"):
             self.assertIn(f"RegValueExists(HKLM, 'Software\\OK Studio\\Quarry', '{value}')", ISS_TEXT)
 
+    def test_licence_page_is_shown_and_says_no_warranty(self):
+        # The licence page is where the user accepts that Quarry comes as is. Inno keeps Next
+        # disabled on it until "I accept the agreement" is chosen, but only if LicenseFile is set.
+        licence_setting = setting("LicenseFile") or ""
+        self.assertTrue(licence_setting, "LicenseFile is not set")
+        licence_path = os.path.normpath(os.path.join(os.path.dirname(release.ISS), licence_setting))
+        with open(licence_path, encoding="utf-8") as handle:
+            licence = handle.read()
+        # The plain-language notice comes before the licence text, not after 150 lines of it.
+        notice, _, rest = licence.partition("Apache License")
+        for phrase in ('"as is"', "No warranty", "No liability", "at your own risk",
+                       "What you record is your responsibility"):
+            self.assertIn(phrase, notice, phrase)
+        # The privacy point must not promise "GitHub only": verifying an update's signature has
+        # Windows check revocation, which can reach the certificate authority.
+        self.assertIn("certificate authority", notice)
+        self.assertNotIn("only network requests", notice)
+        # And the licence itself is still there in full, with the two sections the notice cites.
+        for phrase in ("7. Disclaimer of Warranty", "8. Limitation of Liability"):
+            self.assertIn(phrase, rest, phrase)
+
+    def test_licence_and_notices_are_installed_with_either_component(self):
+        files = ISS_TEXT[ISS_TEXT.index("[Files]"):ISS_TEXT.index("[Registry]")]
+        for source, dest in (("LICENSE", "LICENSE.txt"), ("NOTICE", "NOTICE.txt")):
+            entries = [line for line in files.splitlines()
+                       if line.startswith("Source:") and f'DestName: "{dest}"' in line]
+            self.assertEqual(len(entries), 1, dest)
+            self.assertIn(f'Source: "..\\..\\{source}";', entries[0])
+            self.assertIn('DestDir: "{app}";', entries[0])
+            self.assertNotIn("Components:", entries[0])
+            repo_root = os.path.normpath(os.path.join(os.path.dirname(release.ISS), "..", ".."))
+            self.assertTrue(os.path.isfile(os.path.join(repo_root, source)), source)
+
     def test_user_data_is_not_touched(self):
         for forbidden in ("{userappdata}", "{localappdata}", "{userdocs}", "{commonappdata}"):
             self.assertNotIn(forbidden, ISS_TEXT)

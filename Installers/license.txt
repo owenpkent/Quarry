@@ -1,3 +1,43 @@
+PLEASE READ BEFORE INSTALLING
+
+Quarry is free, open-source software. It is provided "as is".
+
+  - No warranty. Quarry comes with no warranty of any kind, express or
+    implied. Nobody promises that it is fit for any particular purpose, that
+    its transcriptions, key or tempo readings are accurate, or that it will
+    run without errors or interruption.
+
+  - No liability. To the extent the law allows, the authors and contributors
+    are not liable for any loss or damage that comes from installing or using
+    Quarry, including lost or damaged recordings, projects or other data.
+    You use it at your own risk.
+
+  - What you record is your responsibility. Quarry can record the sound this
+    computer is playing and, if you switch it on, a picture of a window or
+    of the screen. You are responsible for having the right to record, keep,
+    transcribe and use that material, and for the privacy of anyone you
+    record.
+
+  - Privacy. Transcription runs on this computer. Quarry sends no audio and
+    collects no data about you. The installed app uses the network for one
+    thing, updates. It asks GitHub whether a newer release exists, which
+    you can turn off, and downloads from GitHub a release you have chosen
+    to install. Before installing one it has Windows verify the installer's
+    signing certificate, and Windows can contact the certificate authority's
+    servers to do that. (The optional developer tools in the source
+    repository are not installed here; if you set them up yourself, they
+    make requests of their own.)
+
+  - Updates. On Windows the standalone app can download and install a newer
+    release when you ask it to. An update installs without showing this page
+    again, and is provided on these same terms.
+
+The points above are a plain-language summary. They do not replace the
+licence Quarry is provided under, the Apache License, Version 2.0, printed in
+full below; see sections 7 (Disclaimer of Warranty) and 8 (Limitation of
+Liability). By installing Quarry you accept that licence.
+
+
 Quarry is licensed under the Apache-2.0 License.
 Source code is available at: https://github.com/owenpkent/Quarry
 Copyright 2026 Owen Kent
@@ -6,7 +46,8 @@ Quarry is a derivative work of NeuralNote (https://github.com/DamRsn/NeuralNote)
 Copyright 2024 Damien Ronssin, also licensed under the Apache-2.0 License.
 
 Attribution for the third-party components Quarry ships with is in the NOTICE
-file at the root of the source repository.
+file at the root of the source repository. The installer puts a copy of it,
+and of the licence, beside Quarry as NOTICE.txt and LICENSE.txt.
 
 
                                  Apache License
