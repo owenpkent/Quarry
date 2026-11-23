@@ -28,7 +28,6 @@ VersionInfoDescription=Quarry Setup
 OutputBaseFilename=QuarrySetup-{#AppVersion}
 DefaultDirName={commonpf}\Quarry
 DefaultGroupName=Quarry
-InfoBeforeFile=..\readme.txt
 LicenseFile=..\license.txt
 AppPublisher=OK Studio
 AppPublisherURL=https://github.com/owenpkent/Quarry
