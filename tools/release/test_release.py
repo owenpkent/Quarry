@@ -217,6 +217,25 @@ class RealSignatureCheckTests(unittest.TestCase):
                 handle.write("Write-Output 1\n")
             self.assertIn("NotSigned", sign.signature_problem(path, "signtool.exe"))
 
+    def test_the_module_path_is_not_passed_on_whatever_its_case(self):
+        # A release run started from PowerShell 7 inherits a PSModulePath that lists PowerShell 7's
+        # module folders. Windows PowerShell 5.1 cannot load the Microsoft.PowerShell.Security it
+        # finds there, and a validly signed file came back as "status is unknown". The two tests
+        # above fail that way when this suite is run from a PowerShell 7 shell without the fix;
+        # this one fails without it from any shell.
+        captured = {}
+
+        def fake_run(command, **kwargs):
+            captured.update(kwargs.get("env") or {})
+            return _done(0, "NotSigned|")
+
+        with mock.patch.dict(os.environ, {"PSModulePath": r"C:\somewhere\Modules"}), \
+                mock.patch.object(sign.os.path, "isfile", return_value=True), \
+                mock.patch.object(sign.subprocess, "run", side_effect=fake_run):
+            sign.signature_problem("x.exe", "signtool.exe")
+        self.assertEqual([key for key in captured if key.upper() == "PSMODULEPATH"], [])
+        self.assertTrue(captured["QUARRY_SIGNATURE_PATH"].endswith("x.exe"))
+
 
 class BuildOrderTests(unittest.TestCase):
     def _run_build(self, problems=(None,), **flags):

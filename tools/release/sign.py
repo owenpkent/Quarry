@@ -122,13 +122,24 @@ def signature_problem(path: str, signtool: str | None = None):
     # The full path, so a powershell.exe earlier on PATH cannot answer for Windows.
     powershell = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32",
                               "WindowsPowerShell", "v1.0", "powershell.exe")
+    # Without the caller's PSModulePath. When this script is started from PowerShell 7, or from
+    # anything PowerShell 7 started (a VS Code terminal, say), that variable lists PowerShell 7's
+    # module folders, and Windows PowerShell 5.1 then picks up a Microsoft.PowerShell.Security it
+    # cannot load. Get-AuthenticodeSignature fails, the exit code is still 0, and a validly signed
+    # installer reads as "status unknown". With the variable gone, 5.1 uses its own default.
+    environment = {key: value for key, value in os.environ.items() if key.upper() != "PSMODULEPATH"}
+    environment["QUARRY_SIGNATURE_PATH"] = os.path.abspath(path)
     done = subprocess.run([powershell, "-NoProfile", "-NonInteractive", "-Command", script],
-                          capture_output=True, text=True,
-                          env=dict(os.environ, QUARRY_SIGNATURE_PATH=os.path.abspath(path)),
+                          capture_output=True, text=True, env=environment,
                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     status, _, thumbprint = done.stdout.strip().partition("|")
     if done.returncode != 0 or status != "Valid":
-        return f"Authenticode status is {status or 'unknown'}, not Valid"
+        if not status:
+            # Nothing came back at all: PowerShell could not run the check. Say what it said,
+            # because "unknown" alone looks like a bad signature.
+            said = " ".join(done.stderr.split())[:200]
+            return "Authenticode status is unknown, not Valid" + (f" (PowerShell: {said})" if said else "")
+        return f"Authenticode status is {status}, not Valid"
     if thumbprint.lower() != CERTIFICATE_SHA1:
         return f"signed by {thumbprint or 'an unknown certificate'}, not the pinned {CERTIFICATE_SHA1}"
     if not verify_file(path, signtool):
