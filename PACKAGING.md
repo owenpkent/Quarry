@@ -60,7 +60,9 @@ text. The notice is a summary and says so; the licence is what applies. Keep the
 `LICENSE` and with the "No warranty" section of the README, and do not reword the notice without
 the owner: it is the nearest thing Quarry has to terms of use. A silent install, which is what the
 updater runs, shows no pages, so the notice says that an update comes on the same terms. The
-installer also copies `LICENSE` and `NOTICE` to `Program Files\Quarry` as `.txt` files.
+installer also copies `LICENSE` and `NOTICE` to `Program Files\Quarry` as `.txt` files. The
+Windows installer shows no "Information" page (`InfoBeforeFile`): `Installers/readme.txt` repeated
+the licence page, so only the macOS package uses it now.
 `tools/release/test_installer.py` checks all of this.
 
 ## Dependency scans

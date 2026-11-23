@@ -100,7 +100,8 @@ project Quarry is derived from; their tags came with the fork.
   has to be accepted before anything is installed. The installer now puts `LICENSE.txt` and
   `NOTICE.txt` in `Program Files\Quarry`, so the licence and the third-party attributions travel
   with the binaries; before, they were only in the source repository. The README carries the
-  same notice.
+  same notice. The installer no longer shows a separate "Information" page first: it repeated
+  what the licence page says.
 - build: the vendored okstudio kit headers are re-pinned from `490f1d1` to `8cd8616`, now that
   the kit's main branch carries everything Quarry vendors. The kit has the `Obsidian.h`
   text-width change for JUCE 8.0.16 itself, so the hand edit to the vendored copy is no longer a

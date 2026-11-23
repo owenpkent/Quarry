@@ -95,6 +95,13 @@ class ScriptContractTests(unittest.TestCase):
         for phrase in ("7. Disclaimer of Warranty", "8. Limitation of Liability"):
             self.assertIn(phrase, rest, phrase)
 
+    def test_no_information_page_repeats_the_licence_page(self):
+        # The readme used to be shown as an "Information" page before the licence. It said again
+        # what the licence page says (privacy, the NeuralNote credit, the source link), and a
+        # second wall of text makes the page that matters less likely to be read.
+        self.assertIsNone(setting("InfoBeforeFile"))
+        self.assertIsNone(setting("InfoAfterFile"))
+
     def test_licence_and_notices_are_installed_with_either_component(self):
         files = ISS_TEXT[ISS_TEXT.index("[Files]"):ISS_TEXT.index("[Registry]")]
         for source, dest in (("LICENSE", "LICENSE.txt"), ("NOTICE", "NOTICE.txt")):
