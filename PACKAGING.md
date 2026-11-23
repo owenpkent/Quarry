@@ -54,6 +54,15 @@ models under AppData or Documents. If Quarry or a DAW has a file open, the unins
 
 The installer will be located in `Installers/Windows/Output`.
 
+The licence page shows `Installers/license.txt`: a plain-language notice (as is, no warranty, no
+liability, what you record is your responsibility, privacy, updates) followed by the Apache-2.0
+text. The notice is a summary and says so; the licence is what applies. Keep the two in step with
+`LICENSE` and with the "No warranty" section of the README, and do not reword the notice without
+the owner: it is the nearest thing Quarry has to terms of use. A silent install, which is what the
+updater runs, shows no pages, so the notice says that an update comes on the same terms. The
+installer also copies `LICENSE` and `NOTICE` to `Program Files\Quarry` as `.txt` files.
+`tools/release/test_installer.py` checks all of this.
+
 ## Dependency scans
 
 Three things watch the dependencies. None of them is part of the release script.
@@ -96,14 +105,29 @@ file names, the tag and the installer flags are a contract with the in-app updat
 `docs/AUTO_UPDATE.md`). Needs Inno Setup 6 (`ISCC.exe`, or set `QUARRY_ISCC`), the GitHub CLI
 (`gh`) and the usual build tools.
 
-1. Bump the version in `CMakeLists.txt` (`project(QuarryPlugin VERSION X.Y.Z)`).
+The order below follows the playbook alpha-osk releases by, and the same rule heads it: do not
+skip steps.
+
+1. Bump the version in `CMakeLists.txt` (`project(QuarryPlugin VERSION X.Y.Z)`). Always three
+   parts. The tags `v1.0.0` and `v1.1.0` are NeuralNote's and came with the fork, so Quarry's
+   own releases start at 1.2.0.
 2. In `CHANGELOG.md`, rename `[Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD` and add a fresh empty
-   `[Unreleased]` above it. The section becomes the release notes.
-3. Commit: `chore: bump version to X.Y.Z`. The working tree must be clean (`--allow-dirty` overrides).
-4. Build everything:
+   `[Unreleased]` above it. The section becomes the release notes. If the release is published on
+   a later day than the heading says, correct the date first.
+3. Land it through a pull request: branch `chore/release-X.Y.Z` from `origin/master`, commit
+   `chore(release): X.Y.Z`, open the PR, and merge it once CI is green, the OSV scan included.
+   Then bring the main checkout to the merge: `git switch master`, `git pull --ff-only`.
+4. Build everything, **from the main checkout after the merge**, never from the release branch's
+   worktree: that folder goes away when the branch does, and the installer with it. Use a normal
+   shell, not an elevated one (the token is invisible to elevated processes), with the hardware
+   token plugged in:
    ```commandline
    py tools/release/release.py build
    ```
+   The token's own software asks for the PIN, which only the owner enters. If every signing
+   attempt times out at 60 seconds, the token is waiting for that PIN. A first pass with
+   `--no-sign` needs no token and finds everything except signing problems; its output cannot be
+   published.
    This checks the CHANGELOG section and that tag `vX.Y.Z` is free locally and on origin, configures
    `build-release/` (Release, Standalone + VST3 + UnitTests, `-DLTO=OFF` for the reason given
    above; `--lto` turns it on), runs `UnitTests`, compiles the installer, and writes to `release/`:
@@ -112,10 +136,14 @@ file names, the tag and the installer flags are a contract with the in-app updat
    `release-notes-X.Y.Z.md`. It then runs the gates: `Quarry.exe` and the VST3 report `X.Y.Z`, the
    installer reports `X.Y.Z.0`, the tree is clean. `--verify-only` runs just the gates,
    `--skip-build` reuses `build-release/`, `--no-installer` skips ISCC. There is no lockfile: the
-   installer ships only `Quarry.exe` and the VST3, nothing written in Python.
+   installer ships only `Quarry.exe`, the VST3 and two text files (`LICENSE.txt` and
+   `NOTICE.txt`), nothing written in Python.
 5. Smoke test the installer from `release/`:
    - Interactively: the same pages and components as always, and the app and VST3 land in
-     `Program Files\Quarry` and `Common Files\VST3`.
+     `Program Files\Quarry` and `Common Files\VST3`. The licence page opens on the plain-language
+     notice (as is, no warranty, no liability, what you record is your responsibility), and Next
+     stays disabled until "I accept the agreement" is chosen. `LICENSE.txt` and `NOTICE.txt` are
+     in `Program Files\Quarry` afterwards, with either component or both.
    - Silently, with the flags the updater uses, from an unelevated prompt (it self-elevates):
      ```commandline
      release\QuarrySetup-X.Y.Z.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /NOCLOSEAPPLICATIONS /COMPONENTS="mainapp,plugin" /WAITPID=<pid of a running Quarry> /RELAUNCH

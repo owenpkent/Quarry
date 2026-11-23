@@ -7,6 +7,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-22
+
+The first release published as Quarry. Versions 1.0.0 and 1.1.0 were releases of NeuralNote, the
+project Quarry is derived from; their tags came with the fork.
+
 ### Security
 
 - fix: the sidecar's torch pin moves from `2.11.0+cu128` to `2.13.0+cu130`, the version the
@@ -89,6 +94,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- change: the Windows installer says in plain words, at the top of its licence page, that Quarry
+  comes as is: no warranty, no liability, and what you record is your responsibility. It also
+  covers privacy and updates. The Apache-2.0 licence below it is unchanged, and the page still
+  has to be accepted before anything is installed. The installer now puts `LICENSE.txt` and
+  `NOTICE.txt` in `Program Files\Quarry`, so the licence and the third-party attributions travel
+  with the binaries; before, they were only in the source repository. The README carries the
+  same notice.
 - build: the vendored okstudio kit headers are re-pinned from `490f1d1` to `8cd8616`, now that
   the kit's main branch carries everything Quarry vendors. The kit has the `Obsidian.h`
   text-width change for JUCE 8.0.16 itself, so the hand edit to the vendored copy is no longer a

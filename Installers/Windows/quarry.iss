@@ -63,6 +63,13 @@ Name: "plugin"; Description: "Quarry VST3"; Types: custom; Flags: disablenounins
 [Files]
 Source: "..\..\{#ReleaseDir}\Standalone\Quarry.exe"; DestDir: "{commonpf}\Quarry"; Components:mainapp; Flags: ignoreversion recursesubdirs;
 Source: "..\..\{#ReleaseDir}\VST3\Quarry.vst3\*"; DestDir: "{commoncf}\VST3\Quarry.vst3"; Components:plugin; Flags: ignoreversion recursesubdirs;
+; The licence and the third-party notices travel with the binaries: Apache-2.0 asks for a copy of
+; the licence and of NOTICE with every distribution, and NOTICE carries the attributions the
+; bundled libraries and the embedded Montserrat faces require. No Components entry, so they are
+; installed whichever of the two payloads is chosen; {app} always exists, since the uninstaller
+; lives there.
+Source: "..\..\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
+Source: "..\..\NOTICE"; DestDir: "{app}"; DestName: "NOTICE.txt"; Flags: ignoreversion
 
 [Registry]
 ; A record of which of the two payloads this installation put down, for the uninstaller's

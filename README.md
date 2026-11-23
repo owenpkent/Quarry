@@ -17,10 +17,13 @@ your favorite Digital Audio Workstation.
 ## Install Quarry
 
 Windows releases are published on the [releases page](https://github.com/owenpkent/Quarry/releases)
-as `QuarrySetup-X.Y.Z.exe` (none has been published yet), which installs the Standalone, the VST3
+as `QuarrySetup-X.Y.Z.exe`, which installs the Standalone, the VST3
 or both. The installer is code signed
 by OK Studio Inc., and the in-app updater checks that signature. Each release also carries the
 installer's SHA-256 (`QuarrySetup-X.Y.Z.exe.sha256`) and a CycloneDX SBOM.
+
+Quarry is provided as is, with no warranty; see [No warranty](#no-warranty). The installer asks
+you to accept the licence, and puts `LICENSE.txt` and `NOTICE.txt` beside the app.
 
 Once installed, the Windows Standalone checks for a newer release at startup and can install it
 itself; the plugin and other platforms only say that one exists. The check can be turned off with
@@ -358,6 +361,26 @@ please open a PR!
 ## License
 
 Quarry software and code is published under the Apache-2.0 license. See the [license file](LICENSE).
+
+### No warranty
+
+Quarry is free, open-source software, provided "as is". This is a plain-language summary; it does
+not replace the licence, whose sections 7 (Disclaimer of Warranty) and 8 (Limitation of Liability)
+are what apply.
+
+- **No warranty.** Quarry comes with no warranty of any kind, express or implied. Nobody promises
+  that it is fit for any particular purpose, that its transcriptions, key or tempo readings are
+  accurate, or that it will run without errors or interruption.
+- **No liability.** To the extent the law allows, the authors and contributors are not liable for
+  any loss or damage that comes from installing or using Quarry, including lost or damaged
+  recordings, projects or other data. You use it at your own risk.
+- **What you record is your responsibility.** Quarry can record the sound the computer is playing
+  and, if you switch it on, a picture of a window or of the screen. You are responsible for
+  having the right to record, keep, transcribe and use that material, and for the privacy of
+  anyone you record.
+
+The Windows installer shows the same notice above the licence, and the licence has to be accepted
+before anything is installed.
 
 #### Third Party libraries used and license
 
