@@ -80,10 +80,12 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Icons]
 ; Per machine: Setup runs as admin, so {group} is under {commonprograms} and every user sees them.
-; The uninstaller removes them.
-Name: "{group}\Quarry"; Filename: "{app}\Quarry.exe"; WorkingDir: "{app}"; Components: mainapp; Tasks: startmenu
+; The uninstaller removes them. They name the folder the [Files] entry puts Quarry.exe in, not
+; {app}: a /DIR on the command line moves {app} (and UsePreviousAppDir keeps it for upgrades), but
+; not the payload, and a shortcut to {app} would then point at nothing.
+Name: "{group}\Quarry"; Filename: "{commonpf}\Quarry\Quarry.exe"; WorkingDir: "{commonpf}\Quarry"; Components: mainapp; Tasks: startmenu
 Name: "{group}\Uninstall Quarry"; Filename: "{uninstallexe}"; Tasks: startmenu
-Name: "{commondesktop}\Quarry"; Filename: "{app}\Quarry.exe"; WorkingDir: "{app}"; Components: mainapp; Tasks: desktopicon
+Name: "{commondesktop}\Quarry"; Filename: "{commonpf}\Quarry\Quarry.exe"; WorkingDir: "{commonpf}\Quarry"; Components: mainapp; Tasks: desktopicon
 
 [Registry]
 ; A record of which of the two payloads this installation put down, for the uninstaller's
