@@ -290,6 +290,30 @@ class BuildOrderTests(unittest.TestCase):
         self.assertFalse(parser.parse_args(["publish"]).allow_unsigned)
         self.assertTrue(parser.parse_args(["publish", "--allow-unsigned"]).allow_unsigned)
 
+    def test_stale_version_resource_is_removed_before_cmake(self):
+        # JUCE does not regenerate it after a version bump; 1.2.1's first build kept 1.2.0.
+        fake_run = types.SimpleNamespace(ensure_submodules=lambda: True,
+                                         ensure_onnxruntime=lambda: True,
+                                         build_jobs=lambda: 1, parallel_args=lambda _cache: [])
+        with tempfile.TemporaryDirectory() as folder:
+            rc = os.path.join(folder, "Quarry_resources.rc")
+            with open(rc, "w") as handle:
+                handle.write("FILEVERSION 1,2,0,0")
+            seen = []
+            with mock.patch.dict(sys.modules, {"run": fake_run}), \
+                    mock.patch.object(release, "VERSION_RC", rc), \
+                    mock.patch.object(release, "run_cmd",
+                                      lambda cmd: seen.append((cmd[0], os.path.exists(rc)))), \
+                    mock.patch.dict(os.environ, {"CL_MPCount": "1"}):
+                release.build_binaries(lto=False)
+            self.assertEqual(seen[0], ("cmake", False))
+        # And a first build, with no file yet, does not trip over its absence.
+        with mock.patch.dict(sys.modules, {"run": fake_run}), \
+                mock.patch.object(release, "VERSION_RC", os.path.join(folder, "missing.rc")), \
+                mock.patch.object(release, "run_cmd", lambda cmd: None), \
+                mock.patch.dict(os.environ, {"CL_MPCount": "1"}):
+            release.build_binaries(lto=False)
+
 
 class PublishSigningTests(unittest.TestCase):
     def _publish(self, problem, allow_unsigned):

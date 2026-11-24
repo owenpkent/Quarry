@@ -50,6 +50,9 @@ import sign
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 BUILD_DIR = os.path.join(ROOT, "build-release")
+# The Windows version resource JUCE generates. Once written it is not regenerated when the project
+# version changes, so a build after a bump would stamp the old version on both binaries.
+VERSION_RC = os.path.join(BUILD_DIR, "Quarry_artefacts", "JuceLibraryCode", "Quarry_resources.rc")
 RELEASE_DIR = os.path.join(ROOT, "release")
 ARTEFACTS = os.path.join(BUILD_DIR, "Quarry_artefacts", "Release")
 STANDALONE_EXE = os.path.join(ARTEFACTS, "Standalone", "Quarry.exe")
@@ -366,7 +369,8 @@ def check_binary_versions(version: str) -> None:
         # JUCE stamps the project version as X.Y.Z.0.
         if found.rsplit(".", 1)[0] != version:
             raise ReleaseError(f"{label} reports version {found}, expected {version}. "
-                               "Reconfigure build-release (CMake caches the version).")
+                               "Rebuild without --skip-build: the build regenerates the version "
+                               f"resource ({VERSION_RC}).")
         print(f"{GREEN}{label} version {found}{RESET}")
 
 
@@ -403,6 +407,10 @@ def build_binaries(lto: bool) -> None:
     # Bounds the compiler for everything cmake starts from here on, the juceaide build inside
     # JUCE's configure step included. See build_environment in run.py.
     os.environ.setdefault("CL_MPCount", str(run.build_jobs()))
+    # Deleted so the build writes it afresh with this version (1.2.1's first build shipped 1.2.0
+    # in its binaries until this file was removed by hand).
+    if os.path.exists(VERSION_RC):
+        os.remove(VERSION_RC)
     run_cmd(["cmake", "-S", ".", "-B", BUILD_DIR, f"-DLTO={'ON' if lto else 'OFF'}",
              "-DBUILD_UNIT_TESTS=ON"])
     # Half the cores, the same cap run.py builds under: a release is cut on a machine somebody
