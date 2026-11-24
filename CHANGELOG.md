@@ -7,6 +7,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-11-24
+
+### Fixed
+
+- The installer puts Quarry in the Start menu and on the desktop. 1.2.0 made no shortcuts, so the
+  app could only be started from `Program Files\Quarry`. Both shortcuts are options on a new page,
+  ticked by default and shown only when the standalone is selected; an update from 1.2.0 adds them.
+
 ## [1.2.0] - 2026-11-22
 
 The first release published as Quarry. Versions 1.0.0 and 1.1.0 were releases of NeuralNote, the
