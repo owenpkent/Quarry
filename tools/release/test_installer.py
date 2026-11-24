@@ -102,6 +102,22 @@ class ScriptContractTests(unittest.TestCase):
         self.assertIsNone(setting("InfoBeforeFile"))
         self.assertIsNone(setting("InfoAfterFile"))
 
+    def test_standalone_gets_start_menu_and_desktop_shortcuts(self):
+        # 1.2.0 shipped with no [Icons] section, so Quarry never appeared in the Start menu.
+        icons = ISS_TEXT[ISS_TEXT.index("[Icons]"):ISS_TEXT.index("[Registry]")]
+        for name, task in (('"{group}\\Quarry"', "startmenu"),
+                           ('"{commondesktop}\\Quarry"', "desktopicon")):
+            entries = [line for line in icons.splitlines() if line.startswith(f"Name: {name};")]
+            self.assertEqual(len(entries), 1, name)
+            self.assertIn('Filename: "{app}\\Quarry.exe";', entries[0])
+            self.assertIn("Components: mainapp;", entries[0])
+            self.assertIn(f"Tasks: {task}", entries[0])
+            task_lines = [line for line in ISS_TEXT.splitlines()
+                          if line.startswith(f'Name: "{task}";')]
+            self.assertEqual(len(task_lines), 1, task)
+            self.assertNotIn("unchecked", task_lines[0])
+        self.assertEqual(setting("DisableProgramGroupPage"), "yes")
+
     def test_licence_and_notices_are_installed_with_either_component(self):
         files = ISS_TEXT[ISS_TEXT.index("[Files]"):ISS_TEXT.index("[Registry]")]
         for source, dest in (("LICENSE", "LICENSE.txt"), ("NOTICE", "NOTICE.txt")):
