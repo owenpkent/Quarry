@@ -141,7 +141,7 @@ skip steps.
    (the git submodules plus the prebuilt onnxruntime with its pinned SHA-256) and
    `release-notes-X.Y.Z.md`. It then runs the gates: `Quarry.exe` and the VST3 report `X.Y.Z`, the
    installer reports `X.Y.Z.0`, the tree is clean. `--verify-only` runs just the gates,
-   `--skip-build` reuses `build-release/`, `--no-installer` skips ISCC. There is no lockfile: the
+   `--skip-build` reuses `build-release/` (not after a version bump: only a full build deletes and regenerates JUCE's version resource, which otherwise keeps the old version), `--no-installer` skips ISCC. There is no lockfile: the
    installer ships only `Quarry.exe`, the VST3 and two text files (`LICENSE.txt` and
    `NOTICE.txt`), nothing written in Python.
 5. Smoke test the installer from `release/`:
