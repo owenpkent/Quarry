@@ -28,6 +28,8 @@ VersionInfoDescription=Quarry Setup
 OutputBaseFilename=QuarrySetup-{#AppVersion}
 DefaultDirName={commonpf}\Quarry
 DefaultGroupName=Quarry
+; No folder-name page: the shortcuts are chosen on the tasks page, as in alpha-osk's installer.
+DisableProgramGroupPage=yes
 LicenseFile=..\license.txt
 AppPublisher=OK Studio
 AppPublisherURL=https://github.com/owenpkent/Quarry
@@ -69,6 +71,21 @@ Source: "..\..\{#ReleaseDir}\VST3\Quarry.vst3\*"; DestDir: "{commoncf}\VST3\Quar
 ; lives there.
 Source: "..\..\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
 Source: "..\..\NOTICE"; DestDir: "{app}"; DestName: "NOTICE.txt"; Flags: ignoreversion
+
+[Tasks]
+; Both ticked by default, as in alpha-osk's installer. Inno remembers the choice for upgrades, and an
+; install from a release that had no tasks (1.2.0 and earlier) gets the defaults on its next update.
+Name: "startmenu"; Description: "Create a &Start menu shortcut"; GroupDescription: "{cm:AdditionalIcons}"; Components: mainapp
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Components: mainapp
+
+[Icons]
+; Per machine: Setup runs as admin, so {group} is under {commonprograms} and every user sees them.
+; The uninstaller removes them. They name the folder the [Files] entry puts Quarry.exe in, not
+; {app}: a /DIR on the command line moves {app} (and UsePreviousAppDir keeps it for upgrades), but
+; not the payload, and a shortcut to {app} would then point at nothing.
+Name: "{group}\Quarry"; Filename: "{commonpf}\Quarry\Quarry.exe"; WorkingDir: "{commonpf}\Quarry"; Components: mainapp; Tasks: startmenu
+Name: "{group}\Uninstall Quarry"; Filename: "{uninstallexe}"; Tasks: startmenu
+Name: "{commondesktop}\Quarry"; Filename: "{commonpf}\Quarry\Quarry.exe"; WorkingDir: "{commonpf}\Quarry"; Components: mainapp; Tasks: desktopicon
 
 [Registry]
 ; A record of which of the two payloads this installation put down, for the uninstaller's

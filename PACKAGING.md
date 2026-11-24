@@ -45,6 +45,10 @@ folders: the standalone app goes to `{commonpf}\Quarry` and the VST3 to `{common
 constants that resolve to the real Program Files and Common Files folders, so the installer no longer
 assumes Windows lives on `C:`.
 
+With the standalone selected, the installer offers a Start menu shortcut (a `Quarry` folder holding
+the app and its uninstaller) and a desktop shortcut, both ticked by default and both for all users,
+as alpha-osk's installer does. Releases up to 1.2.0 created no shortcuts at all.
+
 The installer is uninstallable. It has a fixed `AppId=Quarry` (never change it: it is what ties an
 upgrade and the Add/Remove Programs entry to the existing install). Uninstalling removes the app folder
 and, if it was installed, the VST3 bundle in `{commoncf}\VST3`. It does not touch settings, samples or
@@ -145,7 +149,8 @@ skip steps.
      `Program Files\Quarry` and `Common Files\VST3`. The licence page opens on the plain-language
      notice (as is, no warranty, no liability, what you record is your responsibility), and Next
      stays disabled until "I accept the agreement" is chosen. `LICENSE.txt` and `NOTICE.txt` are
-     in `Program Files\Quarry` afterwards, with either component or both.
+     in `Program Files\Quarry` afterwards, with either component or both. Quarry is in the Start
+     menu and on the desktop, and both shortcuts start it.
    - Silently, with the flags the updater uses, from an unelevated prompt (it self-elevates):
      ```commandline
      release\QuarrySetup-X.Y.Z.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /NOCLOSEAPPLICATIONS /COMPONENTS="mainapp,plugin" /WAITPID=<pid of a running Quarry> /RELAUNCH
